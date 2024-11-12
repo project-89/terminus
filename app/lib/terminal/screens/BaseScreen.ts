@@ -128,6 +128,22 @@ export abstract class BaseScreen {
     }
   }
 
+  protected setTimeout(callback: () => void, delay: number): NodeJS.Timeout {
+    const router = (this.context.terminal.context as any).router;
+    if (router) {
+      return router.setTimeout(callback, delay);
+    }
+    return setTimeout(callback, delay);
+  }
+
+  protected setInterval(callback: () => void, delay: number): NodeJS.Timeout {
+    const router = (this.context.terminal.context as any).router;
+    if (router) {
+      return router.setInterval(callback, delay);
+    }
+    return setInterval(callback, delay);
+  }
+
   abstract render(): Promise<void>;
   abstract cleanup(): Promise<void>;
 

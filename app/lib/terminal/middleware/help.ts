@@ -1,83 +1,66 @@
 import { TerminalMiddleware, TERMINAL_COLORS } from "../Terminal";
 
+// Track terminal access state
+let hasFullAccess = false;
+
 export const helpMiddleware: TerminalMiddleware = async (ctx, next) => {
-  if (ctx.command === "help") {
-    const { terminal } = ctx;
-    const colors = terminal.getColors();
-
-    await terminal.print("Available Commands:", {
-      color: colors.primary,
-      speed: "fast",
+  if (ctx.command.toLowerCase() === "override 89") {
+    hasFullAccess = true;
+    await ctx.terminal.print("\nACCESS GRANTED - HELP SYSTEM UNLOCKED", {
+      color: TERMINAL_COLORS.success,
+      speed: "normal",
     });
-    await terminal.print("  help     - Show this help message", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print("  clear    - Clear the terminal", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print("  main     - Return to main interface", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print("  status   - Show system status", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print("  connect  - Connect to quantum mainframe", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print("", { speed: "instant" }); // Empty line for spacing
-
-    await terminal.print("Available Tools:", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print("  [1] Hyperstition Machine", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print(
-      "      └─ Manipulate belief systems and reality tunnels",
-      { color: colors.secondary, speed: "fast" }
-    );
-    await terminal.print("  [2] Reality Matrix Scanner", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print("      └─ Analyze quantum probability fields", {
-      color: colors.secondary,
-      speed: "fast",
-    });
-    await terminal.print("  [3] Quantum Sigil Generator", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print(
-      "      └─ Create and deploy reality-altering symbols",
-      { color: colors.secondary, speed: "fast" }
-    );
-    await terminal.print("  [4] Consciousness Interface", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print(
-      "      └─ Direct neural connection to the quantum substrate",
-      { color: colors.secondary, speed: "fast" }
-    );
-    await terminal.print("  [5] Dreamscape Navigator", {
-      color: colors.primary,
-      speed: "fast",
-    });
-    await terminal.print(
-      "      └─ Traverse and manipulate collective unconscious spaces",
-      { color: colors.secondary, speed: "fast" }
-    );
-
     ctx.handled = true;
     return;
   }
+
+  if (ctx.command === "help") {
+    if (!hasFullAccess) {
+      await ctx.terminal.print("\nERROR: HELP SYSTEM LOCKED", {
+        color: TERMINAL_COLORS.error,
+        speed: "normal",
+      });
+      await ctx.terminal.print("OVERRIDE CODE REQUIRED", {
+        color: TERMINAL_COLORS.warning,
+        speed: "normal",
+      });
+    } else {
+      // Show full help menu
+      await ctx.terminal.print("\nAvailable Commands:", {
+        color: TERMINAL_COLORS.primary,
+        speed: "fast",
+      });
+      await ctx.terminal.print("  connect  - Connect Phantom wallet", {
+        color: TERMINAL_COLORS.primary,
+        speed: "fast",
+      });
+      await ctx.terminal.print("  verify   - Verify P89 token balance", {
+        color: TERMINAL_COLORS.primary,
+        speed: "fast",
+      });
+      await ctx.terminal.print("  clear    - Clear terminal display", {
+        color: TERMINAL_COLORS.primary,
+        speed: "fast",
+      });
+    }
+    ctx.handled = true;
+    return;
+  }
+
+  // If no full access and not an override command, pass to adventure system
+  if (!hasFullAccess && ctx.command !== "clear") {
+    // Here we'll add the adventure system handler later
+    await ctx.terminal.print("\n> " + ctx.command, {
+      color: TERMINAL_COLORS.secondary,
+      speed: "normal",
+    });
+    await ctx.terminal.print("You try that, but nothing seems to happen...", {
+      color: TERMINAL_COLORS.primary,
+      speed: "normal",
+    });
+    ctx.handled = true;
+    return;
+  }
+
   await next();
 };

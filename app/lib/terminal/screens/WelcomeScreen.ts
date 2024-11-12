@@ -25,8 +25,8 @@ export class WelcomeScreen extends BaseScreen {
       startFromCenter: true,
     });
 
-    // Hold for dramatic effect
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // Use router's setTimeout
+    await new Promise((resolve) => this.setTimeout(resolve, 3000));
 
     // Clear screen
     await this.terminal.clear();

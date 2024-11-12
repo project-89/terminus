@@ -12,6 +12,8 @@ export class ScreenRouter {
   private history: string[] = [];
   private isTransitioning: boolean = false;
   private pendingTransition: string | null = null;
+  private transitionTimeouts: NodeJS.Timeout[] = [];
+  private transitionIntervals: NodeJS.Timeout[] = [];
 
   constructor(private terminal: Terminal) {
     console.log("Initializing ScreenRouter");
@@ -47,21 +49,20 @@ export class ScreenRouter {
     console.log("Router: Navigating to:", to);
 
     try {
+      this.clearAllTimers();
+
       const route = this.routes.get(to);
       if (!route) throw new Error(`Screen "${to}" not found`);
 
-      // Force cleanup of current screen
       if (this.currentScreen) {
         console.log("Router: Cleaning up current screen");
         await this.currentScreen.cleanup();
         this.currentScreen = undefined;
       }
 
-      // Clear the terminal
       console.log("Router: Clearing terminal");
-      this.terminal.clear();
+      this.terminal.cleanup();
 
-      // Show new screen
       console.log("Router: Showing new screen");
       await this.showScreen(route.screen);
       console.log("Router: New screen shown successfully");
@@ -72,7 +73,6 @@ export class ScreenRouter {
     } finally {
       this.isTransitioning = false;
 
-      // Check for pending transitions
       if (this.pendingTransition) {
         const nextScreen = this.pendingTransition;
         this.pendingTransition = null;
@@ -105,7 +105,6 @@ export class ScreenRouter {
     to: new (context: any) => BaseScreen,
     duration: number = 500
   ) {
-    // Implement fade transition
     await from.cleanup();
     await this.showScreen(to);
   }
@@ -115,7 +114,6 @@ export class ScreenRouter {
     to: new (context: any) => BaseScreen,
     options: TransitionOptions
   ) {
-    // Implement slide transition
     await from.cleanup();
     await this.showScreen(to);
   }
@@ -140,20 +138,50 @@ export class ScreenRouter {
   }
 
   public async back() {
-    this.history.pop(); // Remove current
-    const previous = this.history.pop(); // Get previous
+    this.history.pop();
+    const previous = this.history.pop();
     if (previous) {
       await this.navigate(previous);
     }
   }
 
   public clearHistory() {
-    // Force cleanup current screen before clearing history
     if (this.currentScreen) {
       this.currentScreen.cleanup();
       this.currentScreen = undefined;
     }
     this.history = [];
     this.isTransitioning = false;
+  }
+
+  public forceCleanup() {
+    this.isTransitioning = false;
+    this.pendingTransition = null;
+    this.clearAllTimers();
+    if (this.currentScreen) {
+      this.currentScreen.cleanup();
+      this.currentScreen = undefined;
+    }
+    this.terminal.cleanup();
+  }
+
+  public setTimeout(callback: () => void, delay: number): NodeJS.Timeout {
+    const timeout = setTimeout(callback, delay);
+    this.transitionTimeouts.push(timeout);
+    return timeout;
+  }
+
+  public setInterval(callback: () => void, delay: number): NodeJS.Timeout {
+    const interval = setInterval(callback, delay);
+    this.transitionIntervals.push(interval);
+    return interval;
+  }
+
+  private clearAllTimers() {
+    this.transitionTimeouts.forEach((timeout) => clearTimeout(timeout));
+    this.transitionTimeouts = [];
+
+    this.transitionIntervals.forEach((interval) => clearInterval(interval));
+    this.transitionIntervals = [];
   }
 }

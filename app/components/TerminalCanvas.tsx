@@ -12,6 +12,7 @@ import { MainScreen } from "@/app/lib/terminal/screens/MainScreen";
 import { ScreenRouter } from "@/app/lib/terminal/ScreenRouter";
 import { ConsentScreen } from "@/app/lib/terminal/screens/ConsentScreen";
 import { navigationMiddleware } from "@/app/lib/terminal/middleware/navigation";
+import { AdventureScreen } from "@/app/lib/terminal/screens/AdventureScreen";
 
 export function TerminalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,33 +28,33 @@ export function TerminalCanvas() {
       fontSize: 16,
       fontFamily: "Berkeley Mono",
       backgroundColor: "#090812",
-      foregroundColor: "#2fb7c3",
-      cursorColor: "#2fb7c3",
+      foregroundColor: "#5cfffa",
+      cursorColor: "#5cfffa",
       blinkRate: 500,
       effects: {
         glow: {
           blur: 32,
-          color: "#2fb7c3",
-          strength: 1.8,
-          passes: 4,
+          color: "#5cfffa",
+          strength: 4.0,
+          passes: 3,
         },
         scanlines: {
-          spacing: 2,
-          opacity: 0.3,
-          speed: 0.02,
+          spacing: 4,
+          opacity: 0.1,
+          speed: 0.005,
           offset: 0,
-          thickness: 1.5,
+          thickness: 1,
         },
         crt: {
           curvature: 0.15,
           vignetteStrength: 0.25,
           cornerBlur: 0.12,
-          scanlineGlow: 0.15,
+          scanlineGlow: 0.05,
         },
       },
       cursor: {
         centered: false,
-        leftPadding: 10,
+        leftPadding: 20,
       },
       pixelation: {
         enabled: true,
@@ -66,6 +67,7 @@ export function TerminalCanvas() {
     // Register screens
     const router = new ScreenRouter(terminal);
     router
+      .register("adventure", AdventureScreen)
       .register("welcome", WelcomeScreen)
       .register("scanning", ScanningScreen)
       .register("consent", ConsentScreen)
@@ -83,8 +85,8 @@ export function TerminalCanvas() {
       speed: "instant",
     });
 
-    // Navigate to welcome screen
-    router.navigate("welcome").catch(console.error);
+    // Navigate to adventure screen
+    router.navigate("adventure").catch(console.error);
 
     // Add keyboard handler
     const handleKeyDown = (e: KeyboardEvent) => {

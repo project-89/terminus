@@ -34,6 +34,8 @@ export interface TerminalOptions {
   cursor: {
     centered?: boolean;
     leftPadding?: number;
+    mode: "fixed" | "dynamic"; // Add mode option
+    fixedOffset?: number; // Distance from bottom when in fixed mode
   };
   pixelation: {
     enabled: boolean;
@@ -94,6 +96,7 @@ export class Terminal extends EventEmitter {
   private scrollOffset: number = 0;
   private maxScrollback: number = 1000; // Maximum lines to keep in buffer
   public context: Record<string, any> = {};
+  private currentPrintY: number = 50; // Track current print position
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -130,7 +133,9 @@ export class Terminal extends EventEmitter {
       colors: TERMINAL_COLORS,
       cursor: {
         centered: false,
-        leftPadding: 10, // Default left padding
+        leftPadding: 10,
+        mode: "dynamic", // Default to dynamic mode
+        fixedOffset: 20, // Default bottom padding
       },
       pixelation: {
         enabled: false,
@@ -237,8 +242,10 @@ export class Terminal extends EventEmitter {
     this.isPrinting = true;
     const { text, options, resolve } = this.printQueue[0];
     const speed = this.typingSpeeds[options.speed || "normal"];
+    const lineHeight = this.options.fontSize * 1.5;
 
     if (speed === 0) {
+      // Instant printing
       const lines = text.split("\n");
       lines.forEach((line) => {
         this.buffer.push({
@@ -246,9 +253,11 @@ export class Terminal extends EventEmitter {
           color: options.color || this.options.foregroundColor,
           effect: options.effect || "none",
         });
+        this.currentPrintY += lineHeight;
       });
       this.render();
     } else {
+      // Animated printing
       const lines = text.split("\n");
       for (const line of lines) {
         if (line === "") {
@@ -257,6 +266,7 @@ export class Terminal extends EventEmitter {
             color: options.color || this.options.foregroundColor,
             effect: options.effect || "none",
           });
+          this.currentPrintY += lineHeight;
           continue;
         }
 
@@ -272,6 +282,7 @@ export class Terminal extends EventEmitter {
           this.render();
           await this.wait(speed);
         }
+        this.currentPrintY += lineHeight;
       }
     }
 
@@ -315,38 +326,48 @@ export class Terminal extends EventEmitter {
   public async handleInput(char: string) {
     if (char === "Enter") {
       if (this.inputBuffer.trim()) {
+        const command = this.inputBuffer;
+        // Clear input immediately
+        this.inputBuffer = "";
+        this.render();
+
         // Create context
         const ctx: TerminalContext = {
-          command: this.inputBuffer.trim(),
-          args: this.inputBuffer.trim().split(/\s+/),
+          command: command.trim(),
+          args: command.trim().split(/\s+/),
           flags: {},
           terminal: this,
           handled: false,
         };
 
         try {
-          // Print the command first
-          await this.print(`${this.inputBuffer}`, {
+          // Add command to buffer through print queue
+          await this.print(`> ${command}`, {
             color: this.options.foregroundColor,
+            speed: "instant",
           });
 
           // Execute middleware chain
           await this.executeMiddleware(ctx);
 
-          // If command wasn't handled by any middleware
+          // If command wasn't handled
           if (!ctx.handled) {
             await this.print(`Command not found: ${ctx.command}`, {
               color: "#ff0000",
+              speed: "normal",
             });
           }
         } catch (error: any) {
           await this.print(`System Error: ${error.message}`, {
             color: "#ff0000",
+            speed: "normal",
           });
         }
+      } else {
+        // Just print an empty line if no command
+        await this.print("", { speed: "instant" });
+        this.inputBuffer = "";
       }
-
-      this.inputBuffer = "";
       this.render();
     } else if (char === "Backspace") {
       this.inputBuffer = this.inputBuffer.slice(0, -1);
@@ -378,59 +399,47 @@ export class Terminal extends EventEmitter {
     this.effects.applyGlow();
 
     // Calculate starting Y position with scroll offset
-    let currentY = 50 - this.scrollOffset; // Start 50px from top, adjusted for scroll
+    let currentY = 50 - this.scrollOffset;
     const lineHeight = this.options.fontSize * 1.5;
 
     // Draw buffer
     this.buffer.forEach((line) => {
-      // Add subtle vertical displacement for CRT effect
       const yOffset = Math.sin(timestamp * 0.001) * 0.8;
       const xOffset = Math.cos(timestamp * 0.002) * 0.3;
 
-      // Draw text with enhanced chromatic aberration
       if (Math.random() < 0.08) {
-        this.ctx.fillStyle = "rgba(255, 0, 255, 0.15)"; // Magenta ghost
+        this.ctx.fillStyle = "rgba(255, 0, 255, 0.15)";
         this.ctx.fillText(line.text, 10 + xOffset + 1.5, currentY + yOffset);
-        this.ctx.fillStyle = "rgba(0, 255, 255, 0.15)"; // Cyan ghost
+        this.ctx.fillStyle = "rgba(0, 255, 255, 0.15)";
         this.ctx.fillText(line.text, 10 + xOffset - 1.5, currentY + yOffset);
       }
 
-      // Draw main text
       this.ctx.fillStyle = line.color || this.options.foregroundColor;
       this.ctx.fillText(line.text, 10 + xOffset, currentY + yOffset);
 
-      // Move to next line
       currentY += lineHeight;
     });
 
-    // Calculate input line position - ensure it's always visible
-    const inputY =
-      Math.max(
-        this.getHeight() - this.options.fontSize * 2, // Keep input line higher up from bottom
-        this.buffer.length * this.options.fontSize * 1.5 + this.options.fontSize
-      ) - this.scrollOffset; // Apply scroll offset
-
     // Draw input line and cursor
-    if (this.inputBuffer !== undefined) {
+    const cursorY = this.getCursorY() - this.scrollOffset;
+    if (cursorY > 0 && cursorY < this.getHeight()) {
       const cursorStartX = this.getCursorStartX();
+      const inputText = `> ${this.inputBuffer}`;
+
+      // Draw prompt and input
       this.ctx.fillStyle = this.options.foregroundColor;
+      this.ctx.fillText(inputText, cursorStartX, cursorY);
 
-      // Ensure input line is visible
-      if (inputY > 0 && inputY < this.getHeight()) {
-        this.ctx.fillText(`> ${this.inputBuffer}`, cursorStartX, inputY);
-
-        // Draw cursor
-        if (this.cursorVisible) {
-          const cursorX =
-            cursorStartX + this.ctx.measureText(`> ${this.inputBuffer}`).width;
-          this.ctx.fillStyle = this.options.cursorColor;
-          this.ctx.fillRect(
-            cursorX,
-            inputY,
-            this.options.fontSize / 2,
-            this.options.fontSize
-          );
-        }
+      // Draw cursor
+      if (this.cursorVisible) {
+        const cursorX = cursorStartX + this.ctx.measureText(inputText).width;
+        this.ctx.fillStyle = this.options.cursorColor;
+        this.ctx.fillRect(
+          cursorX,
+          cursorY,
+          this.options.fontSize / 2,
+          this.options.fontSize
+        );
       }
     }
 
@@ -464,7 +473,9 @@ export class Terminal extends EventEmitter {
 
   // Add to Terminal class
   public clear() {
+    this.clearPrintQueue();
     this.buffer = [];
+    this.currentPrintY = 50; // Reset print position
     this.render();
   }
 
@@ -537,13 +548,48 @@ export class Terminal extends EventEmitter {
 
   // Add method to ensure input is visible
   private ensureInputVisible() {
-    const lineHeight = this.options.fontSize * 1.5;
-    const inputY = this.buffer.length * lineHeight;
+    const cursorY = this.getCursorY();
     const visibleHeight = this.getHeight();
 
-    if (inputY - this.scrollOffset > visibleHeight) {
-      this.scrollOffset = inputY - visibleHeight + lineHeight * 2;
+    if (cursorY - this.scrollOffset > visibleHeight) {
+      this.scrollOffset = cursorY - visibleHeight + this.options.fontSize * 2;
       this.render();
+    }
+  }
+
+  // Add method to clear print queue
+  public clearPrintQueue() {
+    this.printQueue = [];
+    this.isPrinting = false;
+  }
+
+  // Update clear method to also clear the print queue
+  public clear() {
+    this.clearPrintQueue();
+    this.buffer = [];
+    this.currentPrintY = 50; // Reset print position
+    this.render();
+  }
+
+  // Update cleanup for screens
+  public cleanup() {
+    this.clearPrintQueue();
+    this.clear();
+    this.inputBuffer = "";
+    this.render();
+  }
+
+  private getCursorY(): number {
+    const lineHeight = this.options.fontSize * 1.5;
+
+    if (this.options.cursor.mode === "fixed") {
+      return this.getHeight() - (this.options.cursor.fixedOffset || 20);
+    } else {
+      // Use currentPrintY for dynamic positioning
+      return Math.max(
+        this.currentPrintY + lineHeight, // Add one line of spacing
+        50 + lineHeight // Minimum distance from top
+      );
     }
   }
 }
