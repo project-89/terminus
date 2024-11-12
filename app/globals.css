@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* Remove default margin */
+body,
+h1,
+h2,
+h3,
+h4,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+}
+
+/* Root styles */
+:root {
+  --foreground-rgb: 0, 255, 0;
+  --background-rgb: 0, 0, 0;
+}
+
+/* Document setup */
+html {
+  height: 100%;
+  width: 100%;
+}
+
+/* Body setup */
+body {
+  margin: 0 !important; /* Force override browser default */
+  padding: 0 !important;
+  min-height: 100vh;
+  background: rgb(var(--background-rgb));
+  color: rgb(var(--foreground-rgb));
+  overflow: hidden;
+  position: relative;
+}
+
+/* Next.js specific */
+#__next {
+  isolation: isolate;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Main container */
+main {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Canvas container */
+.fixed.inset-0 {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* Canvas element */
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+@font-face {
+  font-family: 'Berkeley Mono';
+  src: url('/BerkeleyMono-Regular.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+/* Add a specific class for the terminal font */
+.terminal-font {
+  font-family: 'Berkeley Mono', monospace;
+}
