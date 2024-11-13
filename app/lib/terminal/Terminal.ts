@@ -88,9 +88,9 @@ export class Terminal extends EventEmitter {
   private isPrinting: boolean = false;
   private typingSpeeds = {
     instant: 0,
-    fast: 5,
-    normal: 30,
-    slow: 50,
+    fast: 2,
+    normal: 15,
+    slow: 25,
   };
   private colors: typeof TERMINAL_COLORS;
   private scrollOffset: number = 0;
@@ -219,17 +219,29 @@ export class Terminal extends EventEmitter {
 
   public async print(text: string, options: PrintOptions = {}): Promise<void> {
     return new Promise((resolve) => {
+      // Split by newlines first to preserve intentional breaks
+      const segments = text.split("\n");
+
+      // Wrap each segment and flatten
+      const wrappedLines = segments.flatMap((segment) =>
+        segment ? this.wrapText(segment) : [""]
+      );
+
       this.printQueue.push({
-        text,
+        text: wrappedLines.join("\n"),
         options: {
           ...options,
           speed: options.speed || "normal",
         },
         resolve,
       });
+
       if (!this.isPrinting) {
         this.processNextPrint();
       }
+
+      // Auto-scroll after printing
+      this.scrollToLatest();
     });
   }
 
@@ -327,31 +339,36 @@ export class Terminal extends EventEmitter {
     if (char === "Enter") {
       if (this.inputBuffer.trim()) {
         const command = this.inputBuffer;
-        // Clear input immediately
         this.inputBuffer = "";
         this.render();
 
-        // Create context
         const ctx: TerminalContext = {
           command: command.trim(),
           args: command.trim().split(/\s+/),
           flags: {},
           terminal: this,
           handled: false,
+          hasFullAccess: false, // Add this to track access state
         };
 
         try {
-          // Add command to buffer through print queue
+          // Add command to buffer
           await this.print(`> ${command}`, {
             color: this.options.foregroundColor,
             speed: "instant",
           });
 
-          // Execute middleware chain
-          await this.executeMiddleware(ctx);
+          // Check for screen-specific handling first
+          const currentScreen = this.context.router?.currentScreen;
+          if (currentScreen && (await currentScreen.handleCommand(command))) {
+            ctx.handled = true;
+          } else {
+            // Execute global middleware chain if not handled by screen
+            await this.executeMiddleware(ctx);
+          }
 
-          // If command wasn't handled
-          if (!ctx.handled) {
+          // Only show command not found if we have full access and no middleware handled it
+          if (!ctx.handled && ctx.hasFullAccess) {
             await this.print(`Command not found: ${ctx.command}`, {
               color: "#ff0000",
               speed: "normal",
@@ -517,7 +534,7 @@ export class Terminal extends EventEmitter {
     }
 
     // Return left-padded position
-    return this.options.cursor.leftPadding;
+    return this.options.cursor.leftPadding || 10;
   }
 
   // Add method to update cursor options
@@ -563,14 +580,6 @@ export class Terminal extends EventEmitter {
     this.isPrinting = false;
   }
 
-  // Update clear method to also clear the print queue
-  public clear() {
-    this.clearPrintQueue();
-    this.buffer = [];
-    this.currentPrintY = 50; // Reset print position
-    this.render();
-  }
-
   // Update cleanup for screens
   public cleanup() {
     this.clearPrintQueue();
@@ -591,5 +600,125 @@ export class Terminal extends EventEmitter {
         50 + lineHeight // Minimum distance from top
       );
     }
+  }
+
+  // Add this helper method to calculate text width in characters
+  private getMaxCharsPerLine(): number {
+    const charWidth = this.ctx.measureText("M").width; // Use 'M' as reference
+    const availableWidth =
+      this.getWidth() - (this.options.cursor.leftPadding || 10) * 2; // Account for padding
+    return Math.floor(availableWidth / charWidth);
+  }
+
+  // Add line wrapping helper
+  private wrapText(text: string): string[] {
+    const maxChars = this.getMaxCharsPerLine();
+    const words = text.split(" ");
+    const lines: string[] = [];
+    let currentLine = "";
+
+    for (const word of words) {
+      // Handle words that are longer than maxChars
+      if (word.length > maxChars) {
+        if (currentLine) {
+          lines.push(currentLine);
+          currentLine = "";
+        }
+        // Split long word into chunks
+        for (let i = 0; i < word.length; i += maxChars) {
+          lines.push(word.slice(i, i + maxChars));
+        }
+        continue;
+      }
+
+      // Check if adding this word would exceed the line length
+      if (currentLine.length + word.length + 1 <= maxChars) {
+        currentLine += (currentLine ? " " : "") + word;
+      } else {
+        lines.push(currentLine);
+        currentLine = word;
+      }
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    return lines;
+  }
+
+  // Add method to scroll to latest content
+  public scrollToLatest() {
+    const lineHeight = this.options.fontSize * 1.5;
+    const totalContentHeight = this.currentPrintY + lineHeight;
+    const visibleHeight = this.getHeight();
+
+    if (totalContentHeight > visibleHeight) {
+      this.scrollOffset = totalContentHeight - visibleHeight + lineHeight;
+      this.render();
+    }
+  }
+
+  // Add helper method for processing AI streams
+  public async processAIStream(
+    stream: ReadableStream<Uint8Array> | null,
+    options: PrintOptions & { addSpacing?: boolean } = { addSpacing: true }
+  ): Promise<string> {
+    if (!stream) throw new Error("No stream provided");
+
+    let responseText = "";
+    let currentLine = "";
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Decode the Uint8Array chunk to string
+        const text = decoder.decode(value);
+        responseText += text;
+
+        // Split on newlines and handle each piece
+        const parts = text.split(/(\n|\. |\? |\! )/);
+        for (const part of parts) {
+          // Check if this part is a sentence terminator
+          if (part.match(/(\n|\. |\? |\! )/)) {
+            // Complete the current line with the terminator
+            currentLine += part.trim();
+
+            // Print if we have content
+            if (currentLine.trim()) {
+              await this.print(currentLine, {
+                color: options.color || TERMINAL_COLORS.primary,
+                speed: "instant",
+              });
+            }
+
+            // Add spacing if enabled
+            if (options.addSpacing) {
+              await this.print("", { speed: "instant" });
+            }
+
+            currentLine = "";
+          } else {
+            currentLine += part;
+          }
+        }
+      }
+
+      // Print any remaining text
+      if (currentLine.trim()) {
+        await this.print(currentLine, {
+          color: options.color || TERMINAL_COLORS.primary,
+          speed: "instant",
+        });
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return responseText;
   }
 }

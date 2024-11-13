@@ -25,9 +25,15 @@ export interface TransitionOptions {
   direction?: "left" | "right" | "up" | "down";
 }
 
+export type ScreenMiddleware = (
+  command: string,
+  next: () => Promise<void>
+) => Promise<void>;
+
 export abstract class BaseScreen {
   protected terminal: Terminal;
   protected dimensions: ScreenDimensions;
+  private middlewares: ScreenMiddleware[] = [];
 
   constructor(protected context: ScreenContext) {
     this.terminal = context.terminal;
@@ -142,6 +148,33 @@ export abstract class BaseScreen {
       return router.setInterval(callback, delay);
     }
     return setInterval(callback, delay);
+  }
+
+  // Add middleware support
+  protected use(middleware: ScreenMiddleware) {
+    this.middlewares.push(middleware);
+    return this;
+  }
+
+  // Execute screen-specific middleware chain
+  protected async executeMiddleware(command: string) {
+    let index = 0;
+    const executeNext = async (): Promise<void> => {
+      if (index < this.middlewares.length) {
+        const middleware = this.middlewares[index];
+        index++;
+        await middleware(command, executeNext);
+      }
+    };
+
+    await executeNext();
+  }
+
+  // Handle command method that screens can override
+  protected async handleCommand(command: string): Promise<boolean> {
+    // Execute screen-specific middleware first
+    await this.executeMiddleware(command);
+    return false; // Return false to allow command to propagate to global middleware
   }
 
   abstract render(): Promise<void>;

@@ -1,14 +1,30 @@
-import { BaseScreen } from "./BaseScreen";
+import { BaseScreen, ScreenContext } from "./BaseScreen";
 import { TERMINAL_COLORS } from "../Terminal";
 
 export class MainScreen extends BaseScreen {
+  constructor(context: ScreenContext) {
+    super(context);
+
+    // Add screen-specific middleware
+    this.use(async (command, next) => {
+      if (command.startsWith("tool")) {
+        // Handle tool-specific commands
+        await this.terminal.print("Handling tool command...", {
+          color: TERMINAL_COLORS.system,
+        });
+        return; // Don't call next() to prevent command propagation
+      }
+      await next(); // Pass to next middleware
+    });
+  }
+
   private banner = `
 ██████╗ ██████╗  ██████╗      ██╗███████╗ ██████╗████████╗  █████╗  █████╗
 ██╔══██╗██╔══██╗██╔═══██╗     ██║██╔════╝██╔════╝╚══██╔══╝██╔══██╗██╔══██╗
 ██████╔╝██████╔╝██║   ██║     ██║█████╗  ██║        ██║   ╚█████╔╝╚██████║
 ██╔═══╝ ██╔══██╗██║   ██║██   ██║██╔══╝  ██║        ██║   ██╔══██╗ ╚═══██║
 ██║     ██║  ██║╚██████╔╝╚█████╔╝███████╗╚██████╗   ██║   ╚█████╔╝ █████╔╝
-╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚��═══╝ ╚══════╝ ╚═════╝   ╚═╝    ╚════╝  ╚════╝ `.trim();
+╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝ ╚═════╝   ╚═╝    ╚════╝  ╚════╝ `.trim();
 
   async render(): Promise<void> {
     // Set cursor to left-aligned with padding

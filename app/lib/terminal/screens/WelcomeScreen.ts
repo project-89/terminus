@@ -26,7 +26,7 @@ export class WelcomeScreen extends BaseScreen {
     });
 
     // Use router's setTimeout
-    await new Promise((resolve) => this.setTimeout(resolve, 3000));
+    await new Promise<void>((resolve) => this.setTimeout(resolve, 3000));
 
     // Clear screen
     await this.terminal.clear();

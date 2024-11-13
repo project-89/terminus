@@ -4,6 +4,7 @@ import { TerminalMiddleware, TERMINAL_COLORS } from "../Terminal";
 let hasFullAccess = false;
 
 export const helpMiddleware: TerminalMiddleware = async (ctx, next) => {
+  // Only handle specific commands
   if (ctx.command.toLowerCase() === "override 89") {
     hasFullAccess = true;
     await ctx.terminal.print("\nACCESS GRANTED - HELP SYSTEM UNLOCKED", {
@@ -24,6 +25,8 @@ export const helpMiddleware: TerminalMiddleware = async (ctx, next) => {
         color: TERMINAL_COLORS.warning,
         speed: "normal",
       });
+      ctx.handled = true;
+      return;
     } else {
       // Show full help menu
       await ctx.terminal.print("\nAvailable Commands:", {
@@ -42,25 +45,11 @@ export const helpMiddleware: TerminalMiddleware = async (ctx, next) => {
         color: TERMINAL_COLORS.primary,
         speed: "fast",
       });
+      ctx.handled = true;
+      return;
     }
-    ctx.handled = true;
-    return;
   }
 
-  // If no full access and not an override command, pass to adventure system
-  if (!hasFullAccess && ctx.command !== "clear") {
-    // Here we'll add the adventure system handler later
-    await ctx.terminal.print("\n> " + ctx.command, {
-      color: TERMINAL_COLORS.secondary,
-      speed: "normal",
-    });
-    await ctx.terminal.print("You try that, but nothing seems to happen...", {
-      color: TERMINAL_COLORS.primary,
-      speed: "normal",
-    });
-    ctx.handled = true;
-    return;
-  }
-
+  // Pass all other commands to next middleware
   await next();
 };

@@ -1,23 +1,19 @@
 import { BaseScreen } from "./BaseScreen";
 import { TERMINAL_COLORS } from "../Terminal";
+import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
 
 export class AdventureScreen extends BaseScreen {
   private introText = `
 TERMINAL v0.1.2 - STANDARD TEXT INTERFACE
-ESTABLISHING CONNECTION...
+ESTABLISHING CONNECTION...`.trim();
 
-You find yourself in a dimly lit room, the soft hum of ancient machinery 
-filling the air. A single terminal glows with an eerie cyan light, its 
-screen flickering with mysterious symbols.
-
-Type your commands to interact with the world.`.trim();
+  private chatHistory: { role: string; content: string }[] = [];
 
   async render(): Promise<void> {
-    // Set cursor to dynamic mode with left padding
+    // Set cursor to left-aligned with small padding
     this.terminal.setCursorOptions({
       centered: false,
       leftPadding: 10,
-      mode: "dynamic",
     });
 
     // Print intro text
@@ -28,10 +24,47 @@ Type your commands to interact with the world.`.trim();
       });
     }
 
-    // Add a blank line before cursor
-    await this.terminal.print("", {
-      speed: "instant",
-    });
+    // Add a blank line before AI response
+    await this.terminal.print("", { speed: "instant" });
+
+    try {
+      // Add initial prompt to chat history
+      this.chatHistory.push({
+        role: "user",
+        content:
+          "Before the game starts, print out s short, user friendly message to someone on how to play the text adventure, but don't use weird characters like [object].  Use multiple new lines to separate the text properly. Keep it simple and short.  You don't need to explain everything.  Enough to get them started. After this add a short bit about Project 89.  Welcome the Agent, and prepare them for their participation in the Project. Do not simulate the text adventure until you receive the first command after this.",
+      });
+
+      // Get initial AI response
+      const stream = await getAdventureResponse(this.chatHistory);
+      if (!stream) {
+        throw new Error("Failed to get AI response");
+      }
+
+      // Use the new helper method
+      const responseText = await this.terminal.processAIStream(stream, {
+        color: TERMINAL_COLORS.primary,
+        addSpacing: false,
+      });
+
+      // Add AI response to history
+      this.chatHistory.push({
+        role: "assistant",
+        content: responseText,
+      });
+
+      // Add final spacing
+      await this.terminal.print("", { speed: "instant" });
+    } catch (error) {
+      console.error("Error getting initial AI response:", error);
+      await this.terminal.print(
+        "\nERROR: Connection interference detected...",
+        {
+          color: TERMINAL_COLORS.error,
+          speed: "normal",
+        }
+      );
+    }
   }
 
   async cleanup(): Promise<void> {

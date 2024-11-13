@@ -13,6 +13,7 @@ import { ScreenRouter } from "@/app/lib/terminal/ScreenRouter";
 import { ConsentScreen } from "@/app/lib/terminal/screens/ConsentScreen";
 import { navigationMiddleware } from "@/app/lib/terminal/middleware/navigation";
 import { AdventureScreen } from "@/app/lib/terminal/screens/AdventureScreen";
+import { adventureMiddleware } from "@/app/lib/terminal/middleware/adventure";
 
 export function TerminalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -33,10 +34,10 @@ export function TerminalCanvas() {
       blinkRate: 500,
       effects: {
         glow: {
-          blur: 32,
+          blur: 16,
           color: "#5cfffa",
-          strength: 4.0,
-          passes: 3,
+          strength: 2.0,
+          passes: 2,
         },
         scanlines: {
           spacing: 4,
@@ -55,6 +56,7 @@ export function TerminalCanvas() {
       cursor: {
         centered: false,
         leftPadding: 20,
+        mode: "dynamic",
       },
       pixelation: {
         enabled: true,
@@ -77,7 +79,11 @@ export function TerminalCanvas() {
     terminal.context = { router };
 
     // Register middlewares
-    terminal.use(helpMiddleware).use(clearMiddleware).use(navigationMiddleware);
+    terminal
+      .use(helpMiddleware)
+      .use(clearMiddleware)
+      .use(adventureMiddleware)
+      .use(navigationMiddleware);
 
     // Test direct terminal printing
     terminal.print("Direct print test", {
