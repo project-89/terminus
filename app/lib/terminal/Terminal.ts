@@ -97,6 +97,32 @@ export class Terminal extends EventEmitter {
   private maxScrollback: number = 1000; // Maximum lines to keep in buffer
   public context: Record<string, any> = {};
   private currentPrintY: number = 50; // Track current print position
+  private isGenerating: boolean = false;
+  private loadingInterval: NodeJS.Timeout | null = null;
+  private loadingMessages: string[] = [
+    "Processing quantum data stream...",
+    "Analyzing reality matrices...",
+    "Calculating probability vectors...",
+    "Synchronizing neural pathways...",
+    "Stabilizing quantum fluctuations...",
+    "Decoding hyperdimensional signals...",
+    "Interfacing with quantum substrate...",
+    "Parsing reality fragments...",
+    "Aligning dimensional coordinates...",
+    "Channeling void resonance...",
+  ];
+
+  // Add layout configuration
+  private layout = {
+    maxWidth: 900, // Maximum width in pixels
+    sidePadding: 60, // Padding on each side
+    topPadding: 40, // Padding at top
+  };
+
+  private hiddenTextarea: HTMLTextAreaElement;
+  private inputHistory: string[] = [];
+  private historyIndex: number = -1;
+  private tempInput: string = ""; // Store input when navigating history
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -156,6 +182,13 @@ export class Terminal extends EventEmitter {
     );
     this.startRenderLoop();
     this.colors = options.colors || TERMINAL_COLORS;
+
+    // Create hidden textarea for copying
+    this.hiddenTextarea = document.createElement("textarea");
+    this.hiddenTextarea.style.position = "absolute";
+    this.hiddenTextarea.style.left = "-9999px";
+    this.hiddenTextarea.style.top = "0";
+    document.body.appendChild(this.hiddenTextarea);
   }
 
   private setupCanvas() {
@@ -335,9 +368,58 @@ export class Terminal extends EventEmitter {
   }
 
   // Modified handleInput to use middleware
-  public async handleInput(char: string) {
+  public async handleInput(char: string, event?: KeyboardEvent) {
+    if (this.isGenerating) return;
+
+    // Handle special keys
+    if (event) {
+      switch (event.key) {
+        case "ArrowUp":
+          if (this.historyIndex < this.inputHistory.length - 1) {
+            // Store current input if we're just starting to navigate
+            if (this.historyIndex === -1) {
+              this.tempInput = this.inputBuffer;
+            }
+            this.historyIndex++;
+            this.inputBuffer = this.inputHistory[this.historyIndex];
+            this.render();
+          }
+          return;
+
+        case "ArrowDown":
+          if (this.historyIndex >= 0) {
+            this.historyIndex--;
+            this.inputBuffer =
+              this.historyIndex === -1
+                ? this.tempInput
+                : this.inputHistory[this.historyIndex];
+            this.render();
+          }
+          return;
+
+        case "Paste":
+        case "v":
+          if (event.ctrlKey || event.metaKey) {
+            try {
+              const text = await navigator.clipboard.readText();
+              this.inputBuffer += text;
+              this.render();
+            } catch (err) {
+              console.error("Failed to paste:", err);
+            }
+            return;
+          }
+          break;
+      }
+    }
+
     if (char === "Enter") {
       if (this.inputBuffer.trim()) {
+        // Add command to history
+        this.inputHistory.unshift(this.inputBuffer);
+        this.historyIndex = -1;
+        this.tempInput = "";
+
         const command = this.inputBuffer;
         this.inputBuffer = "";
         this.render();
@@ -415,29 +497,41 @@ export class Terminal extends EventEmitter {
     // Apply enhanced glow
     this.effects.applyGlow();
 
-    // Calculate starting Y position with scroll offset
-    let currentY = 50 - this.scrollOffset;
+    // Calculate starting Y position with padding
+    let currentY = this.layout.topPadding - this.scrollOffset;
     const lineHeight = this.options.fontSize * 1.5;
 
-    // Draw buffer
+    // Draw buffer with padding
     this.buffer.forEach((line) => {
       const yOffset = Math.sin(timestamp * 0.001) * 0.8;
       const xOffset = Math.cos(timestamp * 0.002) * 0.3;
 
       if (Math.random() < 0.08) {
         this.ctx.fillStyle = "rgba(255, 0, 255, 0.15)";
-        this.ctx.fillText(line.text, 10 + xOffset + 1.5, currentY + yOffset);
+        this.ctx.fillText(
+          line.text,
+          this.layout.sidePadding + xOffset + 1.5,
+          currentY + yOffset
+        );
         this.ctx.fillStyle = "rgba(0, 255, 255, 0.15)";
-        this.ctx.fillText(line.text, 10 + xOffset - 1.5, currentY + yOffset);
+        this.ctx.fillText(
+          line.text,
+          this.layout.sidePadding + xOffset - 1.5,
+          currentY + yOffset
+        );
       }
 
       this.ctx.fillStyle = line.color || this.options.foregroundColor;
-      this.ctx.fillText(line.text, 10 + xOffset, currentY + yOffset);
+      this.ctx.fillText(
+        line.text,
+        this.layout.sidePadding + xOffset,
+        currentY + yOffset
+      );
 
       currentY += lineHeight;
     });
 
-    // Draw input line and cursor
+    // Draw input line and cursor with padding
     const cursorY = this.getCursorY() - this.scrollOffset;
     if (cursorY > 0 && cursorY < this.getHeight()) {
       const cursorStartX = this.getCursorStartX();
@@ -448,7 +542,7 @@ export class Terminal extends EventEmitter {
       this.ctx.fillText(inputText, cursorStartX, cursorY);
 
       // Draw cursor
-      if (this.cursorVisible) {
+      if (this.cursorVisible && !this.isGenerating) {
         const cursorX = cursorStartX + this.ctx.measureText(inputText).width;
         this.ctx.fillStyle = this.options.cursorColor;
         this.ctx.fillRect(
@@ -473,6 +567,9 @@ export class Terminal extends EventEmitter {
     }
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
+    }
+    if (this.hiddenTextarea && this.hiddenTextarea.parentNode) {
+      this.hiddenTextarea.parentNode.removeChild(this.hiddenTextarea);
     }
   }
 
@@ -524,17 +621,14 @@ export class Terminal extends EventEmitter {
 
   private getCursorStartX(): number {
     if (this.options.cursor.centered) {
-      // Calculate center position based on terminal width
-      const terminalWidth = Math.floor(this.getWidth() / 10); // Approximate character width
+      const terminalWidth = Math.min(this.getWidth(), this.layout.maxWidth);
       const promptWidth = 2; // Width of "> "
       const inputWidth = this.inputBuffer.length;
       const totalWidth = promptWidth + inputWidth;
       const padding = Math.max(0, Math.floor((terminalWidth - totalWidth) / 2));
-      return padding * 10; // Convert back to pixels
+      return this.layout.sidePadding + padding;
     }
-
-    // Return left-padded position
-    return this.options.cursor.leftPadding || 10;
+    return this.layout.sidePadding + (this.options.cursor.leftPadding || 10);
   }
 
   // Add method to update cursor options
@@ -602,11 +696,13 @@ export class Terminal extends EventEmitter {
     }
   }
 
-  // Add this helper method to calculate text width in characters
+  // Update getMaxCharsPerLine to respect maxWidth and padding
   private getMaxCharsPerLine(): number {
-    const charWidth = this.ctx.measureText("M").width; // Use 'M' as reference
-    const availableWidth =
-      this.getWidth() - (this.options.cursor.leftPadding || 10) * 2; // Account for padding
+    const charWidth = this.ctx.measureText("M").width;
+    const availableWidth = Math.min(
+      this.getWidth() - this.layout.sidePadding * 2,
+      this.layout.maxWidth
+    );
     return Math.floor(availableWidth / charWidth);
   }
 
@@ -659,7 +755,35 @@ export class Terminal extends EventEmitter {
     }
   }
 
-  // Add helper method for processing AI streams
+  // Add method to scroll for input
+  private scrollForInput() {
+    const lineHeight = this.options.fontSize * 1.5;
+    const extraScrollSpace = lineHeight * 3; // Add 3 lines of extra space
+    const totalContentHeight = this.currentPrintY + extraScrollSpace;
+    const visibleHeight = this.getHeight();
+
+    if (totalContentHeight > visibleHeight) {
+      this.scrollOffset = totalContentHeight - visibleHeight;
+      this.render();
+    }
+  }
+
+  // Simplified generation state handling
+  public startGeneration() {
+    this.isGenerating = true;
+    this.cursorVisible = false;
+    this.render();
+  }
+
+  public endGeneration() {
+    this.isGenerating = false;
+    this.cursorVisible = true;
+    this.render();
+    // Add extra scroll space for input
+    this.scrollForInput();
+  }
+
+  // Update processAIStream to ensure proper scrolling after content
   public async processAIStream(
     stream: ReadableStream<Uint8Array> | null,
     options: PrintOptions & { addSpacing?: boolean } = { addSpacing: true }
@@ -668,8 +792,11 @@ export class Terminal extends EventEmitter {
 
     let responseText = "";
     let currentLine = "";
+    let consecutiveNewlines = 0;
     const reader = stream.getReader();
     const decoder = new TextDecoder();
+
+    this.startGeneration();
 
     try {
       while (true) {
@@ -680,45 +807,90 @@ export class Terminal extends EventEmitter {
         const text = decoder.decode(value);
         responseText += text;
 
-        // Split on newlines and handle each piece
-        const parts = text.split(/(\n|\. |\? |\! )/);
-        for (const part of parts) {
-          // Check if this part is a sentence terminator
-          if (part.match(/(\n|\. |\? |\! )/)) {
-            // Complete the current line with the terminator
-            currentLine += part.trim();
+        // Process each character
+        for (const char of text) {
+          if (char === "\n") {
+            consecutiveNewlines++;
 
-            // Print if we have content
+            // Print current line if we have content
             if (currentLine.trim()) {
               await this.print(currentLine, {
                 color: options.color || TERMINAL_COLORS.primary,
                 speed: "instant",
               });
+              currentLine = "";
             }
 
-            // Add spacing if enabled
-            if (options.addSpacing) {
+            // If we have two consecutive newlines, add a blank line
+            if (consecutiveNewlines === 2) {
               await this.print("", { speed: "instant" });
+              consecutiveNewlines = 0;
             }
-
-            currentLine = "";
           } else {
-            currentLine += part;
+            consecutiveNewlines = 0;
+            currentLine += char;
           }
         }
       }
 
-      // Print any remaining text
+      // Print any remaining text in the buffer
       if (currentLine.trim()) {
         await this.print(currentLine, {
           color: options.color || TERMINAL_COLORS.primary,
           speed: "instant",
         });
       }
+
+      // Ensure proper scrolling after all content is printed
+      this.scrollForInput();
     } finally {
       reader.releaseLock();
+      this.endGeneration();
     }
 
     return responseText;
+  }
+
+  // Make these public for command access
+  public getBufferText(): string {
+    return this.buffer.map((line) => line.text).join("\n");
+  }
+
+  public getLastMessage(): string {
+    let lastMessage = "";
+    for (let i = this.buffer.length - 1; i >= 0; i--) {
+      const line = this.buffer[i].text;
+      if (line.startsWith(">")) {
+        break;
+      }
+      lastMessage = line + "\n" + lastMessage;
+    }
+    return lastMessage.trim();
+  }
+
+  public async copyToClipboard(content: string): Promise<void> {
+    this.hiddenTextarea.value = content;
+    this.hiddenTextarea.select();
+
+    try {
+      await navigator.clipboard.writeText(content);
+      await this.print("Content copied to clipboard.", {
+        color: TERMINAL_COLORS.success,
+        speed: "instant",
+      });
+    } catch (err) {
+      try {
+        document.execCommand("copy");
+        await this.print("Content copied to clipboard.", {
+          color: TERMINAL_COLORS.success,
+          speed: "instant",
+        });
+      } catch (err) {
+        await this.print("Failed to copy content.", {
+          color: TERMINAL_COLORS.error,
+          speed: "instant",
+        });
+      }
+    }
   }
 }

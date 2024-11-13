@@ -14,6 +14,10 @@ import { ConsentScreen } from "@/app/lib/terminal/screens/ConsentScreen";
 import { navigationMiddleware } from "@/app/lib/terminal/middleware/navigation";
 import { AdventureScreen } from "@/app/lib/terminal/screens/AdventureScreen";
 import { adventureMiddleware } from "@/app/lib/terminal/middleware/adventure";
+import { specialCommandsMiddleware } from "@/app/lib/terminal/middleware/special";
+import { commandsMiddleware } from "@/app/lib/terminal/middleware/commands";
+import { overrideMiddleware } from "@/app/lib/terminal/middleware/override";
+import { systemCommandsMiddleware } from "@/app/lib/terminal/middleware/system";
 
 export function TerminalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -78,18 +82,12 @@ export function TerminalCanvas() {
     // Add router to terminal for middleware access
     terminal.context = { router };
 
-    // Register middlewares
+    // Register middlewares in correct order
     terminal
-      .use(helpMiddleware)
-      .use(clearMiddleware)
-      .use(adventureMiddleware)
-      .use(navigationMiddleware);
-
-    // Test direct terminal printing
-    terminal.print("Direct print test", {
-      color: TERMINAL_COLORS.primary,
-      speed: "instant",
-    });
+      .use(overrideMiddleware) // First check for override
+      .use(systemCommandsMiddleware) // Then system commands (including help)
+      .use(commandsMiddleware) // Then utility (bang) commands
+      .use(adventureMiddleware); // Finally adventure input for unhandled commands
 
     // Navigate to adventure screen
     router.navigate("adventure").catch(console.error);
@@ -97,9 +95,16 @@ export function TerminalCanvas() {
     // Add keyboard handler
     const handleKeyDown = (e: KeyboardEvent) => {
       // Prevent default for terminal keys
-      if (e.key === "Enter" || e.key === "Backspace" || e.key.length === 1) {
+      if (
+        e.key === "Enter" ||
+        e.key === "Backspace" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown" ||
+        (e.key === "v" && (e.ctrlKey || e.metaKey)) ||
+        e.key.length === 1
+      ) {
         e.preventDefault();
-        terminalRef.current?.handleInput(e.key);
+        terminalRef.current?.handleInput(e.key, e);
       }
     };
 

@@ -4,6 +4,12 @@ import { TerminalMiddleware, TERMINAL_COLORS } from "../Terminal";
 let hasFullAccess = false;
 
 export const helpMiddleware: TerminalMiddleware = async (ctx, next) => {
+  if (ctx.command === "copy") {
+    await ctx.terminal.copyToClipboard(ctx.terminal.getBufferText());
+    ctx.handled = true;
+    return;
+  }
+
   // Only handle specific commands
   if (ctx.command.toLowerCase() === "override 89") {
     hasFullAccess = true;
@@ -45,6 +51,13 @@ export const helpMiddleware: TerminalMiddleware = async (ctx, next) => {
         color: TERMINAL_COLORS.primary,
         speed: "fast",
       });
+      await ctx.terminal.print(
+        "  copy     - Copy terminal content to clipboard",
+        {
+          color: TERMINAL_COLORS.primary,
+          speed: "fast",
+        }
+      );
       ctx.handled = true;
       return;
     }

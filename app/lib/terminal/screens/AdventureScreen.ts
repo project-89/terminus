@@ -32,7 +32,7 @@ ESTABLISHING CONNECTION...`.trim();
       this.chatHistory.push({
         role: "user",
         content:
-          "Before the game starts, print out s short, user friendly message to someone on how to play the text adventure, but don't use weird characters like [object].  Use multiple new lines to separate the text properly. Keep it simple and short.  You don't need to explain everything.  Enough to get them started. After this add a short bit about Project 89.  Welcome the Agent, and prepare them for their participation in the Project. Do not simulate the text adventure until you receive the first command after this.",
+          "Before the game starts, print out a short, user friendly message to someone on how to play the text adventure, but DO NOT use weird characters like [object].  Commands are listed with CAPS. You don't need to explain everything, just the basics as a list.  Enough to get them started. Interject a couple commands which are ontological and hyperstitial in nature. Make this casual. Do not simulate the text adventure until you receive the first command after this.",
       });
 
       // Get initial AI response
@@ -46,6 +46,8 @@ ESTABLISHING CONNECTION...`.trim();
         color: TERMINAL_COLORS.primary,
         addSpacing: false,
       });
+
+      console.log("responseText", responseText);
 
       // Add AI response to history
       this.chatHistory.push({
