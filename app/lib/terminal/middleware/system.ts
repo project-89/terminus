@@ -1,16 +1,17 @@
 import { TerminalMiddleware, TERMINAL_COLORS } from "../Terminal";
 import { WalletService } from "@/app/lib/wallet/WalletService";
 import { TerminalContext } from "../TerminalContext";
+import { generateCLIResponse } from "@/app/lib/ai/prompts";
 
 // Define known system commands
-const SYSTEM_COMMANDS = new Set(["help", "connect"]);
+const SYSTEM_COMMANDS = new Set(["help", "connect", "disconnect", "identify"]);
 
 export const systemCommandsMiddleware: TerminalMiddleware = async (
   ctx,
   next
 ) => {
   const terminalContext = TerminalContext.getInstance();
-  const { hasFullAccess } = terminalContext.getState();
+  const { hasFullAccess, walletConnected } = terminalContext.getState();
 
   // Only handle system commands if we have full access
   if (!hasFullAccess) {
@@ -50,6 +51,15 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
             color: TERMINAL_COLORS.primary,
             speed: "normal",
           });
+
+          // Prompt for identification
+          await ctx.terminal.print(
+            "\nPlease use 'identify' command to begin initialization sequence.",
+            {
+              color: TERMINAL_COLORS.warning,
+              speed: "normal",
+            }
+          );
         } else {
           await ctx.terminal.print("\nNo PROJECT89 tokens found", {
             color: TERMINAL_COLORS.error,
@@ -87,6 +97,31 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
       ctx.handled = true;
       break;
 
+    case "identify":
+      const { walletConnected, walletAddress } = terminalContext.getState();
+      if (!walletConnected || !walletAddress) {
+        await ctx.terminal.print(
+          "\nERROR: No wallet connection detected. Please connect wallet first.",
+          {
+            color: TERMINAL_COLORS.error,
+            speed: "normal",
+          }
+        );
+      } else {
+        await ctx.terminal.print("\nInitiating identification sequence...", {
+          color: TERMINAL_COLORS.system,
+          speed: "normal",
+        });
+
+        // Trigger the welcome screen sequence
+        await ctx.terminal.emit("screen:transition", {
+          to: "welcome",
+          options: { type: "fade", duration: 500 },
+        });
+      }
+      ctx.handled = true;
+      break;
+
     case "help":
       await ctx.terminal.print("\nSYSTEM ACCESS GRANTED", {
         color: TERMINAL_COLORS.success,
@@ -97,7 +132,15 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
         color: TERMINAL_COLORS.system,
         speed: "fast",
       });
-      await ctx.terminal.print("  connect  - Connect Phantom wallet", {
+      await ctx.terminal.print("  connect   - Connect Phantom wallet", {
+        color: TERMINAL_COLORS.primary,
+        speed: "fast",
+      });
+      await ctx.terminal.print("  disconnect - Disconnect current wallet", {
+        color: TERMINAL_COLORS.primary,
+        speed: "fast",
+      });
+      await ctx.terminal.print("  identify  - Begin initialization sequence", {
         color: TERMINAL_COLORS.primary,
         speed: "fast",
       });
@@ -123,6 +166,39 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
         speed: "fast",
       });
 
+      ctx.handled = true;
+      break;
+
+    case "disconnect":
+      try {
+        if (!walletConnected) {
+          await ctx.terminal.print("\nNo wallet currently connected.", {
+            color: TERMINAL_COLORS.warning,
+            speed: "normal",
+          });
+          break;
+        }
+
+        const walletService = new WalletService();
+        await walletService.disconnect();
+
+        // Clear wallet state
+        terminalContext.setState({
+          walletConnected: false,
+          walletAddress: undefined,
+          tokenBalance: undefined,
+        });
+
+        await ctx.terminal.print("\nWallet disconnected successfully.", {
+          color: TERMINAL_COLORS.success,
+          speed: "normal",
+        });
+      } catch (error: any) {
+        await ctx.terminal.print(`\nDisconnection error: ${error.message}`, {
+          color: TERMINAL_COLORS.error,
+          speed: "normal",
+        });
+      }
       ctx.handled = true;
       break;
   }

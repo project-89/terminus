@@ -11,6 +11,7 @@ declare global {
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
+import { TerminalContext } from "../terminal/TerminalContext";
 
 export class WalletService {
   private wallet: PhantomWalletAdapter | null = null;
@@ -50,17 +51,24 @@ export class WalletService {
 
   async connect(): Promise<string> {
     try {
-      // Check if Phantom is installed
       await this.detectPhantom();
-
-      // Initialize wallet
       await this.initializeWallet();
 
       if (!this.wallet?.connected || !this.wallet?.publicKey) {
         throw new Error("Failed to connect to wallet");
       }
 
-      return this.wallet.publicKey.toBase58();
+      const address = this.wallet.publicKey.toBase58();
+
+      // Update terminal context with wallet info
+      const terminalContext = TerminalContext.getInstance();
+      terminalContext.setState({
+        walletConnected: true,
+        walletAddress: address,
+        lastSeen: new Date(),
+      });
+
+      return address;
     } catch (error: any) {
       console.error("Error connecting wallet:", error);
       if (error.message.includes("not found")) {

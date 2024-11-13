@@ -1,7 +1,9 @@
 export interface TerminalState {
   hasFullAccess: boolean;
   walletConnected: boolean;
+  walletAddress?: string;
   tokenBalance?: number;
+  lastSeen?: Date;
 }
 
 export class TerminalContext {
@@ -11,7 +13,13 @@ export class TerminalContext {
     walletConnected: false,
   };
 
-  private constructor() {}
+  private constructor() {
+    // Load saved state from localStorage
+    const saved = localStorage.getItem("terminalState");
+    if (saved) {
+      this.state = JSON.parse(saved);
+    }
+  }
 
   static getInstance(): TerminalContext {
     if (!TerminalContext.instance) {
@@ -26,5 +34,15 @@ export class TerminalContext {
 
   setState(newState: Partial<TerminalState>) {
     this.state = { ...this.state, ...newState };
+    // Save to localStorage
+    localStorage.setItem("terminalState", JSON.stringify(this.state));
+  }
+
+  clearState() {
+    this.state = {
+      hasFullAccess: false,
+      walletConnected: false,
+    };
+    localStorage.removeItem("terminalState");
   }
 }
