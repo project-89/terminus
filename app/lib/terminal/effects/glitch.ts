@@ -1,4 +1,5 @@
 import { registerTool, toolEvents } from "../tools/registry";
+import { GlitchParameters } from "../tools/types";
 
 // Register the tool definition
 registerTool({
@@ -16,8 +17,8 @@ registerTool({
   },
 });
 
-// Listen for tool executions
-toolEvents.on("tool:glitch_screen", async (params) => {
+// Listen for tool executions with proper typing
+toolEvents.on("tool:glitch_screen", async (params: GlitchParameters) => {
   // Handle glitch effect
   console.log("Glitch effect triggered:", params);
 });
