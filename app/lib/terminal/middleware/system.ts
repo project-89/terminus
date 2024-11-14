@@ -11,20 +11,17 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
   next
 ) => {
   const terminalContext = TerminalContext.getInstance();
-  const { hasFullAccess, walletConnected } = terminalContext.getState();
+  const state = terminalContext.getState();
 
-  // Only handle system commands if we have full access
-  if (!hasFullAccess) {
+  if (!state.hasFullAccess) {
     return next();
   }
 
-  // Check if this is a known system command
   const command = ctx.command.toLowerCase();
   if (!SYSTEM_COMMANDS.has(command)) {
     return next();
   }
 
-  // Handle system commands
   switch (command) {
     case "connect":
       try {
@@ -98,8 +95,7 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
       break;
 
     case "identify":
-      const { walletConnected, walletAddress } = terminalContext.getState();
-      if (!walletConnected || !walletAddress) {
+      if (!state.walletConnected || !state.walletAddress) {
         await ctx.terminal.print(
           "\nERROR: No wallet connection detected. Please connect wallet first.",
           {
@@ -171,7 +167,7 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
 
     case "disconnect":
       try {
-        if (!walletConnected) {
+        if (!state.walletConnected) {
           await ctx.terminal.print("\nNo wallet currently connected.", {
             color: TERMINAL_COLORS.warning,
             speed: "normal",

@@ -5,6 +5,7 @@ import {
   CRTEffect,
 } from "./effects";
 import { EventEmitter } from "events";
+import { toolEvents } from "./tools/registry";
 
 export const TERMINAL_COLORS = {
   primary: "#2fb7c3", // New default color
@@ -123,6 +124,7 @@ export class Terminal extends EventEmitter {
   private inputHistory: string[] = [];
   private historyIndex: number = -1;
   private tempInput: string = ""; // Store input when navigating history
+  private matrixRainEnabled: boolean = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -189,6 +191,9 @@ export class Terminal extends EventEmitter {
     this.hiddenTextarea.style.left = "-9999px";
     this.hiddenTextarea.style.top = "0";
     document.body.appendChild(this.hiddenTextarea);
+
+    // Register tool handlers
+    this.registerToolHandlers();
   }
 
   private setupCanvas() {
@@ -493,6 +498,11 @@ export class Terminal extends EventEmitter {
 
     // Apply CRT effects first
     this.effects.applyCRTEffect();
+
+    // Matrix rain runs behind text
+    if (this.matrixRainEnabled) {
+      this.effects.applyMatrixRain();
+    }
 
     // Apply enhanced glow
     this.effects.applyGlow();
@@ -892,5 +902,70 @@ export class Terminal extends EventEmitter {
         });
       }
     }
+  }
+
+  private registerToolHandlers() {
+    toolEvents.on(
+      "tool:glitch_screen",
+      async (params: { intensity: number; duration: number }) => {
+        // Store current buffer state
+        const originalBuffer = [...this.buffer];
+        const glitchDuration = Math.min(params.duration, 5000); // Cap at 5 seconds
+
+        // Create glitch effect
+        const glitchInterval = setInterval(() => {
+          if (Math.random() < params.intensity) {
+            // Randomly corrupt some lines
+            this.buffer = this.buffer.map((line) => ({
+              ...line,
+              text: this.corruptText(line.text, params.intensity),
+            }));
+            this.render();
+          }
+        }, 50);
+
+        // Restore original state after duration
+        setTimeout(() => {
+          clearInterval(glitchInterval);
+          this.buffer = originalBuffer;
+          this.render();
+        }, glitchDuration);
+      }
+    );
+
+    toolEvents.on(
+      "tool:matrix_rain",
+      async (params: { duration: number; intensity: number }) => {
+        this.matrixRainEnabled = true;
+        this.effects.startMatrixRain(params.intensity);
+
+        setTimeout(() => {
+          this.matrixRainEnabled = false;
+          this.effects.stopMatrixRain();
+          this.render();
+        }, params.duration);
+      }
+    );
+
+    toolEvents.on(
+      "tool:play_sound",
+      async (params: { type: string; volume: number }) => {
+        console.log(
+          `Would play sound: ${params.type} at volume ${params.volume}`
+        );
+      }
+    );
+  }
+
+  private corruptText(text: string, intensity: number): string {
+    return text
+      .split("")
+      .map((char) => {
+        if (Math.random() < intensity * 0.3) {
+          return String.fromCharCode(Math.random() * 95 + 32);
+        }
+        return char;
+      })
+      .join("");
   }
 }
