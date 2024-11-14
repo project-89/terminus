@@ -17,7 +17,6 @@
     "@apollo/server": "^4.10.0",
     "@as-integrations/next": "^3.0.0",
     "@graphql-tools/schema": "^10.0.2",
-    "@nanostores/react": "github:ai/react",
     "@prisma/client": "^5.10.2",
     "@solana/wallet-adapter-base": "^0.9.23",
     "@solana/wallet-adapter-phantom": "^0.9.24",
