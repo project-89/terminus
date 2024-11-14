@@ -20,9 +20,13 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
 
       let responseText = "";
       let currentLine = "";
+      let lastLineWasEmpty = false;
 
       const decoder = new TextDecoder();
       const reader = stream.getReader();
+
+      // Print a blank line before response
+      await ctx.terminal.print("", { speed: "instant" });
 
       try {
         while (true) {
@@ -41,28 +45,32 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
             // Process all complete lines except the last one
             for (let i = 0; i < lines.length - 1; i++) {
               const line = lines[i].trim();
-              if (line) {
-                // Check if line is a tool call
-                if (line.startsWith("{") && line.endsWith("}")) {
-                  try {
-                    const toolData = JSON.parse(line);
-                    if (toolData.tool) {
-                      console.log("Processing tool:", toolData);
-                      await processToolCall(toolData);
-                    }
-                  } catch (e) {
-                    // Not a valid tool call, print as normal text
+
+              // Handle tool calls
+              if (line.startsWith("{") && line.endsWith("}")) {
+                try {
+                  const toolData = JSON.parse(line);
+                  if (toolData.tool) {
+                    console.log("Processing tool:", toolData);
+                    await processToolCall(toolData);
+                  }
+                } catch (e) {
+                  // Not a valid tool call, print as normal text
+                  if (line) {
                     await ctx.terminal.print(line, {
                       color: TERMINAL_COLORS.primary,
                       speed: "instant",
                     });
                   }
-                } else {
-                  // Regular text line
+                }
+              } else {
+                // Regular text line
+                if (line || !lastLineWasEmpty) {
                   await ctx.terminal.print(line, {
                     color: TERMINAL_COLORS.primary,
                     speed: "instant",
                   });
+                  lastLineWasEmpty = !line;
                 }
               }
             }
@@ -78,6 +86,9 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
             speed: "instant",
           });
         }
+
+        // Add a blank line after response
+        await ctx.terminal.print("", { speed: "instant" });
       } finally {
         reader.releaseLock();
       }
