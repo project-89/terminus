@@ -297,14 +297,17 @@ export class Terminal extends EventEmitter {
     if (speed === 0) {
       // Instant printing
       const lines = text.split("\n");
-      lines.forEach((line) => {
-        this.buffer.push({
-          text: line,
-          color: options.color || this.options.foregroundColor,
-          effect: options.effect || "none",
-        });
-        this.currentPrintY += lineHeight;
-      });
+      for (const line of lines) {
+        // Check if line is a tool command
+        if (!(await this.handleToolCommand(line))) {
+          this.buffer.push({
+            text: line,
+            color: options.color || this.options.foregroundColor,
+            effect: options.effect || "none",
+          });
+          this.currentPrintY += lineHeight;
+        }
+      }
       this.render();
     } else {
       // Animated printing
@@ -320,19 +323,22 @@ export class Terminal extends EventEmitter {
           continue;
         }
 
-        const bufferLine = {
-          text: "",
-          color: options.color || this.options.foregroundColor,
-          effect: options.effect || "none",
-        };
-        this.buffer.push(bufferLine);
+        // Check if line is a tool command
+        if (!(await this.handleToolCommand(line))) {
+          const bufferLine = {
+            text: "",
+            color: options.color || this.options.foregroundColor,
+            effect: options.effect || "none",
+          };
+          this.buffer.push(bufferLine);
 
-        for (let i = 0; i < line.length; i++) {
-          bufferLine.text += line[i];
-          this.render();
-          await this.wait(speed);
+          for (let i = 0; i < line.length; i++) {
+            bufferLine.text += line[i];
+            this.render();
+            await this.wait(speed);
+          }
+          this.currentPrintY += lineHeight;
         }
-        this.currentPrintY += lineHeight;
       }
     }
 
@@ -698,10 +704,18 @@ export class Terminal extends EventEmitter {
     if (this.options.cursor.mode === "fixed") {
       return this.getHeight() - (this.options.cursor.fixedOffset || 20);
     } else {
-      // Use currentPrintY for dynamic positioning
+      // Use the last non-empty line position for dynamic positioning
+      let lastTextPosition = this.currentPrintY;
+      for (let i = this.buffer.length - 1; i >= 0; i--) {
+        if (this.buffer[i].text.trim()) {
+          lastTextPosition = i * lineHeight + this.getVerticalPadding();
+          break;
+        }
+      }
+
       return Math.max(
-        this.currentPrintY + lineHeight, // Add one line of spacing
-        50 + lineHeight // Minimum distance from top
+        lastTextPosition + lineHeight, // Add one line of spacing
+        this.getVerticalPadding() + lineHeight // Minimum distance from top
       );
     }
   }
@@ -908,18 +922,31 @@ export class Terminal extends EventEmitter {
     toolEvents.on(
       "tool:glitch_screen",
       async (params: { intensity: number; duration: number }) => {
-        // Store current buffer state
-        const originalBuffer = [...this.buffer];
-        const glitchDuration = Math.min(params.duration, 5000); // Cap at 5 seconds
+        // Take a deep copy of the buffer state
+        const originalBuffer = this.buffer.map((line) => ({
+          ...line,
+          text: line.text,
+        }));
+        const glitchDuration = Math.min(params.duration, 5000);
 
-        // Create glitch effect
         const glitchInterval = setInterval(() => {
           if (Math.random() < params.intensity) {
-            // Randomly corrupt some lines
-            this.buffer = this.buffer.map((line) => ({
+            // Create corrupted version while maintaining exact structure
+            this.buffer = originalBuffer.map((line) => ({
               ...line,
               text: this.corruptText(line.text, params.intensity),
             }));
+
+            // Ensure buffer hasn't grown
+            while (this.buffer.length > originalBuffer.length) {
+              this.buffer.pop();
+            }
+
+            // Ensure buffer hasn't shrunk
+            while (this.buffer.length < originalBuffer.length) {
+              this.buffer.push({ ...originalBuffer[this.buffer.length] });
+            }
+
             this.render();
           }
         }, 50);
@@ -958,14 +985,46 @@ export class Terminal extends EventEmitter {
   }
 
   private corruptText(text: string, intensity: number): string {
+    // Keep exact same length and preserve spaces and special characters
     return text
       .split("")
       .map((char) => {
+        // Never corrupt spaces, newlines, or prompt characters
+        if (char === " " || char === "\n" || char === ">") {
+          return char;
+        }
         if (Math.random() < intensity * 0.3) {
-          return String.fromCharCode(Math.random() * 95 + 32);
+          // Only use visible ASCII characters that won't affect formatting
+          const charCode = 33 + Math.floor(Math.random() * 94);
+          // Avoid characters that might affect terminal formatting
+          return String.fromCharCode(charCode);
         }
         return char;
       })
       .join("");
+  }
+
+  // Add a new method to handle tool command output
+  private async handleToolCommand(command: string) {
+    // Skip empty lines that just contain tool JSON
+    if (command.trim().startsWith("{") && command.trim().endsWith("}")) {
+      try {
+        const toolCommand = JSON.parse(command);
+        // Process tool command without adding to buffer or affecting cursor
+        if (toolCommand.tool && toolCommand.parameters) {
+          toolEvents.emit(`tool:${toolCommand.tool}`, toolCommand.parameters);
+        }
+        return true; // Indicate this was a tool command
+      } catch (e) {
+        // Not valid JSON, treat as regular text
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // Add this method to the Terminal class
+  private getVerticalPadding(): number {
+    return this.layout.topPadding || 40; // Use layout padding or default to 40px
   }
 }

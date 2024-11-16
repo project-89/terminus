@@ -8,19 +8,18 @@ let chatHistory: { role: string; content: string }[] = [];
 export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
   if (!ctx.hasFullAccess && ctx.command !== "clear") {
     try {
-      ctx.handled = true;
+      // Filter out empty messages before adding new one
+      chatHistory = chatHistory.filter((msg) => msg.content.trim() !== "");
 
+      // Add user message to history
       chatHistory.push({
         role: "user",
         content: ctx.command,
       });
 
       const stream = await getAdventureResponse(chatHistory);
-      if (!stream) throw new Error("No response stream received");
-
       let responseText = "";
       let currentLine = "";
-      let lastLineWasEmpty = false;
 
       const decoder = new TextDecoder();
       const reader = stream.getReader();
@@ -34,7 +33,6 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
           if (done) break;
 
           const text = decoder.decode(value);
-          console.log("Received chunk:", text);
           responseText += text;
           currentLine += text;
 
@@ -44,66 +42,66 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
 
             // Process all complete lines except the last one
             for (let i = 0; i < lines.length - 1; i++) {
-              const line = lines[i].trim();
+              const line = lines[i];
 
-              // Handle tool calls
-              if (line.startsWith("{") && line.endsWith("}")) {
+              // Check if this is a tool command
+              if (line.trim().startsWith("{") && line.trim().endsWith("}")) {
                 try {
-                  const toolData = JSON.parse(line);
+                  const toolData = JSON.parse(line.trim());
                   if (toolData.tool) {
-                    console.log("Processing tool:", toolData);
+                    // Execute tool without printing anything
                     await processToolCall(toolData);
                   }
                 } catch (e) {
                   // Not a valid tool call, print as normal text
-                  if (line) {
-                    await ctx.terminal.print(line, {
-                      color: TERMINAL_COLORS.primary,
-                      speed: "instant",
-                    });
-                  }
-                }
-              } else {
-                // Regular text line
-                if (line || !lastLineWasEmpty) {
                   await ctx.terminal.print(line, {
                     color: TERMINAL_COLORS.primary,
                     speed: "instant",
                   });
-                  lastLineWasEmpty = !line;
                 }
+              } else {
+                // Print non-tool lines
+                await ctx.terminal.print(line, {
+                  color: TERMINAL_COLORS.primary,
+                  speed: "instant",
+                });
               }
             }
+
             // Keep the last incomplete line
             currentLine = lines[lines.length - 1];
           }
         }
 
         // Handle any remaining text
-        if (currentLine.trim()) {
-          await ctx.terminal.print(currentLine.trim(), {
-            color: TERMINAL_COLORS.primary,
-            speed: "instant",
-          });
+        if (currentLine) {
+          const line = currentLine;
+          if (!(line.trim().startsWith("{") && line.trim().endsWith("}"))) {
+            await ctx.terminal.print(line, {
+              color: TERMINAL_COLORS.primary,
+              speed: "instant",
+            });
+          }
         }
-
-        // Add a blank line after response
-        await ctx.terminal.print("", { speed: "instant" });
       } finally {
         reader.releaseLock();
       }
 
-      chatHistory.push({
-        role: "assistant",
-        content: responseText,
-      });
+      // Only add non-empty responses to history
+      if (responseText.trim() !== "") {
+        chatHistory.push({
+          role: "assistant",
+          content: responseText,
+        });
+      }
 
-      await ctx.terminal.print("", { speed: "instant" });
+      ctx.handled = true;
       return;
     } catch (error) {
       console.error("Adventure middleware error:", error);
       throw error;
     }
   }
+
   await next();
 };

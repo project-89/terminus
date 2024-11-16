@@ -57,7 +57,7 @@ const matrixRainParameters = z.object({
 });
 
 // Initialize the model
-const model = google("gemini-1.5-pro-latest", {
+const model = google("gemini-1.5-flash-latest", {
   safetySettings: [
     {
       category: "HARM_CATEGORY_DANGEROUS_CONTENT",

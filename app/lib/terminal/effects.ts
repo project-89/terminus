@@ -34,6 +34,7 @@ export class TerminalEffects {
     speed: number;
     opacity: number;
   }> = [];
+  private originalFont: string;
 
   constructor(
     private ctx: CanvasRenderingContext2D,
@@ -49,6 +50,7 @@ export class TerminalEffects {
     this.ctx = ctx;
     this.width = width;
     this.height = height;
+    this.originalFont = this.ctx.font;
   }
 
   public applyGlow() {
@@ -137,8 +139,9 @@ export class TerminalEffects {
   public startMatrixRain(intensity: number) {
     this.stopMatrixRain();
 
-    const fontSize = 14;
-    const columns = Math.floor(this.width / fontSize);
+    // Use the terminal's font size for calculations
+    const columnWidth = this.ctx.measureText("M").width;
+    const columns = Math.floor(this.width / columnWidth);
 
     for (let i = 0; i < columns * intensity; i++) {
       this.drops.push({
@@ -148,41 +151,9 @@ export class TerminalEffects {
         opacity: 0.1 + Math.random() * 0.3,
       });
     }
-
-    this.matrixRainInterval = window.setInterval(() => {
-      // Semi-transparent black to create trail effect
-      this.ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
-      this.ctx.fillRect(0, 0, this.width, this.height);
-
-      // Set the text style
-      this.ctx.font = `${fontSize}px monospace`;
-
-      // Update and draw each drop
-      this.drops.forEach((drop) => {
-        const symbol =
-          this.matrixSymbols[
-            Math.floor(Math.random() * this.matrixSymbols.length)
-          ];
-        this.ctx.fillStyle = `rgba(47, 183, 195, ${drop.opacity})`;
-        this.ctx.fillText(symbol, drop.x, drop.y);
-
-        // Move the drop
-        drop.y += drop.speed;
-
-        // Reset drop when it reaches bottom
-        if (drop.y > this.height) {
-          drop.y = 0;
-          drop.x = Math.random() * this.width;
-        }
-      });
-    }, 50);
   }
 
   public stopMatrixRain() {
-    if (this.matrixRainInterval !== null) {
-      clearInterval(this.matrixRainInterval);
-      this.matrixRainInterval = null;
-    }
     this.drops = [];
   }
 
@@ -190,9 +161,6 @@ export class TerminalEffects {
     // Semi-transparent black to create trail effect
     this.ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
     this.ctx.fillRect(0, 0, this.width, this.height);
-
-    const fontSize = 14;
-    this.ctx.font = `${fontSize}px monospace`;
 
     // Update and draw each drop
     this.drops.forEach((drop) => {
