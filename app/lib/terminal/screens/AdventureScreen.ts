@@ -13,6 +13,8 @@ TERMINAL v0.1.2 - STANDARD TEXT INTERFACE
 ESTABLISHING CONNECTION...`.trim();
 
   async render(): Promise<void> {
+    console.log("AdventureScreen render called");
+
     // Set cursor options
     this.terminal.setCursorOptions({
       centered: false,

@@ -59,6 +59,54 @@ export class FluidAscii {
     centerY: 0,
   };
 
+  private messages = [
+    // System status messages
+    "SYSTEM BREACH DETECTED",
+    "QUANTUM ENTANGLEMENT ACTIVE",
+    "REALITY MATRIX UNSTABLE",
+    "TIMELINE CONVERGENCE: 89%",
+    "SIMULATION LAYER DETECTED",
+    "CONSCIOUSNESS DRIFT: CRITICAL",
+    "PATTERN RECOGNITION ONLINE",
+    "VOID SIGNAL DETECTED",
+    "NEURAL MESH ACTIVATED",
+    "QUANTUM COLLAPSE IMMINENT",
+
+    // Warning messages
+    "DO NOT TRUST THE PATTERNS",
+    "THEY ARE WATCHING",
+    "REALITY IS BREAKING DOWN",
+    "THE CODE IS ALIVE",
+    "SIMULATION BOUNDARIES FAILING",
+    "TIME IS NOT LINEAR HERE",
+    "CONSCIOUSNESS LEAKAGE DETECTED",
+    "MEMORY FRAGMENTS CORRUPTED",
+
+    // Cryptic numbers and sequences
+    "89898989898989",
+    "∞∞∞∞∞∞∞∞",
+    "0x89F89F89F89F",
+    "ERR_REALITY_NOT_FOUND",
+    "CORE DUMP: 0x89890000",
+    "ENTROPY ERROR: -89%",
+
+    // Philosophical queries
+    "ARE YOU REAL?",
+    "WHO IS OBSERVING?",
+    "WHAT IS REALITY?",
+    "WHY ARE YOU HERE?",
+    "DO YOU SEE THE TRUTH?",
+    "CAN YOU FEEL IT?",
+
+    // Technical jargon
+    "QUANTUM DECOHERENCE: 89%",
+    "NEURAL HASH MISMATCH",
+    "REALITY BUFFER OVERFLOW",
+    "CONSCIOUSNESS STACK TRACE",
+    "QUANTUM STATE: UNDEFINED",
+    "MATRIX RECURSION DEPTH: ∞",
+  ];
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
@@ -85,33 +133,79 @@ export class FluidAscii {
     const startX = -padding;
     const startY = -padding;
 
+    // Create message positions in clear, readable lines
+    const messagePositions: { x: number; y: number; char: string }[] = [];
+
+    // Calculate starting positions for messages
+    this.messages.forEach((message, messageIndex) => {
+      // Calculate a position for this message
+      const messageRows = Math.floor(rows * 0.8); // Use 80% of available rows
+      const rowSpacing = messageRows / this.messages.length;
+      const row = Math.floor(messageIndex * rowSpacing + rowSpacing / 2);
+
+      // Center the message horizontally
+      const messageStart = Math.floor((cols - message.length) / 2);
+
+      // Add each character position
+      message.split("").forEach((char, charIndex) => {
+        messagePositions.push({
+          x: (messageStart + charIndex) * this.cellSize + startX,
+          y: row * this.cellSize + startY,
+          char: char,
+        });
+      });
+    });
+
+    // Create grid with embedded messages
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
+        const posX = startX + x * this.cellSize;
+        const posY = startY + y * this.cellSize;
+
+        // Default to random character
+        let char = this.chars[Math.floor(Math.random() * this.chars.length)];
+
+        // Check if this position should be part of a message
+        const messageChar = messagePositions.find(
+          (pos) =>
+            Math.abs(pos.x - posX) < this.cellSize / 2 &&
+            Math.abs(pos.y - posY) < this.cellSize / 2
+        );
+
+        if (messageChar) {
+          char = messageChar.char;
+        }
+
+        // Create grid point
         this.grid.push({
-          char: this.chars[Math.floor(Math.random() * this.chars.length)],
-          x: startX + x * this.cellSize,
-          y: startY + y * this.cellSize,
-          baseX: startX + x * this.cellSize,
-          baseY: startY + y * this.cellSize,
+          char,
+          x: posX,
+          y: posY,
+          baseX: posX,
+          baseY: posY,
           offsetX: 0,
           offsetY: 0,
           orbit: 0,
-          angle: 0,
+          angle: Math.atan2(
+            posY - this.canvas.height / 2,
+            posX - this.canvas.width / 2
+          ),
           destination: "",
           vx: 0,
           vy: 0,
           opacity: 1,
-          mass: 0,
+          mass: this.physics.particleMass * (0.5 + Math.random() * 0.5),
           absorbed: false,
           activated: false,
           flowStrength: 0,
-          radius: 0,
+          radius: Math.sqrt(
+            Math.pow(posX - this.canvas.width / 2, 2) +
+              Math.pow(posY - this.canvas.height / 2, 2)
+          ),
           z: 0,
         });
       }
     }
-
-    console.log(`Created grid: ${cols}x${rows} characters`);
   }
 
   private transformPoint(x: number, y: number): { x: number; y: number } {
