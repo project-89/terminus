@@ -18,6 +18,10 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
       });
 
       const stream = await getAdventureResponse(chatHistory);
+      if (!stream) {
+        throw new Error("Failed to get adventure response");
+      }
+
       let responseText = "";
       let currentLine = "";
 

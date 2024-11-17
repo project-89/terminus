@@ -1,5 +1,7 @@
 import { Terminal } from "./Terminal";
 import { BaseScreen, TransitionOptions } from "./screens/BaseScreen";
+import { StaticScreen } from "./screens/StaticScreen";
+import { FluidScreen } from "./screens/FluidScreen";
 
 interface Route {
   path: string;
@@ -27,6 +29,11 @@ export class ScreenRouter {
       }
       await this.navigate(to, options);
     });
+
+    this.routes = new Map();
+
+    this.register("fluid", FluidScreen);
+    this.register("static", StaticScreen);
   }
 
   public register(path: string, screen: new (context: any) => BaseScreen) {

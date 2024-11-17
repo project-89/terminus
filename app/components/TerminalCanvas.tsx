@@ -21,13 +21,14 @@ import { systemCommandsMiddleware } from "@/app/lib/terminal/middleware/system";
 
 export function TerminalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const terminalRef = useRef<Terminal | null>(null);
+  const terminalRef = useRef<Terminal>();
+  const router = useRef<ScreenRouter>();
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    // Create terminal with minimal options
-    const terminal = new Terminal(canvasRef.current, {
+    const terminal = new Terminal(canvas, {
       width: window.innerWidth,
       height: window.innerHeight,
       fontSize: 16,
@@ -69,28 +70,20 @@ export function TerminalCanvas() {
     });
 
     terminalRef.current = terminal;
-
-    // Register screens
-    const router = new ScreenRouter(terminal);
-    router
-      .register("adventure", AdventureScreen)
-      .register("welcome", WelcomeScreen)
-      .register("scanning", ScanningScreen)
-      .register("consent", ConsentScreen)
-      .register("main", MainScreen);
+    router.current = new ScreenRouter(terminal);
 
     // Add router to terminal for middleware access
-    terminal.context = { router };
+    terminal.context = { router: router.current };
 
     // Register middlewares in correct order
     terminal
-      .use(overrideMiddleware) // First check for override
-      .use(systemCommandsMiddleware) // Then system commands (including help)
-      .use(commandsMiddleware) // Then utility (bang) commands
-      .use(adventureMiddleware); // Finally adventure input for unhandled commands
+      .use(overrideMiddleware)
+      .use(systemCommandsMiddleware)
+      .use(commandsMiddleware)
+      .use(adventureMiddleware);
 
-    // Navigate to adventure screen
-    router.navigate("adventure").catch(console.error);
+    // Navigate to fluid screen instead of adventure
+    router.current.navigate("fluid").catch(console.error);
 
     // Add keyboard handler
     const handleKeyDown = (e: KeyboardEvent) => {

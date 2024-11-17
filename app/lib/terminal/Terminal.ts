@@ -6,6 +6,7 @@ import {
 } from "./effects";
 import { EventEmitter } from "events";
 import { toolEvents } from "./tools/registry";
+import { FaceRenderer } from "./effects/face";
 
 export const TERMINAL_COLORS = {
   primary: "#2fb7c3", // New default color
@@ -67,7 +68,7 @@ export type TerminalMiddleware = (
 ) => Promise<void>;
 
 export class Terminal extends EventEmitter {
-  private canvas: HTMLCanvasElement;
+  canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private cursor: { x: number; y: number } = { x: 0, y: 0 };
   private buffer: Array<{
@@ -125,6 +126,7 @@ export class Terminal extends EventEmitter {
   private historyIndex: number = -1;
   private tempInput: string = ""; // Store input when navigating history
   private matrixRainEnabled: boolean = false;
+  private faceRenderer: FaceRenderer;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -194,6 +196,13 @@ export class Terminal extends EventEmitter {
 
     // Register tool handlers
     this.registerToolHandlers();
+
+    // Create separate canvas for face
+    const faceCanvas = document.createElement("canvas");
+    faceCanvas.className = "absolute inset-0 pointer-events-none";
+    canvas.parentElement?.appendChild(faceCanvas);
+
+    this.faceRenderer = new FaceRenderer(faceCanvas);
   }
 
   private setupCanvas() {
@@ -698,7 +707,7 @@ export class Terminal extends EventEmitter {
     this.render();
   }
 
-  private getCursorY(): number {
+  public getCursorY(): number {
     const lineHeight = this.options.fontSize * 1.5;
 
     if (this.options.cursor.mode === "fixed") {
@@ -1026,5 +1035,27 @@ export class Terminal extends EventEmitter {
   // Add this method to the Terminal class
   private getVerticalPadding(): number {
     return this.layout.topPadding || 40; // Use layout padding or default to 40px
+  }
+
+  // Add method to trigger face
+  public async showFace(
+    text: string,
+    options: {
+      emergeTime?: number;
+      intensity?: number;
+      emotion?: "neutral" | "concerned" | "intrigued";
+    } = {}
+  ) {
+    const { emergeTime = 3000, intensity = 0.7, emotion = "neutral" } = options;
+
+    // Emerge from static
+    await this.faceRenderer.emergeFromStatic(emergeTime);
+
+    // Speak the text
+    await this.faceRenderer.speak(text, {
+      intensity,
+      speed: 1,
+      emotionHint: emotion,
+    });
   }
 }
