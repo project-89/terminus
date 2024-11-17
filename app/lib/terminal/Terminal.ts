@@ -9,13 +9,14 @@ import { toolEvents } from "./tools/registry";
 import { FaceRenderer } from "./effects/face";
 
 export const TERMINAL_COLORS = {
-  primary: "#2fb7c3", // New default color
-  secondary: "#22ffd7", // Keep secondary for contrast
-  error: "#ff0000", // Keep error red
-  success: "#00ff00", // Keep success green
-  warning: "#ffff00", // Keep warning yellow
-  system: "#2fb7c3", // Match primary
-  prompt: "#2fb7c3", // Match primary
+  primary: "#2fb7c3",
+  secondary: "#1e9fb3",
+  highlight: "#ffffff",
+  error: "#ff0000",
+  success: "#00ff00",
+  warning: "#ffff00",
+  system: "#2fb7c3",
+  prompt: "#2fb7c3",
 } as const;
 
 export interface TerminalOptions {
@@ -32,16 +33,16 @@ export interface TerminalOptions {
     scanlines: ScanlineEffect;
     crt: CRTEffect;
   };
-  colors?: typeof TERMINAL_COLORS; // Allow color customization
+  colors?: typeof TERMINAL_COLORS;
   cursor: {
     centered?: boolean;
     leftPadding?: number;
-    mode: "fixed" | "dynamic"; // Add mode option
-    fixedOffset?: number; // Distance from bottom when in fixed mode
+    mode: "fixed" | "dynamic";
+    fixedOffset?: number;
   };
   pixelation: {
     enabled: boolean;
-    scale: number; // Lower = more pixelated (e.g., 0.5 = half resolution)
+    scale: number;
   };
 }
 
@@ -51,15 +52,14 @@ interface PrintOptions {
   speed?: "instant" | "fast" | "normal" | "slow";
 }
 
-// First, let's define our types
 export type TerminalContext = {
-  command: string; // The raw command input
-  args: string[]; // Parsed arguments
-  flags: Record<string, any>; // Command flags
-  terminal: Terminal; // Give middleware access to terminal
-  error?: string; // Error message if any
-  handled?: boolean; // Whether the command was handled
-  [key: string]: any; // Allow middleware to add custom properties
+  command: string;
+  args: string[];
+  flags: Record<string, any>;
+  terminal: Terminal;
+  error?: string;
+  handled?: boolean;
+  [key: string]: any;
 };
 
 export type TerminalMiddleware = (
@@ -96,9 +96,9 @@ export class Terminal extends EventEmitter {
   };
   private colors: typeof TERMINAL_COLORS;
   private scrollOffset: number = 0;
-  private maxScrollback: number = 1000; // Maximum lines to keep in buffer
+  private maxScrollback: number = 1000;
   public context: Record<string, any> = {};
-  private currentPrintY: number = 50; // Track current print position
+  private currentPrintY: number = 50;
   private isGenerating: boolean = false;
   private loadingInterval: NodeJS.Timeout | null = null;
   private loadingMessages: string[] = [
@@ -114,17 +114,16 @@ export class Terminal extends EventEmitter {
     "Channeling void resonance...",
   ];
 
-  // Add layout configuration
   private layout = {
-    maxWidth: 900, // Maximum width in pixels
-    sidePadding: 60, // Padding on each side
-    topPadding: 40, // Padding at top
+    maxWidth: 900,
+    sidePadding: 60,
+    topPadding: 40,
   };
 
   private hiddenTextarea: HTMLTextAreaElement;
   private inputHistory: string[] = [];
   private historyIndex: number = -1;
-  private tempInput: string = ""; // Store input when navigating history
+  private tempInput: string = "";
   private matrixRainEnabled: boolean = false;
   private faceRenderer: FaceRenderer;
 
@@ -164,8 +163,8 @@ export class Terminal extends EventEmitter {
       cursor: {
         centered: false,
         leftPadding: 10,
-        mode: "dynamic", // Default to dynamic mode
-        fixedOffset: 20, // Default bottom padding
+        mode: "dynamic",
+        fixedOffset: 20,
       },
       pixelation: {
         enabled: false,
@@ -173,7 +172,7 @@ export class Terminal extends EventEmitter {
       },
     }
   ) {
-    super(); // Initialize EventEmitter
+    super();
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
     this.setupCanvas();
@@ -187,17 +186,14 @@ export class Terminal extends EventEmitter {
     this.startRenderLoop();
     this.colors = options.colors || TERMINAL_COLORS;
 
-    // Create hidden textarea for copying
     this.hiddenTextarea = document.createElement("textarea");
     this.hiddenTextarea.style.position = "absolute";
     this.hiddenTextarea.style.left = "-9999px";
     this.hiddenTextarea.style.top = "0";
     document.body.appendChild(this.hiddenTextarea);
 
-    // Register tool handlers
     this.registerToolHandlers();
 
-    // Create separate canvas for face
     const faceCanvas = document.createElement("canvas");
     faceCanvas.className = "absolute inset-0 pointer-events-none";
     canvas.parentElement?.appendChild(faceCanvas);
@@ -209,36 +205,29 @@ export class Terminal extends EventEmitter {
     const dpr = window.devicePixelRatio || 1;
 
     if (this.options.pixelation?.enabled) {
-      // Scale down the canvas resolution
       const scale = this.options.pixelation.scale;
       this.canvas.width = this.options.width * dpr * scale;
       this.canvas.height = this.options.height * dpr * scale;
 
-      // Make rendering pixelated instead of smoothed
       this.ctx.imageSmoothingEnabled = false;
 
-      // Scale context to match the reduced resolution
       this.ctx.scale(dpr * scale, dpr * scale);
     } else {
-      // Original high-resolution setup
       this.canvas.width = this.options.width * dpr;
       this.canvas.height = this.options.height * dpr;
       this.ctx.scale(dpr, dpr);
     }
 
-    // Set canvas CSS size
     this.canvas.style.width = `${this.options.width}px`;
     this.canvas.style.height = `${this.options.height}px`;
 
-    // Setup font - Let's make this more explicit
     console.log(
       "Setting font:",
       `${this.options.fontSize}px "${this.options.fontFamily}"`
-    ); // Debug log
+    );
     this.ctx.font = `${this.options.fontSize}px "${this.options.fontFamily}"`;
     this.ctx.textBaseline = "top";
 
-    // Update the font loading to use the new font
     const font = new FontFace(
       "Berkeley Mono Variable",
       `url(/BerkeleyMonoVariable-Regular.woff)`
@@ -266,10 +255,8 @@ export class Terminal extends EventEmitter {
 
   public async print(text: string, options: PrintOptions = {}): Promise<void> {
     return new Promise((resolve) => {
-      // Split by newlines first to preserve intentional breaks
       const segments = text.split("\n");
 
-      // Wrap each segment and flatten
       const wrappedLines = segments.flatMap((segment) =>
         segment ? this.wrapText(segment) : [""]
       );
@@ -287,7 +274,6 @@ export class Terminal extends EventEmitter {
         this.processNextPrint();
       }
 
-      // Auto-scroll after printing
       this.scrollToLatest();
     });
   }
@@ -304,10 +290,8 @@ export class Terminal extends EventEmitter {
     const lineHeight = this.options.fontSize * 1.5;
 
     if (speed === 0) {
-      // Instant printing
       const lines = text.split("\n");
       for (const line of lines) {
-        // Check if line is a tool command
         if (!(await this.handleToolCommand(line))) {
           this.buffer.push({
             text: line,
@@ -319,7 +303,6 @@ export class Terminal extends EventEmitter {
       }
       this.render();
     } else {
-      // Animated printing
       const lines = text.split("\n");
       for (const line of lines) {
         if (line === "") {
@@ -332,7 +315,6 @@ export class Terminal extends EventEmitter {
           continue;
         }
 
-        // Check if line is a tool command
         if (!(await this.handleToolCommand(line))) {
           const bufferLine = {
             text: "",
@@ -360,18 +342,15 @@ export class Terminal extends EventEmitter {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Add middleware
   public use(middleware: TerminalMiddleware) {
     this.middlewares.push(middleware);
-    return this; // Allow chaining
+    return this;
   }
 
-  // Execute middleware chain
   private async executeMiddleware(ctx: TerminalContext) {
-    // Merge terminal context with command context
     ctx = {
       ...ctx,
-      ...this.context, // This will include the router
+      ...this.context,
     };
 
     let index = 0;
@@ -387,16 +366,13 @@ export class Terminal extends EventEmitter {
     return ctx;
   }
 
-  // Modified handleInput to use middleware
   public async handleInput(char: string, event?: KeyboardEvent) {
     if (this.isGenerating) return;
 
-    // Handle special keys
     if (event) {
       switch (event.key) {
         case "ArrowUp":
           if (this.historyIndex < this.inputHistory.length - 1) {
-            // Store current input if we're just starting to navigate
             if (this.historyIndex === -1) {
               this.tempInput = this.inputBuffer;
             }
@@ -435,7 +411,6 @@ export class Terminal extends EventEmitter {
 
     if (char === "Enter") {
       if (this.inputBuffer.trim()) {
-        // Add command to history
         this.inputHistory.unshift(this.inputBuffer);
         this.historyIndex = -1;
         this.tempInput = "";
@@ -450,26 +425,22 @@ export class Terminal extends EventEmitter {
           flags: {},
           terminal: this,
           handled: false,
-          hasFullAccess: false, // Add this to track access state
+          hasFullAccess: false,
         };
 
         try {
-          // Add command to buffer
           await this.print(`> ${command}`, {
             color: this.options.foregroundColor,
             speed: "instant",
           });
 
-          // Check for screen-specific handling first
           const currentScreen = this.context.router?.currentScreen;
           if (currentScreen && (await currentScreen.handleCommand(command))) {
             ctx.handled = true;
           } else {
-            // Execute global middleware chain if not handled by screen
             await this.executeMiddleware(ctx);
           }
 
-          // Only show command not found if we have full access and no middleware handled it
           if (!ctx.handled && ctx.hasFullAccess) {
             await this.print(`Command not found: ${ctx.command}`, {
               color: "#ff0000",
@@ -483,7 +454,6 @@ export class Terminal extends EventEmitter {
           });
         }
       } else {
-        // Just print an empty line if no command
         await this.print("", { speed: "instant" });
         this.inputBuffer = "";
       }
@@ -507,26 +477,20 @@ export class Terminal extends EventEmitter {
   }
 
   private render(timestamp: number = 0) {
-    // Clear canvas with background
     this.ctx.fillStyle = this.options.backgroundColor;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Apply CRT effects first
     this.effects.applyCRTEffect();
 
-    // Matrix rain runs behind text
     if (this.matrixRainEnabled) {
       this.effects.applyMatrixRain();
     }
 
-    // Apply enhanced glow
     this.effects.applyGlow();
 
-    // Calculate starting Y position with padding
     let currentY = this.layout.topPadding - this.scrollOffset;
     const lineHeight = this.options.fontSize * 1.5;
 
-    // Draw buffer with padding
     this.buffer.forEach((line) => {
       const yOffset = Math.sin(timestamp * 0.001) * 0.8;
       const xOffset = Math.cos(timestamp * 0.002) * 0.3;
@@ -556,17 +520,14 @@ export class Terminal extends EventEmitter {
       currentY += lineHeight;
     });
 
-    // Draw input line and cursor with padding
     const cursorY = this.getCursorY() - this.scrollOffset;
     if (cursorY > 0 && cursorY < this.getHeight()) {
       const cursorStartX = this.getCursorStartX();
       const inputText = `> ${this.inputBuffer}`;
 
-      // Draw prompt and input
       this.ctx.fillStyle = this.options.foregroundColor;
       this.ctx.fillText(inputText, cursorStartX, cursorY);
 
-      // Draw cursor
       if (this.cursorVisible && !this.isGenerating) {
         const cursorX = cursorStartX + this.ctx.measureText(inputText).width;
         this.ctx.fillStyle = this.options.cursorColor;
@@ -579,10 +540,8 @@ export class Terminal extends EventEmitter {
       }
     }
 
-    // Reset glow for effects
     this.effects.resetGlow();
 
-    // Apply scanlines on top
     this.effects.applyScanlines(timestamp);
   }
 
@@ -605,20 +564,17 @@ export class Terminal extends EventEmitter {
     this.setupCanvas();
   }
 
-  // Helper method to get colors
   public getColors() {
     return this.colors;
   }
 
-  // Add to Terminal class
   public clear() {
     this.clearPrintQueue();
     this.buffer = [];
-    this.currentPrintY = 50; // Reset print position
+    this.currentPrintY = 50;
     this.render();
   }
 
-  // Add methods to get dimensions
   public getWidth(): number {
     return this.options.width;
   }
@@ -627,7 +583,6 @@ export class Terminal extends EventEmitter {
     return this.options.height;
   }
 
-  // Add method to get viewport dimensions (accounting for padding)
   public getViewport(): { width: number; height: number } {
     return {
       width: this.options.width,
@@ -635,7 +590,6 @@ export class Terminal extends EventEmitter {
     };
   }
 
-  // Add emit method if TypeScript complains about the type
   public emit(event: string, ...args: any[]): boolean {
     return super.emit(event, ...args);
   }
@@ -647,7 +601,7 @@ export class Terminal extends EventEmitter {
   private getCursorStartX(): number {
     if (this.options.cursor.centered) {
       const terminalWidth = Math.min(this.getWidth(), this.layout.maxWidth);
-      const promptWidth = 2; // Width of "> "
+      const promptWidth = 2;
       const inputWidth = this.inputBuffer.length;
       const totalWidth = promptWidth + inputWidth;
       const padding = Math.max(0, Math.floor((terminalWidth - totalWidth) / 2));
@@ -656,7 +610,6 @@ export class Terminal extends EventEmitter {
     return this.layout.sidePadding + (this.options.cursor.leftPadding || 10);
   }
 
-  // Add method to update cursor options
   public setCursorOptions(options: Partial<typeof this.options.cursor>) {
     this.options.cursor = {
       ...this.options.cursor,
@@ -665,7 +618,6 @@ export class Terminal extends EventEmitter {
     this.render();
   }
 
-  // Add scroll method
   public scroll(delta: number) {
     const lineHeight = this.options.fontSize * 1.5;
     const maxScroll = Math.max(
@@ -673,7 +625,6 @@ export class Terminal extends EventEmitter {
       this.buffer.length * lineHeight - this.getHeight() / 2
     );
 
-    // Make scrolling more responsive
     this.scrollOffset = Math.max(
       0,
       Math.min(maxScroll, this.scrollOffset + delta * 0.5)
@@ -682,7 +633,6 @@ export class Terminal extends EventEmitter {
     this.render();
   }
 
-  // Add method to ensure input is visible
   private ensureInputVisible() {
     const cursorY = this.getCursorY();
     const visibleHeight = this.getHeight();
@@ -693,13 +643,11 @@ export class Terminal extends EventEmitter {
     }
   }
 
-  // Add method to clear print queue
   public clearPrintQueue() {
     this.printQueue = [];
     this.isPrinting = false;
   }
 
-  // Update cleanup for screens
   public cleanup() {
     this.clearPrintQueue();
     this.clear();
@@ -713,7 +661,6 @@ export class Terminal extends EventEmitter {
     if (this.options.cursor.mode === "fixed") {
       return this.getHeight() - (this.options.cursor.fixedOffset || 20);
     } else {
-      // Use the last non-empty line position for dynamic positioning
       let lastTextPosition = this.currentPrintY;
       for (let i = this.buffer.length - 1; i >= 0; i--) {
         if (this.buffer[i].text.trim()) {
@@ -723,13 +670,12 @@ export class Terminal extends EventEmitter {
       }
 
       return Math.max(
-        lastTextPosition + lineHeight, // Add one line of spacing
-        this.getVerticalPadding() + lineHeight // Minimum distance from top
+        lastTextPosition + lineHeight,
+        this.getVerticalPadding() + lineHeight
       );
     }
   }
 
-  // Update getMaxCharsPerLine to respect maxWidth and padding
   private getMaxCharsPerLine(): number {
     const charWidth = this.ctx.measureText("M").width;
     const availableWidth = Math.min(
@@ -739,7 +685,6 @@ export class Terminal extends EventEmitter {
     return Math.floor(availableWidth / charWidth);
   }
 
-  // Add line wrapping helper
   private wrapText(text: string): string[] {
     const maxChars = this.getMaxCharsPerLine();
     const words = text.split(" ");
@@ -747,20 +692,17 @@ export class Terminal extends EventEmitter {
     let currentLine = "";
 
     for (const word of words) {
-      // Handle words that are longer than maxChars
       if (word.length > maxChars) {
         if (currentLine) {
           lines.push(currentLine);
           currentLine = "";
         }
-        // Split long word into chunks
         for (let i = 0; i < word.length; i += maxChars) {
           lines.push(word.slice(i, i + maxChars));
         }
         continue;
       }
 
-      // Check if adding this word would exceed the line length
       if (currentLine.length + word.length + 1 <= maxChars) {
         currentLine += (currentLine ? " " : "") + word;
       } else {
@@ -776,7 +718,6 @@ export class Terminal extends EventEmitter {
     return lines;
   }
 
-  // Add method to scroll to latest content
   public scrollToLatest() {
     const lineHeight = this.options.fontSize * 1.5;
     const totalContentHeight = this.currentPrintY + lineHeight;
@@ -788,10 +729,9 @@ export class Terminal extends EventEmitter {
     }
   }
 
-  // Add method to scroll for input
   private scrollForInput() {
     const lineHeight = this.options.fontSize * 1.5;
-    const extraScrollSpace = lineHeight * 3; // Add 3 lines of extra space
+    const extraScrollSpace = lineHeight * 3;
     const totalContentHeight = this.currentPrintY + extraScrollSpace;
     const visibleHeight = this.getHeight();
 
@@ -801,7 +741,6 @@ export class Terminal extends EventEmitter {
     }
   }
 
-  // Simplified generation state handling
   public startGeneration() {
     this.isGenerating = true;
     this.cursorVisible = false;
@@ -812,11 +751,9 @@ export class Terminal extends EventEmitter {
     this.isGenerating = false;
     this.cursorVisible = true;
     this.render();
-    // Add extra scroll space for input
     this.scrollForInput();
   }
 
-  // Update processAIStream to ensure proper scrolling after content
   public async processAIStream(
     stream: ReadableStream<Uint8Array> | null,
     options: PrintOptions & { addSpacing?: boolean } = { addSpacing: true }
@@ -836,16 +773,13 @@ export class Terminal extends EventEmitter {
         const { done, value } = await reader.read();
         if (done) break;
 
-        // Decode the Uint8Array chunk to string
         const text = decoder.decode(value);
         responseText += text;
 
-        // Process each character
         for (const char of text) {
           if (char === "\n") {
             consecutiveNewlines++;
 
-            // Print current line if we have content
             if (currentLine.trim()) {
               await this.print(currentLine, {
                 color: options.color || TERMINAL_COLORS.primary,
@@ -854,7 +788,6 @@ export class Terminal extends EventEmitter {
               currentLine = "";
             }
 
-            // If we have two consecutive newlines, add a blank line
             if (consecutiveNewlines === 2) {
               await this.print("", { speed: "instant" });
               consecutiveNewlines = 0;
@@ -866,7 +799,6 @@ export class Terminal extends EventEmitter {
         }
       }
 
-      // Print any remaining text in the buffer
       if (currentLine.trim()) {
         await this.print(currentLine, {
           color: options.color || TERMINAL_COLORS.primary,
@@ -874,7 +806,6 @@ export class Terminal extends EventEmitter {
         });
       }
 
-      // Ensure proper scrolling after all content is printed
       this.scrollForInput();
     } finally {
       reader.releaseLock();
@@ -884,7 +815,6 @@ export class Terminal extends EventEmitter {
     return responseText;
   }
 
-  // Make these public for command access
   public getBufferText(): string {
     return this.buffer.map((line) => line.text).join("\n");
   }
@@ -931,7 +861,6 @@ export class Terminal extends EventEmitter {
     toolEvents.on(
       "tool:glitch_screen",
       async (params: { intensity: number; duration: number }) => {
-        // Take a deep copy of the buffer state
         const originalBuffer = this.buffer.map((line) => ({
           ...line,
           text: line.text,
@@ -940,18 +869,15 @@ export class Terminal extends EventEmitter {
 
         const glitchInterval = setInterval(() => {
           if (Math.random() < params.intensity) {
-            // Create corrupted version while maintaining exact structure
             this.buffer = originalBuffer.map((line) => ({
               ...line,
               text: this.corruptText(line.text, params.intensity),
             }));
 
-            // Ensure buffer hasn't grown
             while (this.buffer.length > originalBuffer.length) {
               this.buffer.pop();
             }
 
-            // Ensure buffer hasn't shrunk
             while (this.buffer.length < originalBuffer.length) {
               this.buffer.push({ ...originalBuffer[this.buffer.length] });
             }
@@ -960,7 +886,6 @@ export class Terminal extends EventEmitter {
           }
         }, 50);
 
-        // Restore original state after duration
         setTimeout(() => {
           clearInterval(glitchInterval);
           this.buffer = originalBuffer;
@@ -994,18 +919,14 @@ export class Terminal extends EventEmitter {
   }
 
   private corruptText(text: string, intensity: number): string {
-    // Keep exact same length and preserve spaces and special characters
     return text
       .split("")
       .map((char) => {
-        // Never corrupt spaces, newlines, or prompt characters
         if (char === " " || char === "\n" || char === ">") {
           return char;
         }
         if (Math.random() < intensity * 0.3) {
-          // Only use visible ASCII characters that won't affect formatting
           const charCode = 33 + Math.floor(Math.random() * 94);
-          // Avoid characters that might affect terminal formatting
           return String.fromCharCode(charCode);
         }
         return char;
@@ -1013,31 +934,25 @@ export class Terminal extends EventEmitter {
       .join("");
   }
 
-  // Add a new method to handle tool command output
   private async handleToolCommand(command: string) {
-    // Skip empty lines that just contain tool JSON
     if (command.trim().startsWith("{") && command.trim().endsWith("}")) {
       try {
         const toolCommand = JSON.parse(command);
-        // Process tool command without adding to buffer or affecting cursor
         if (toolCommand.tool && toolCommand.parameters) {
           toolEvents.emit(`tool:${toolCommand.tool}`, toolCommand.parameters);
         }
-        return true; // Indicate this was a tool command
+        return true;
       } catch (e) {
-        // Not valid JSON, treat as regular text
         return false;
       }
     }
     return false;
   }
 
-  // Add this method to the Terminal class
   private getVerticalPadding(): number {
-    return this.layout.topPadding || 40; // Use layout padding or default to 40px
+    return this.layout.topPadding || 40;
   }
 
-  // Add method to trigger face
   public async showFace(
     text: string,
     options: {
@@ -1048,10 +963,8 @@ export class Terminal extends EventEmitter {
   ) {
     const { emergeTime = 3000, intensity = 0.7, emotion = "neutral" } = options;
 
-    // Emerge from static
     await this.faceRenderer.emergeFromStatic(emergeTime);
 
-    // Speak the text
     await this.faceRenderer.speak(text, {
       intensity,
       speed: 1,

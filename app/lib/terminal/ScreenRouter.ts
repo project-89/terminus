@@ -1,8 +1,9 @@
-import { Terminal } from "./Terminal";
+import { Terminal, TERMINAL_COLORS } from "./Terminal";
 import { BaseScreen, TransitionOptions } from "./screens/BaseScreen";
 import { StaticScreen } from "./screens/StaticScreen";
 import { FluidScreen } from "./screens/FluidScreen";
 import { AdventureScreen } from "./screens/AdventureScreen";
+import { ArchiveScreen } from "./screens/ArchiveScreen";
 
 interface Route {
   path: string;
@@ -28,8 +29,32 @@ export class ScreenRouter {
     this.register("fluid", FluidScreen);
     this.register("static", StaticScreen);
     this.register("adventure", AdventureScreen);
+    this.register("archive", ArchiveScreen);
 
     console.log("Available routes:", Array.from(this.routes.keys()));
+
+    // **Listen to URL changes**
+    window.addEventListener("popstate", (event) => {
+      const screen = event.state?.screen || this.getScreenFromURL() || "fluid";
+      this.navigate(screen, { type: "instant", replaceState: true }).catch(
+        console.error
+      );
+    });
+
+    // **Navigate to initial screen based on URL**
+    const initialScreen = this.getScreenFromURL() || "fluid";
+    this.navigate(initialScreen, { type: "instant", replaceState: true }).catch(
+      console.error
+    );
+  }
+
+  private getScreenFromURL(): string | null {
+    const urlParams = new URLSearchParams(window.location.search);
+    const screen = urlParams.get("screen");
+    if (screen && this.routes.has(screen)) {
+      return screen;
+    }
+    return null;
   }
 
   public register(path: string, screen: new (context: any) => BaseScreen) {
@@ -40,7 +65,9 @@ export class ScreenRouter {
 
   public async navigate(
     to: string,
-    options: TransitionOptions = { type: "instant" }
+    options: TransitionOptions & { replaceState?: boolean } = {
+      type: "instant",
+    }
   ) {
     console.log(`Attempting to navigate to: ${to}`);
 
@@ -68,6 +95,9 @@ export class ScreenRouter {
         this.currentScreen = undefined;
       }
 
+      // **Update URL without reloading**
+      this.updateURL(to, options.replaceState);
+
       console.log("Creating new screen instance");
       const newScreen = new route.screen({ terminal: this.terminal });
       await newScreen.render();
@@ -88,6 +118,17 @@ export class ScreenRouter {
         this.pendingTransition = null;
         await this.navigate(nextScreen);
       }
+    }
+  }
+
+  private updateURL(screen: string, replaceState?: boolean) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("screen", screen);
+
+    if (replaceState) {
+      window.history.replaceState({ screen }, "", url.toString());
+    } else {
+      window.history.pushState({ screen }, "", url.toString());
     }
   }
 }

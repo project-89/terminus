@@ -82,9 +82,6 @@ export function TerminalCanvas() {
       .use(commandsMiddleware)
       .use(adventureMiddleware);
 
-    // Navigate to fluid screen instead of adventure
-    router.current.navigate("fluid").catch(console.error);
-
     // Add keyboard handler
     const handleKeyDown = (e: KeyboardEvent) => {
       // Prevent default for terminal keys
