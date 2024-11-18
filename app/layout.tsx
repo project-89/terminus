@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Project 89 Agent Command Line Interface",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;

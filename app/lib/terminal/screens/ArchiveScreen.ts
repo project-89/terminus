@@ -43,7 +43,7 @@ export class ArchiveScreen extends BaseScreen {
   };
 
   private header = `
-█████████████████████████████████████████████████████████████████████████████
+███████████████████████████████████████████████████████████████████████████████████
 
 ██████╗  █████╗ ████████╗ █████╗     ██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗
 ██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗    ██║   ██║██╔══██╗██║   ██║██║  ╚══██╔══╝
@@ -54,14 +54,15 @@ export class ArchiveScreen extends BaseScreen {
 [RESTRICTED ACCESS] [REALITY COHERENCE: 89.3%] [SIMULATION ANOMALIES DETECTED]
 ///////////////////////////////////////////////////////////////////////////////
 >> AUTHORIZED PERSONNEL ONLY << ONEIROCOM SECURITY MONITORING ACTIVE << BEWARE //
-█████████████████████████████████████████████████████████████████████████████`.trim();
+███████████████████████████████████████████████████████████████████████████████████`.trim();
 
   // Add new properties for file viewing
   private isViewingFile: boolean = false;
   private scrollOffset: number = 0;
   private contentLines: string[] = [];
   private maxScrollOffset: number = 0;
-  private readonly linesPerPage = 20;
+  private linesPerPage: number = 30;
+  private readonly maxLineWidth: number = 0;
 
   // Add loading state property
   private isLoading: boolean = false;
@@ -83,10 +84,55 @@ export class ArchiveScreen extends BaseScreen {
   private noiseCtx: CanvasRenderingContext2D;
   private lastFrameTime: number = 0;
 
+  // Add new state properties
+  private isPasswordPrompt: boolean = false;
+  private currentPassword: string = "";
+  private protectedPaths = new Set(["vault"]);
+  private incorrectAttempts: number = 0;
+  private isLocked: boolean = true;
+
+  // Add new properties for PDF viewing
+  private isPdfViewing: boolean = false;
+  private currentPdfPage: number = 1;
+  private totalPdfPages: number = 1;
+  private pdfScale: number = 1.0;
+
+  // Add PDF document storage
+  private pdfDocument: any = null;
+
+  private pdfLib: any = null;
+
   private handleKeyDown = async (e: KeyboardEvent) => {
+    if (this.isPasswordPrompt) {
+      e.preventDefault();
+
+      if (e.key === "Enter") {
+        await this.validatePassword();
+      } else if (e.key === "Escape") {
+        this.isPasswordPrompt = false;
+        this.currentPassword = "";
+        await this.displayItems();
+      } else if (e.key === "Backspace") {
+        this.currentPassword = this.currentPassword.slice(0, -1);
+        await this.renderPasswordPrompt();
+      } else if (e.key.length === 1) {
+        // Only add printable characters
+        this.currentPassword += e.key;
+        await this.renderPasswordPrompt();
+      }
+      return;
+    }
+
     if (this.isNavigating) return;
 
     if (this.isViewingFile) {
+      // Add download shortcut
+      if (e.ctrlKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        await this.downloadCurrentFile();
+        return;
+      }
+
       // Handle file viewing controls
       if (e.key === "ArrowUp") {
         e.preventDefault();
@@ -114,6 +160,21 @@ export class ArchiveScreen extends BaseScreen {
         e.preventDefault();
         this.isViewingFile = false;
         this.scrollOffset = 0;
+        await this.displayItems();
+      }
+      return;
+    }
+
+    if (this.isPdfViewing) {
+      if (e.key === "ArrowRight" && this.currentPdfPage < this.totalPdfPages) {
+        this.currentPdfPage++;
+        await this.renderPdfPage(this.pdfDocument, this.currentPdfPage);
+      } else if (e.key === "ArrowLeft" && this.currentPdfPage > 1) {
+        this.currentPdfPage--;
+        await this.renderPdfPage(this.pdfDocument, this.currentPdfPage);
+      } else if (e.key === "Escape") {
+        this.isPdfViewing = false;
+        this.currentPdfPage = 1;
         await this.displayItems();
       }
       return;
@@ -155,6 +216,7 @@ export class ArchiveScreen extends BaseScreen {
 
   constructor(context: { terminal: Terminal }) {
     super(context);
+    this.initializePdfLib();
 
     // Create our own canvas
     this.canvas = document.createElement("canvas");
@@ -271,15 +333,31 @@ export class ArchiveScreen extends BaseScreen {
   }
 
   private async renderItems() {
-    // If loading, show loading screen instead of items
-    if (this.isLoading) {
-      await this.renderLoadingScreen();
-      return;
-    }
-
     // Clear canvas
     this.ctx.fillStyle = this.layout.colors.background;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // If loading, show simple loading message
+    if (this.isLoading) {
+      const centerY = this.canvas.height / (2 * window.devicePixelRatio);
+
+      // Draw loading message
+      this.drawText("ACCESSING QUANTUM STORAGE...", 0, centerY - 40, {
+        color: this.layout.colors.foreground,
+        align: "center",
+        glow: true,
+      });
+
+      this.drawText("PLEASE MAINTAIN NEURAL LINK", 0, centerY, {
+        color: this.layout.colors.dim,
+        align: "center",
+        glow: true,
+      });
+
+      // Add effects
+      this.renderEffects();
+      return;
+    }
 
     let y = this.layout.padding.top;
 
@@ -431,10 +509,9 @@ export class ArchiveScreen extends BaseScreen {
     parent: FileSystemItem | null
   ): Promise<FileSystemItem[]> {
     try {
-      // Only show loading for vault-related paths
       if (path.includes("vault")) {
         this.isLoading = true;
-        this.renderLoadingScreen();
+        await this.renderItems();
       }
 
       const response = await fetch(
@@ -443,13 +520,23 @@ export class ArchiveScreen extends BaseScreen {
 
       if (response.ok) {
         const items = await response.json();
-        return items.map((item: any) => ({
+        const mappedItems = items.map((item: FileMetadata) => ({
           ...item,
           expanded: false,
           children: [],
           level,
           parent,
         }));
+
+        // Sort items: folders first, then files, both alphabetically
+        return mappedItems.sort((a: FileSystemItem, b: FileSystemItem) => {
+          // If both are directories or both are files, sort alphabetically
+          if (a.isDirectory === b.isDirectory) {
+            return a.name.localeCompare(b.name);
+          }
+          // If one is a directory and one is a file, directory comes first
+          return a.isDirectory ? -1 : 1;
+        });
       } else {
         console.error("Failed to fetch items", response.statusText);
       }
@@ -472,6 +559,14 @@ export class ArchiveScreen extends BaseScreen {
   private async expandItem() {
     const item = this.items[this.selectedIndex];
     if (item.isDirectory && !item.expanded) {
+      // Check if this is a protected path
+      if (this.protectedPaths.has(item.name) && this.isLocked) {
+        this.isPasswordPrompt = true;
+        this.currentPassword = "";
+        await this.renderPasswordPrompt();
+        return;
+      }
+
       item.expanded = true;
       const path = this.getFullPath(item);
       const children = await this.fetchItems(path, item.level + 1, item);
@@ -518,9 +613,9 @@ export class ArchiveScreen extends BaseScreen {
       const extension = selectedItem.name.split(".").pop()?.toLowerCase();
 
       if (extension === "txt" || extension === "md") {
-        await this.viewFile(selectedItem, extension);
+        await this.viewFile(selectedItem, extension as "txt" | "md");
       } else {
-        // Show download message for other file types
+        // Show download message for all other file types (including PDFs)
         const messageY = this.canvas.height - this.layout.spacing.line * 4;
 
         // Clear previous message area
@@ -563,66 +658,129 @@ export class ArchiveScreen extends BaseScreen {
     }
   }
 
-  // Modify viewFile to show loading state
-  private async viewFile(item: FileSystemItem, fileType: "txt" | "md") {
+  // Modify viewFile method to handle PDFs
+  private async viewFile(item: FileSystemItem, fileType: "txt" | "md" | "pdf") {
     try {
       const path = this.getFullPath(item);
 
-      // Show loading for vault files
-      if (path.includes("vault")) {
-        this.isLoading = true;
-        this.renderLoadingScreen();
+      if (fileType === "pdf") {
+        await this.viewPdf(path);
+        return;
       }
 
-      // First try to fetch existing file
-      let response = await fetch(
-        `/api/archive?path=${encodeURIComponent(path)}&view=1`
-      );
-
-      // If file doesn't exist, generate it
-      if (!response.ok) {
-        response = await fetch("/api/archive", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            path: path,
-            action: "generate_file",
-          }),
-        });
-      }
-
-      if (!response.ok)
-        throw new Error("Failed to fetch/generate file contents");
-      const content = await response.text();
-
-      this.isLoading = false;
-
-      // Set viewing state and render content
-      this.isViewingFile = true;
-      this.scrollOffset = 0;
-      this.contentLines = content.split("\n");
-      this.maxScrollOffset = Math.max(
-        0,
-        this.contentLines.length - this.linesPerPage
-      );
-
-      await this.renderFileContent();
+      // Existing text/markdown viewing code...
     } catch (error) {
       console.error("Error viewing file:", error);
-      this.isLoading = false;
+    }
+  }
 
-      // Show error message
-      this.ctx.fillStyle = TERMINAL_COLORS.error;
-      const errorMsg = "ERROR: Failed to access file contents";
-      const errorWidth = this.ctx.measureText(errorMsg).width;
-      this.ctx.fillText(
-        errorMsg,
-        (this.canvas.width - errorWidth) / 2,
-        this.canvas.height / 2
+  private async viewPdf(path: string) {
+    try {
+      if (!this.pdfLib) {
+        await this.initializePdfLib();
+      }
+
+      if (!this.pdfLib) {
+        throw new Error("Failed to initialize PDF.js");
+      }
+
+      this.isLoading = true;
+      await this.renderItems();
+
+      const response = await fetch(
+        `/api/archive?path=${encodeURIComponent(path)}&view=1`
       );
-      setTimeout(() => {
-        this.displayItems();
-      }, 2000);
+      
+      if (!response.ok) {
+        throw new Error("Failed to fetch PDF");
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+
+      // Load PDF with additional options for better compatibility
+      this.pdfDocument = await this.pdfLib.getDocument({
+        data: arrayBuffer,
+        verbosity: 0,
+        cMapUrl: 'https://unpkg.com/pdfjs-dist/cmaps/',
+        cMapPacked: true,
+        standardFontDataUrl: 'https://unpkg.com/pdfjs-dist/standard_fonts/',
+        disableAutoFetch: true,
+        disableStream: false,
+      }).promise;
+
+      this.totalPdfPages = this.pdfDocument.numPages;
+      this.isPdfViewing = true;
+      this.currentPdfPage = 1;
+
+      // Render first page
+      await this.renderPdfPage(this.pdfDocument, 1);
+    } catch (error) {
+      console.error("Error loading PDF:", error);
+      // Reset viewing state
+      this.isPdfViewing = false;
+      this.pdfDocument = null;
+      // Show error message
+      const centerY = this.canvas.height / (2 * window.devicePixelRatio);
+      this.drawText("ERROR LOADING PDF", 0, centerY - 20, {
+        color: TERMINAL_COLORS.error,
+        align: "center",
+        glow: true,
+      });
+      // Return to file list after delay
+      setTimeout(() => this.displayItems(), 2000);
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  private async renderPdfPage(pdf: any, pageNumber: number) {
+    try {
+      // Clear canvas
+      this.ctx.fillStyle = this.layout.colors.background;
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+      // Get page
+      const page = await pdf.getPage(pageNumber);
+
+      // Calculate scale to fit width
+      const viewport = page.getViewport({ scale: 1.0 });
+      const availableWidth =
+        this.canvas.width / window.devicePixelRatio -
+        (this.layout.padding.left + this.layout.padding.right);
+      this.pdfScale = availableWidth / viewport.width;
+
+      // Update viewport with new scale
+      const scaledViewport = page.getViewport({ scale: this.pdfScale });
+
+      // Render PDF page
+      await page.render({
+        canvasContext: this.ctx,
+        viewport: scaledViewport,
+        transform: [
+          1,
+          0,
+          0,
+          1,
+          this.layout.padding.left,
+          this.layout.padding.top,
+        ],
+      }).promise;
+
+      // Draw page info
+      this.drawText(
+        `Page ${pageNumber}/${this.totalPdfPages}`,
+        0,
+        this.canvas.height / window.devicePixelRatio - 40,
+        {
+          color: this.layout.colors.dim,
+          align: "center",
+        }
+      );
+
+      // Add effects
+      this.renderEffects();
+    } catch (error) {
+      console.error("Error rendering PDF page:", error);
     }
   }
 
@@ -631,10 +789,65 @@ export class ArchiveScreen extends BaseScreen {
     this.ctx.fillStyle = this.layout.colors.background;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    let y = this.layout.padding.top;
+    // Calculate available width for text (accounting for padding)
+    const availableWidth =
+      this.canvas.width / window.devicePixelRatio -
+      (this.layout.padding.left + this.layout.padding.right);
 
-    // Render visible lines with glow
-    const visibleLines = this.contentLines.slice(
+    // Word wrap function
+    const wrapText = (text: string): string[] => {
+      // If the line is empty (paragraph break), return an empty line
+      if (!text.trim()) {
+        return [""];
+      }
+
+      const words = text.split(" ");
+      const lines: string[] = [];
+      let currentLine = "";
+
+      this.ctx.font = `${this.layout.sizes.text}px "${this.layout.fontFamily}"`;
+
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const metrics = this.ctx.measureText(testLine);
+
+        if (metrics.width > availableWidth && currentLine) {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      }
+
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+
+      return lines;
+    };
+
+    // Process all content lines with word wrap
+    const wrappedLines: string[] = [];
+    for (const line of this.contentLines) {
+      wrappedLines.push(...wrapText(line));
+    }
+
+    // Calculate usable viewport height
+    const viewportHeight =
+      this.canvas.height / window.devicePixelRatio -
+      (this.layout.padding.top +
+        this.layout.padding.bottom +
+        this.layout.spacing.line * 2); // Extra space for footer
+
+    // Calculate how many lines can fit in the viewport
+    this.linesPerPage = Math.floor(viewportHeight / this.layout.spacing.line);
+
+    // Update max scroll offset based on wrapped content
+    this.maxScrollOffset = Math.max(0, wrappedLines.length - this.linesPerPage);
+
+    // Render visible lines
+    let y = this.layout.padding.top;
+    const visibleLines = wrappedLines.slice(
       this.scrollOffset,
       this.scrollOffset + this.linesPerPage
     );
@@ -647,21 +860,27 @@ export class ArchiveScreen extends BaseScreen {
       y += this.layout.spacing.line;
     }
 
-    // Render scroll indicators if needed
+    // Draw scroll indicators if needed
     if (this.maxScrollOffset > 0) {
       this.renderScrollIndicators();
     }
 
-    // Render footer
+    // Update footer - position it at the absolute bottom
     const footerY =
-      this.canvas.height -
+      this.canvas.height / window.devicePixelRatio -
       (this.layout.padding.bottom + this.layout.spacing.line);
+
     this.ctx.fillStyle = this.layout.colors.dim;
     this.ctx.fillRect(0, footerY - 4, this.canvas.width, 1);
-    this.ctx.fillText(
-      "↑/↓: Scroll   PgUp/PgDn: Page   Esc: Back",
+
+    this.drawText(
+      "↑/↓: Scroll   PgUp/PgDn: Page   Ctrl+D: Download   Esc: Back",
       this.layout.padding.left,
-      footerY + 12
+      footerY + 12,
+      {
+        color: this.layout.colors.dim,
+        glow: false,
+      }
     );
 
     // Add effects on top
@@ -670,17 +889,34 @@ export class ArchiveScreen extends BaseScreen {
 
   private renderScrollIndicators() {
     const scrollPercentage = this.scrollOffset / this.maxScrollOffset;
-    const scrollBarHeight = 200;
+    const canvasHeight = this.canvas.height / window.devicePixelRatio;
+    const scrollTrackHeight =
+      canvasHeight - (this.layout.padding.top + this.layout.padding.bottom);
+    const scrollThumbHeight = Math.max(
+      20,
+      (this.linesPerPage / this.contentLines.length) * scrollTrackHeight
+    );
     const scrollBarY =
-      (this.canvas.height - scrollBarHeight) * scrollPercentage;
+      this.layout.padding.top +
+      (scrollTrackHeight - scrollThumbHeight) * scrollPercentage;
 
-    // Render scroll bar
+    // Render scroll track
     this.ctx.fillStyle = this.layout.colors.dim;
-    this.ctx.fillRect(this.canvas.width - 8, 0, 2, this.canvas.height);
+    this.ctx.fillRect(
+      this.canvas.width / window.devicePixelRatio - 8,
+      this.layout.padding.top,
+      2,
+      scrollTrackHeight
+    );
 
     // Render scroll thumb
     this.ctx.fillStyle = this.layout.colors.foreground;
-    this.ctx.fillRect(this.canvas.width - 8, scrollBarY, 2, 20);
+    this.ctx.fillRect(
+      this.canvas.width / window.devicePixelRatio - 8,
+      scrollBarY,
+      2,
+      scrollThumbHeight
+    );
   }
 
   private getFullPath(item: FileSystemItem): string {
@@ -699,19 +935,29 @@ export class ArchiveScreen extends BaseScreen {
   }
 
   async cleanup(): Promise<void> {
+    if (this.pdfDocument) {
+      try {
+        await this.pdfDocument.destroy();
+      } catch (e) {
+        console.error("Error destroying PDF document:", e);
+      }
+      this.pdfDocument = null;
+    }
+
     window.removeEventListener("keydown", this.handleKeyDown);
     this.canvas.removeEventListener("wheel", this.handleWheel);
-
+    
     // Remove CRT overlays
     const parent = this.canvas.parentElement;
     if (parent) {
       const overlays = parent.querySelectorAll(".pointer-events-none");
-      overlays.forEach((overlay) => overlay.remove());
+      overlays.forEach(overlay => overlay.remove());
     }
 
     if (this.glitchTimeout) {
       clearTimeout(this.glitchTimeout);
     }
+
     this.canvas.remove();
     this.noiseCanvas.remove();
     this.terminal.canvas.style.display = "block";
@@ -850,4 +1096,152 @@ export class ArchiveScreen extends BaseScreen {
     // Continue animation loop
     requestAnimationFrame(this.animate);
   };
+
+  // Add new method for downloading files
+  private async downloadCurrentFile() {
+    const selectedItem = this.items[this.selectedIndex];
+    const path = this.getFullPath(selectedItem);
+    const extension = selectedItem.name.split(".").pop()?.toLowerCase();
+
+    // Calculate centerY at the start of the method
+    const centerY = this.canvas.height / (2 * window.devicePixelRatio);
+
+    // Only allow downloading of text/markdown files
+    if (extension !== "txt" && extension !== "md") {
+      return;
+    }
+
+    try {
+      // Show downloading message
+      this.drawText("INITIATING QUANTUM TRANSFER...", 0, centerY - 20, {
+        color: this.layout.colors.foreground,
+        align: "center",
+        glow: true,
+      });
+
+      // Fetch the file content
+      const response = await fetch(
+        `/api/archive?path=${encodeURIComponent(path)}&view=1`
+      );
+      if (!response.ok) throw new Error("Failed to fetch file");
+
+      const content = await response.text();
+
+      // Create blob and download
+      const blob = new Blob([content], {
+        type: extension === "md" ? "text/markdown" : "text/plain",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = selectedItem.name;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      // Show success message briefly
+      this.drawText("TRANSFER COMPLETE", 0, centerY + 20, {
+        color: this.layout.colors.foreground,
+        align: "center",
+        glow: true,
+      });
+
+      setTimeout(() => this.renderFileContent(), 1000);
+    } catch (error) {
+      console.error("Download error:", error);
+
+      // Show error message
+      this.drawText("TRANSFER FAILED", 0, centerY + 20, {
+        color: TERMINAL_COLORS.error,
+        align: "center",
+        glow: true,
+      });
+
+      setTimeout(() => this.renderFileContent(), 1000);
+    }
+  }
+
+  // Add password prompt rendering
+  private async renderPasswordPrompt() {
+    this.ctx.fillStyle = this.layout.colors.background;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    const centerY = this.canvas.height / (2 * window.devicePixelRatio);
+
+    // Draw warning header
+    this.drawText("⚠ SECURE QUANTUM VAULT ACCESS ⚠", 0, centerY - 80, {
+      color: this.layout.colors.foreground,
+      align: "center",
+      glow: true,
+    });
+
+    // Draw authentication prompt
+    this.drawText("ENTER NEURAL AUTHENTICATION KEY:", 0, centerY - 20, {
+      color: this.layout.colors.dim,
+      align: "center",
+    });
+
+    // Draw password field
+    const dots = "•".repeat(this.currentPassword.length);
+    this.drawText(dots, 0, centerY + 20, {
+      color: this.layout.colors.foreground,
+      align: "center",
+      glow: true,
+    });
+
+    // Draw error message if there are incorrect attempts
+    if (this.incorrectAttempts > 0) {
+      this.drawText(
+        `ACCESS DENIED - NEURAL PATTERN MISMATCH (${this.incorrectAttempts}/3)`,
+        0,
+        centerY + 60,
+        {
+          color: TERMINAL_COLORS.error,
+          align: "center",
+        }
+      );
+    }
+
+    // Add effects
+    this.renderEffects();
+  }
+
+  // Add password validation
+  private async validatePassword() {
+    // TODO: Replace with actual password validation logic
+    const correctPassword = "REALITY-897";
+
+    if (this.currentPassword === correctPassword) {
+      this.isPasswordPrompt = false;
+      this.isLocked = false;
+      this.incorrectAttempts = 0;
+      this.currentPassword = "";
+      await this.expandItem();
+    } else {
+      this.incorrectAttempts++;
+      this.currentPassword = "";
+      if (this.incorrectAttempts >= 3) {
+        // Lock out after 3 attempts
+        this.isPasswordPrompt = false;
+        await this.displayItems();
+      } else {
+        await this.renderPasswordPrompt();
+      }
+    }
+  }
+
+  private async initializePdfLib() {
+    try {
+      // Dynamically import PDF.js only when needed
+      const PDFJS = await import('pdfjs-dist');
+      this.pdfLib = PDFJS;
+      
+      // Use correct file extension for ES modules
+      const workerUrl = `https://unpkg.com/pdfjs-dist@${PDFJS.version}/build/pdf.worker.min.mjs`;
+      this.pdfLib.GlobalWorkerOptions.workerSrc = workerUrl;
+    } catch (error) {
+      console.error('Failed to initialize PDF.js:', error);
+    }
+  }
 }
