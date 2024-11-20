@@ -107,6 +107,33 @@ export class FluidAscii {
     "MATRIX RECURSION DEPTH: ∞",
   ];
 
+  // Add configuration options
+  private config = {
+    backgroundOpacity: 0.3, // Reduced background opacity
+    starPulseChance: 0.0005, // Reduced chance for new pulses
+    starPulseIntensity: 0.7, // Slightly reduced pulse intensity
+    baseColor: "rgba(47, 183, 195, 0.4)", // More transparent base color
+    pulseLength: 3000, // How long each pulse lasts (ms)
+    pulseEasing: "softPulse", // Which easing function to use
+    maxPulsingStars: 5, // Reduced max concurrent pulses
+  };
+
+  // Add easing functions
+  private easings = {
+    linear: (t: number) => t,
+    easeInOut: (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
+    sine: (t: number) => (1 + Math.sin(Math.PI * t - Math.PI / 2)) / 2,
+    softPulse: (t: number) => (1 + Math.sin(Math.PI * 2 * t)) / 2,
+  };
+
+  // Add star tracking
+  private pulsingStars: Set<{
+    x: number;
+    y: number;
+    startTime: number;
+    intensity: number;
+  }> = new Set();
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
@@ -222,26 +249,73 @@ export class FluidAscii {
   private animate = () => {
     this.time += this.physics.timeStep;
 
-    // Clear canvas
-    this.ctx.fillStyle = "rgba(0, 0, 0, 1)";
+    // Clear canvas with a less aggressive clear
+    this.ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Gradually increase tilt
+    // Update tilt
     if (this.physics.tiltAngle < this.physics.maxTiltAngle) {
       this.physics.tiltAngle += this.physics.tiltSpeed;
     }
 
-    // Draw all visible characters with tilt transformation
+    const currentTime = performance.now();
+
+    // Draw all visible characters
     this.grid.forEach((point) => {
       if (!point.absorbed) {
-        // Apply tilt transformation to point position
         const transformed = this.transformPoint(
           point.x - this.galaxy.centerX,
           point.y - this.galaxy.centerY
         );
 
-        // Draw character at transformed position
-        this.ctx.fillStyle = "#2fb7c3";
+        // Add new pulsing star with timing
+        if (
+          this.pulsingStars.size < this.config.maxPulsingStars &&
+          Math.random() < this.config.starPulseChance
+        ) {
+          this.pulsingStars.add({
+            x: transformed.x + this.galaxy.centerX,
+            y: transformed.y + this.galaxy.centerY,
+            startTime: currentTime,
+            intensity: 0,
+          });
+        }
+
+        // Find any pulsing star at this position
+        const isPulsingStar = Array.from(this.pulsingStars).find(
+          (star) =>
+            Math.abs(star.x - (transformed.x + this.galaxy.centerX)) < 5 &&
+            Math.abs(star.y - (transformed.y + this.galaxy.centerY)) < 5
+        );
+
+        if (isPulsingStar) {
+          // Calculate pulse progress
+          const elapsed = currentTime - isPulsingStar.startTime;
+          const progress = Math.min(elapsed / this.config.pulseLength, 1);
+
+          // Apply easing function
+          const easeFunc =
+            this.easings[this.config.pulseEasing as keyof typeof this.easings];
+          const pulseValue = easeFunc(progress);
+
+          // Set character style with eased pulse
+          this.ctx.fillStyle = this.config.baseColor;
+          this.ctx.globalAlpha =
+            this.config.backgroundOpacity +
+            (this.config.starPulseIntensity - this.config.backgroundOpacity) *
+              pulseValue;
+
+          // Remove completed pulses
+          if (progress >= 1) {
+            this.pulsingStars.delete(isPulsingStar);
+          }
+        } else {
+          // Normal background character
+          this.ctx.fillStyle = this.config.baseColor;
+          this.ctx.globalAlpha = this.config.backgroundOpacity;
+        }
+
+        // Draw character
         this.ctx.fillText(
           point.char,
           transformed.x + this.galaxy.centerX,
@@ -250,12 +324,17 @@ export class FluidAscii {
       }
     });
 
+    // Reset alpha
+    this.ctx.globalAlpha = 1;
+
+    // Continue animation loop
     this.animationFrame = requestAnimationFrame(this.animate);
   };
 
   public start() {
-    if (this.animationFrame) return;
-    this.animate();
+    if (!this.animationFrame) {
+      this.animate();
+    }
   }
 
   public stop() {
@@ -371,5 +450,20 @@ export class FluidAscii {
 
       animate();
     });
+  }
+
+  // Add method to update easing function
+  public setEasing(easingName: keyof typeof this.easings) {
+    if (this.easings[easingName]) {
+      this.config.pulseEasing = easingName;
+    }
+  }
+
+  // Add public method to update configuration
+  public updateConfig(newConfig: Partial<typeof this.config>) {
+    this.config = {
+      ...this.config,
+      ...newConfig,
+    };
   }
 }

@@ -177,6 +177,15 @@ export class FluidScreen extends BaseScreen {
     this.setupCanvases();
 
     this.fluidEffect = new FluidAscii(fluidCanvas);
+    this.fluidEffect.updateConfig({
+      backgroundOpacity: 0.3,
+      starPulseChance: 0.01,
+      starPulseIntensity: 1,
+      baseColor: "rgba(47, 183, 195, 0.4)",
+      pulseLength: 3000,
+      pulseEasing: "softPulse",
+      maxPulsingStars: 5,
+    });
 
     // Start cycling messages
     this.startMessageCycles();

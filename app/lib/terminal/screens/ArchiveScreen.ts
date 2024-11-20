@@ -1,6 +1,7 @@
 import { BaseScreen } from "./BaseScreen";
 import { Terminal, TERMINAL_COLORS } from "../Terminal";
 import { FileSystemItem, SpecialPaths } from "../types";
+import { FileMetadata } from "../../files/types";
 
 export class ArchiveScreen extends BaseScreen {
   private items: FileSystemItem[] = [];
@@ -333,6 +334,12 @@ export class ArchiveScreen extends BaseScreen {
   }
 
   private async renderItems() {
+    // If we're showing the password prompt, render that instead
+    if (this.isPasswordPrompt) {
+      await this.renderPasswordPrompt();
+      return;
+    }
+
     // Clear canvas
     this.ctx.fillStyle = this.layout.colors.background;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -567,6 +574,7 @@ export class ArchiveScreen extends BaseScreen {
         return;
       }
 
+      // If not protected or already unlocked, proceed with expansion
       item.expanded = true;
       const path = this.getFullPath(item);
       const children = await this.fetchItems(path, item.level + 1, item);
@@ -659,18 +667,41 @@ export class ArchiveScreen extends BaseScreen {
   }
 
   // Modify viewFile method to handle PDFs
-  private async viewFile(item: FileSystemItem, fileType: "txt" | "md" | "pdf") {
+  private async viewFile(item: FileSystemItem, fileType: "txt" | "md") {
     try {
       const path = this.getFullPath(item);
 
-      if (fileType === "pdf") {
-        await this.viewPdf(path);
-        return;
+      // First try to fetch existing file
+      const response = await fetch(
+        `/api/archive?path=${encodeURIComponent(path)}&view=1`
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch file content");
       }
 
-      // Existing text/markdown viewing code...
+      const content = await response.text();
+
+      // Set viewing state and render content
+      this.isViewingFile = true;
+      this.scrollOffset = 0;
+      this.contentLines = content.split("\n");
+      this.maxScrollOffset = Math.max(
+        0,
+        this.contentLines.length - this.linesPerPage
+      );
+
+      await this.renderFileContent();
     } catch (error) {
       console.error("Error viewing file:", error);
+      // Show error message
+      const centerY = this.canvas.height / (2 * window.devicePixelRatio);
+      this.drawText("ERROR LOADING FILE", 0, centerY - 20, {
+        color: TERMINAL_COLORS.error,
+        align: "center",
+        glow: true,
+      });
+      setTimeout(() => this.displayItems(), 2000);
     }
   }
 
@@ -690,7 +721,7 @@ export class ArchiveScreen extends BaseScreen {
       const response = await fetch(
         `/api/archive?path=${encodeURIComponent(path)}&view=1`
       );
-      
+
       if (!response.ok) {
         throw new Error("Failed to fetch PDF");
       }
@@ -701,9 +732,9 @@ export class ArchiveScreen extends BaseScreen {
       this.pdfDocument = await this.pdfLib.getDocument({
         data: arrayBuffer,
         verbosity: 0,
-        cMapUrl: 'https://unpkg.com/pdfjs-dist/cmaps/',
+        cMapUrl: "https://unpkg.com/pdfjs-dist/cmaps/",
         cMapPacked: true,
-        standardFontDataUrl: 'https://unpkg.com/pdfjs-dist/standard_fonts/',
+        standardFontDataUrl: "https://unpkg.com/pdfjs-dist/standard_fonts/",
         disableAutoFetch: true,
         disableStream: false,
       }).promise;
@@ -946,12 +977,12 @@ export class ArchiveScreen extends BaseScreen {
 
     window.removeEventListener("keydown", this.handleKeyDown);
     this.canvas.removeEventListener("wheel", this.handleWheel);
-    
+
     // Remove CRT overlays
     const parent = this.canvas.parentElement;
     if (parent) {
       const overlays = parent.querySelectorAll(".pointer-events-none");
-      overlays.forEach(overlay => overlay.remove());
+      overlays.forEach((overlay) => overlay.remove());
     }
 
     if (this.glitchTimeout) {
@@ -1162,12 +1193,21 @@ export class ArchiveScreen extends BaseScreen {
     }
   }
 
-  // Add password prompt rendering
+  // Update renderPasswordPrompt to ensure it clears and renders properly
   private async renderPasswordPrompt() {
+    // Clear the entire canvas first
     this.ctx.fillStyle = this.layout.colors.background;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    const centerY = this.canvas.height / (2 * window.devicePixelRatio);
+    // Calculate center position
+    const centerY = this.canvas.height / window.devicePixelRatio / 2;
+
+    // Draw ASCII art border
+    this.drawText("╔════════════════════════════════════╗", 0, centerY - 100, {
+      color: this.layout.colors.foreground,
+      align: "center",
+      glow: true,
+    });
 
     // Draw warning header
     this.drawText("⚠ SECURE QUANTUM VAULT ACCESS ⚠", 0, centerY - 80, {
@@ -1182,9 +1222,9 @@ export class ArchiveScreen extends BaseScreen {
       align: "center",
     });
 
-    // Draw password field
+    // Draw password field with cursor
     const dots = "•".repeat(this.currentPassword.length);
-    this.drawText(dots, 0, centerY + 20, {
+    this.drawText(`${dots}█`, 0, centerY + 20, {
       color: this.layout.colors.foreground,
       align: "center",
       glow: true,
@@ -1202,6 +1242,13 @@ export class ArchiveScreen extends BaseScreen {
         }
       );
     }
+
+    // Draw bottom border
+    this.drawText("╚════════════════════════════════════╝", 0, centerY + 100, {
+      color: this.layout.colors.foreground,
+      align: "center",
+      glow: true,
+    });
 
     // Add effects
     this.renderEffects();
@@ -1234,14 +1281,14 @@ export class ArchiveScreen extends BaseScreen {
   private async initializePdfLib() {
     try {
       // Dynamically import PDF.js only when needed
-      const PDFJS = await import('pdfjs-dist');
+      const PDFJS = await import("pdfjs-dist");
       this.pdfLib = PDFJS;
-      
+
       // Use correct file extension for ES modules
       const workerUrl = `https://unpkg.com/pdfjs-dist@${PDFJS.version}/build/pdf.worker.min.mjs`;
       this.pdfLib.GlobalWorkerOptions.workerSrc = workerUrl;
     } catch (error) {
-      console.error('Failed to initialize PDF.js:', error);
+      console.error("Failed to initialize PDF.js:", error);
     }
   }
 }

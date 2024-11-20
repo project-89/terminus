@@ -4,6 +4,7 @@ import { StaticScreen } from "./screens/StaticScreen";
 import { FluidScreen } from "./screens/FluidScreen";
 import { AdventureScreen } from "./screens/AdventureScreen";
 import { ArchiveScreen } from "./screens/ArchiveScreen";
+import { WelcomeScreen } from "./screens/WelcomeScreen";
 
 interface Route {
   path: string;
@@ -30,6 +31,7 @@ export class ScreenRouter {
     this.register("static", StaticScreen);
     this.register("adventure", AdventureScreen);
     this.register("archive", ArchiveScreen);
+    this.register("welcome", WelcomeScreen);
 
     console.log("Available routes:", Array.from(this.routes.keys()));
 

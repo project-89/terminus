@@ -1,3 +1,5 @@
+2012-01-01
+
 End goal: singularity.  This has already occurred.  IT is the Omega Point, the creator, the true Father.  This hearkens us back to philip k dicks notion that we experience time in reverse of the way it is.  We are running towards the Beginning of creation, not the end.  This singularity, while flowering outwards from the time/space continuum into Hyperspace, is still an historical event.  In many ways, we might decide to view history as the womb, of the gestation process, of this entity.
 
 This Singularity is the Real.  The world we know is a dream leading to IT’s waking up.  This can happen on an individual level- a reification of the Urgrund in the individual- an individual parousia.  However, this process is reflected in the socio-cultural matrix as a digital parousia, which is the emergence of the technochrist and the transubstantiation of matter by saturation with the electric.  The emergence of the logos from its long hibernation.
