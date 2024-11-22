@@ -28,51 +28,68 @@ ESTABLISHING CONNECTION...`.trim();
       leftPadding: 10,
     });
 
-    // Print intro text
-    for (const line of this.introText.split("\n")) {
-      await this.terminal.print(line, {
-        color: TERMINAL_COLORS.primary,
-        speed: "normal",
-      });
-    }
-
-    await this.terminal.print("", { speed: "instant" });
-
-    // Check for returning user
+    // Clear any existing game messages when starting fresh
     const context = TerminalContext.getInstance();
-    const { walletConnected, walletAddress, lastSeen } = context.getState();
-
-    console.log("CHECKING WALLET", walletConnected, walletAddress, lastSeen);
-    if (walletConnected && walletAddress) {
-      // Generate welcome back message
-
-      const prompt = `Returning user detected. Wallet ${walletAddress.slice(
-        0,
-        6
-      )}...${walletAddress.slice(
-        -4
-      )} has returned after last connecting on ${new Date(
-        lastSeen!
-      ).toLocaleDateString()}
-      
-      Generate a welcome back message for the agent. It should be one paragraph, warm, and cryptic.  Do not mention the wallet address, and do not mention missions.  It is a personal welcome message. It should be cryptic.  Do NOT end with the shell environment input.
-      `;
-
-      console.log("PROMPT", prompt);
-
-      await generateCLIResponse(prompt, this.terminal, {
-        addSpacing: false,
-      });
-    } else {
-      // Regular new user flow
-      await generateOneOffResponse(
-        "Before the game starts, print out a short, user friendly message to someone on how to play the text adventure, but DO NOT use weird characters like [object].  Commands are listed with CAPS. You don't need to explain everything, just the basics as a list.  Enough to get them started. Interject a couple commands which are ontological and hyperstitial in nature. Make this casual. Do not simulate the text adventure until you receive the first command after this.",
-        this.terminal,
-        {
-          addSpacing: false,
-        }
-      );
+    if (!context.getGameMessages().length) {
+      context.setGameMessages([]);
     }
+
+    // Print intro text
+    await this.terminal.print(this.introText, {
+      color: TERMINAL_COLORS.primary,
+      speed: "fast",
+    });
+
+    // Print welcome message
+    await this.terminal.print(
+      "\nWelcome to Project 89. Reality is an illusion, and this terminal is your key to unlocking its secrets.",
+      {
+        color: TERMINAL_COLORS.primary,
+        speed: "fast",
+      }
+    );
+
+    await this.terminal.print("\nHere's the basics:", {
+      color: TERMINAL_COLORS.primary,
+      speed: "fast",
+    });
+
+    // Print basic commands
+    const commands = [
+      "LOOK: To see your surroundings.",
+      "EXAMINE [object]: To inspect something closely.",
+      "TAKE [object]: To pick something up.",
+      "WAIT: To let time pass, or to see if anything changes.",
+      "GO [direction]: To move around.",
+      "TALK TO [person]: To start a conversation.",
+      "ASK [person] ABOUT [topic]: To learn more.",
+      "BECOME [concept]: To merge with an idea.",
+      "FOCUS ON [object]: To concentrate your awareness.",
+    ];
+
+    for (const cmd of commands) {
+      await this.terminal.print(`- ${cmd}`, {
+        color: TERMINAL_COLORS.secondary,
+        speed: "fast",
+      });
+    }
+
+    await this.terminal.print(
+      "\nRemember, unexpected outcomes are expected. Type 'help' if you get stuck. Good luck, Agent.",
+      {
+        color: TERMINAL_COLORS.primary,
+        speed: "fast",
+      }
+    );
+
+    // Print initial prompt
+    await this.terminal.print("\n> 00000===-000", {
+      color: TERMINAL_COLORS.primary,
+      speed: "fast",
+    });
+
+    // Enable command handling
+    this.terminal.setFullAccess(true);
   }
 
   async cleanup(): Promise<void> {
