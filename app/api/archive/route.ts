@@ -10,24 +10,25 @@ export async function GET(req: Request) {
   try {
     if (view) {
       const extension = path.split(".").pop()?.toLowerCase();
-      
-      if (extension === 'pdf') {
+
+      if (extension === "pdf") {
         // For PDFs, return the raw buffer
         const content = await fileProvider.readFile(path, true); // Add support for binary reading
         return new Response(content, {
-          headers: { 
+          headers: {
             "Content-Type": "application/pdf",
-            "Content-Disposition": "inline"
+            "Content-Disposition": "inline",
           },
         });
       }
 
       // For text files
       const content = await fileProvider.readFile(path);
-      const contentType = {
-        md: "text/markdown",
-        txt: "text/plain",
-      }[extension || ""] || "text/plain";
+      const contentType =
+        {
+          md: "text/markdown",
+          txt: "text/plain",
+        }[extension || ""] || "text/plain";
 
       return new Response(content, {
         headers: { "Content-Type": contentType },

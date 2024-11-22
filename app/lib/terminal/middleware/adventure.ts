@@ -1,21 +1,39 @@
 import { TerminalMiddleware, TERMINAL_COLORS } from "../Terminal";
 import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
 import { ToolExecution, processToolCall } from "../tools/registry";
-
-// Store chat history
-let chatHistory: { role: string; content: string }[] = [];
+import { AdventureScreen } from "../screens/AdventureScreen";
+import { TerminalContext } from "../TerminalContext";
+import { analytics } from "@/app/lib/analytics";
 
 export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
   if (!ctx.hasFullAccess && ctx.command !== "clear") {
     try {
-      // Filter out empty messages before adding new one
-      chatHistory = chatHistory.filter((msg) => msg.content.trim() !== "");
+      // Track command usage
+      analytics.trackGameAction("command_entered", {
+        command: ctx.command,
+      });
 
-      // Add user message to history
-      chatHistory.push({
+      // Check for special commands first
+      if (ctx.command.startsWith("!")) {
+        const screen = ctx.terminal.screenManager.getCurrentScreen();
+        if (screen instanceof AdventureScreen) {
+          await screen.processCommand(ctx.command);
+          ctx.handled = true;
+          return;
+        }
+      }
+
+      // Get existing messages from context
+      const context = TerminalContext.getInstance();
+      let chatHistory = context.getGameMessages();
+
+      // Add user message
+      const userMessage = {
         role: "user",
         content: ctx.command,
-      });
+      };
+      chatHistory.push(userMessage);
+      context.setGameMessages(chatHistory);
 
       const stream = await getAdventureResponse(chatHistory);
       if (!stream) {
@@ -91,18 +109,32 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
         reader.releaseLock();
       }
 
-      // Only add non-empty responses to history
+      // Add AI response to context
       if (responseText.trim() !== "") {
-        chatHistory.push({
+        const aiMessage = {
           role: "assistant",
           content: responseText,
-        });
+        };
+        context.addGameMessage(aiMessage);
       }
+
+      // Track LLM call
+      analytics.trackLLMCall(
+        ctx.command,
+        "adventure-gpt", // or whatever model you're using
+        chatHistory.length // basic token estimation
+      );
 
       ctx.handled = true;
       return;
-    } catch (error) {
-      console.error("Adventure middleware error:", error);
+    } catch (error: unknown) {
+      const err = error as Error;
+      analytics.trackGameAction("error", {
+        error_type: err.name,
+        error_message: err.message,
+        location: "adventure_middleware",
+      });
+      console.error("Adventure middleware error:", err);
       throw error;
     }
   }

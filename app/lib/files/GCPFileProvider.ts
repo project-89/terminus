@@ -50,8 +50,8 @@ export class GCPFileProvider implements FileProvider {
       .map((file) => ({
         name: file.name.split("/").pop()!,
         isDirectory: file.name.endsWith("/"),
-        size: file.metadata.size,
-        lastModified: new Date(file.metadata.updated),
+        size: file.metadata.size?.toString(),
+        lastModified: file.metadata.updated ? new Date(file.metadata.updated) : undefined
       }));
   }
 

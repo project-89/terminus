@@ -4,6 +4,7 @@ export interface TerminalState {
   walletAddress?: string;
   tokenBalance?: number;
   lastSeen?: Date;
+  gameMessages?: { role: string; content: string }[];
 }
 
 export class TerminalContext {
@@ -44,5 +45,19 @@ export class TerminalContext {
       walletConnected: false,
     };
     localStorage.removeItem("terminalState");
+  }
+
+  getGameMessages(): { role: string; content: string }[] {
+    return this.state.gameMessages || [];
+  }
+
+  setGameMessages(messages: { role: string; content: string }[]) {
+    this.setState({ gameMessages: messages });
+  }
+
+  addGameMessage(message: { role: string; content: string }) {
+    const messages = this.getGameMessages();
+    messages.push(message);
+    this.setGameMessages(messages);
   }
 }

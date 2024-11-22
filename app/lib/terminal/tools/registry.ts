@@ -1,5 +1,6 @@
 import { Terminal } from "../Terminal";
 import { EventEmitter } from "../eventSystem";
+import { analytics } from "@/app/lib/analytics";
 
 export interface ToolDefinition {
   name: string;
@@ -30,6 +31,11 @@ export function registerTool(tool: ToolDefinition) {
 }
 
 // Process tool execution from AI
-export function processToolCall(execution: ToolExecution) {
-  toolEvents.emit(`tool:${execution.tool}`, execution.parameters);
+export async function processToolCall(toolData: ToolExecution): Promise<void> {
+  const { tool, parameters } = toolData;
+
+  // Track tool execution
+  analytics.trackToolExecution(tool, parameters);
+
+  toolEvents.emit(`tool:${tool}`, parameters);
 }

@@ -24,6 +24,10 @@ export class ScreenManager {
     this.currentScreen = screen;
   }
 
+  getCurrentScreen(): BaseScreen | undefined {
+    return this.currentScreen;
+  }
+
   async back() {
     const previousScreen = this.history.pop();
     if (previousScreen) {

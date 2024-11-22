@@ -57,14 +57,14 @@ export class FluidScreen extends BaseScreen {
       description: "Begin your journey into Project 89's reality matrix",
     },
     {
-      text: "SYSTEM DIAGNOSTICS",
-      route: "static",
-      description: "Access core system functions and diagnostics",
-    },
-    {
       text: "ARCHIVE ACCESS",
       route: "archive",
       description: "Browse recovered data fragments and logs",
+    },
+    {
+      text: "MEDIA PLAYER",
+      route: "media",
+      description: "Access recovered audio transmissions",
     },
   ];
 
@@ -230,12 +230,12 @@ export class FluidScreen extends BaseScreen {
     this.messageIntervals.push(statsInterval);
 
     // Cycle watermarks
-    const watermarkInterval = setInterval(() => {
-      this.currentWatermarkIndex =
-        (this.currentWatermarkIndex + 1) % this.watermarks.length;
-      this.renderWatermark();
-    }, 8000);
-    this.messageIntervals.push(watermarkInterval);
+    // const watermarkInterval = setInterval(() => {
+    //   this.currentWatermarkIndex =
+    //     (this.currentWatermarkIndex + 1) % this.watermarks.length;
+    //   this.renderWatermark();
+    // }, 8000);
+    // this.messageIntervals.push(watermarkInterval);
 
     // Occasional glitch effect
     const glitchInterval = setInterval(() => {

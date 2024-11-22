@@ -7,6 +7,7 @@ import {
 import { EventEmitter } from "events";
 import { toolEvents } from "./tools/registry";
 import { FaceRenderer } from "./effects/face";
+import { ScreenManager } from "./ScreenManager";
 
 export const TERMINAL_COLORS = {
   primary: "#2fb7c3",
@@ -126,6 +127,7 @@ export class Terminal extends EventEmitter {
   private tempInput: string = "";
   private matrixRainEnabled: boolean = false;
   private faceRenderer: FaceRenderer;
+  public screenManager: ScreenManager = new ScreenManager(this);
 
   constructor(
     canvas: HTMLCanvasElement,
