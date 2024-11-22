@@ -11,17 +11,33 @@ export class ScreenManager {
     Screen: new (context: ScreenContext) => BaseScreen,
     params?: Record<string, any>
   ) {
-    if (this.currentScreen) {
-      await this.currentScreen.cleanup();
+    try {
+      // Cleanup current screen if it exists
+      if (this.currentScreen) {
+        await this.currentScreen.cleanup();
+      }
+
+      // Create and initialize new screen
+      const screen = new Screen({ terminal: this.terminal, params });
+
+      // Store current screen in history before changing
+      if (this.currentScreen) {
+        this.history.push(this.currentScreen);
+      }
+
+      // Set new screen as current
+      this.currentScreen = screen;
+
+      // Render the new screen
+      await screen.beforeRender?.();
+      await screen.render();
+      await screen.afterRender?.();
+
+      return screen;
+    } catch (error) {
+      console.error("Error showing screen:", error);
+      throw error;
     }
-
-    const screen = new Screen({ terminal: this.terminal, params });
-    await screen.beforeRender();
-    await screen.render();
-    await screen.afterRender();
-
-    this.history.push(this.currentScreen!);
-    this.currentScreen = screen;
   }
 
   getCurrentScreen(): BaseScreen | undefined {
@@ -31,7 +47,9 @@ export class ScreenManager {
   async back() {
     const previousScreen = this.history.pop();
     if (previousScreen) {
-      await this.currentScreen?.cleanup();
+      if (this.currentScreen) {
+        await this.currentScreen.cleanup();
+      }
       this.currentScreen = previousScreen;
       await previousScreen.render();
     }

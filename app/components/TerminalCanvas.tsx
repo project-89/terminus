@@ -2,88 +2,118 @@
 
 import { useEffect, useRef } from "react";
 import { Terminal, TERMINAL_COLORS } from "@/app/lib/terminal/Terminal";
-import { useChat } from "ai/react";
-import { triggerEffect } from "@/app/lib/terminal/eventSystem";
-import { helpMiddleware } from "@/app/lib/terminal/middleware/help";
-import { clearMiddleware } from "@/app/lib/terminal/middleware/clear";
-import { WelcomeScreen } from "@/app/lib/terminal/screens/WelcomeScreen";
-import { ScanningScreen } from "@/app/lib/terminal/screens/ScanningScreen";
-import { MainScreen } from "@/app/lib/terminal/screens/MainScreen";
+import { FluidScreen } from "@/app/lib/terminal/screens/FluidScreen";
+import { analytics } from "@/app/lib/analytics";
 import { ScreenRouter } from "@/app/lib/terminal/ScreenRouter";
-import { ConsentScreen } from "@/app/lib/terminal/screens/ConsentScreen";
-import { navigationMiddleware } from "@/app/lib/terminal/middleware/navigation";
-import { AdventureScreen } from "@/app/lib/terminal/screens/AdventureScreen";
-import { adventureMiddleware } from "@/app/lib/terminal/middleware/adventure";
-import { specialCommandsMiddleware } from "@/app/lib/terminal/middleware/special";
-import { commandsMiddleware } from "@/app/lib/terminal/middleware/commands";
-import { overrideMiddleware } from "@/app/lib/terminal/middleware/override";
-import { systemCommandsMiddleware } from "@/app/lib/terminal/middleware/system";
 
 export function TerminalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const terminalRef = useRef<Terminal>();
-  const router = useRef<ScreenRouter>();
+  const terminalRef = useRef<Terminal | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
+  // Handle resize
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    function handleResize() {
+      if (!canvasRef.current || !containerRef.current || !terminalRef.current)
+        return;
 
-    const terminal = new Terminal(canvas, {
-      width: window.innerWidth,
-      height: window.innerHeight,
-      fontSize: 16,
-      fontFamily: "Berkeley Mono",
-      backgroundColor: "#090812",
-      foregroundColor: "#5cfffa",
-      cursorColor: "#5cfffa",
-      blinkRate: 500,
-      effects: {
-        glow: {
-          blur: 16,
-          color: "#5cfffa",
-          strength: 2.0,
-          passes: 2,
+      // Get container dimensions
+      const container = containerRef.current;
+      const rect = container.getBoundingClientRect();
+
+      // Update terminal dimensions
+      terminalRef.current.resize(rect.width, rect.height);
+    }
+
+    // Add resize listener
+    window.addEventListener("resize", handleResize);
+
+    // Initial setup
+    if (canvasRef.current && !terminalRef.current) {
+      const container = containerRef.current!;
+      const rect = container.getBoundingClientRect();
+
+      const terminal = new Terminal(canvasRef.current, {
+        width: rect.width,
+        height: rect.height,
+        fontSize: 16,
+        fontFamily: "Berkeley Mono",
+        backgroundColor: "#090812",
+        foregroundColor: "#5cfffa",
+        cursorColor: "#5cfffa",
+        blinkRate: 500,
+        effects: {
+          glow: {
+            blur: 16,
+            color: "#5cfffa",
+            strength: 2.0,
+            passes: 2,
+          },
+          scanlines: {
+            spacing: 4,
+            opacity: 0.1,
+            speed: 0.005,
+            offset: 0,
+            thickness: 1,
+          },
+          crt: {
+            curvature: 0.15,
+            vignetteStrength: 0.25,
+            cornerBlur: 0.12,
+            scanlineGlow: 0.05,
+          },
         },
-        scanlines: {
-          spacing: 4,
-          opacity: 0.1,
-          speed: 0.005,
-          offset: 0,
-          thickness: 1,
+        cursor: {
+          centered: false,
+          leftPadding: 20,
+          mode: "dynamic",
         },
-        crt: {
-          curvature: 0.15,
-          vignetteStrength: 0.25,
-          cornerBlur: 0.12,
-          scanlineGlow: 0.05,
+        pixelation: {
+          enabled: true,
+          scale: 0.75,
         },
-      },
-      cursor: {
-        centered: false,
-        leftPadding: 20,
-        mode: "dynamic",
-      },
-      pixelation: {
-        enabled: true,
-        scale: 0.75,
-      },
-    });
+      });
 
-    terminalRef.current = terminal;
-    router.current = new ScreenRouter(terminal);
+      // Initialize router
+      const router = new ScreenRouter(terminal);
 
-    // Add router to terminal for middleware access
-    terminal.context = { router: router.current };
+      // Add router to terminal context
+      terminal.context = { router };
 
-    // Register middlewares in correct order
-    terminal
-      .use(overrideMiddleware)
-      .use(systemCommandsMiddleware)
-      .use(commandsMiddleware)
-      .use(adventureMiddleware);
+      terminalRef.current = terminal;
 
-    // Add keyboard handler
-    const handleKeyDown = (e: KeyboardEvent) => {
+      // Show the initial screen based on current URL
+      const initialPath = window.location.pathname;
+      const initialScreen = initialPath === "/" ? FluidScreen : undefined;
+      if (initialScreen) {
+        terminal.screenManager.showScreen(initialScreen).catch(console.error);
+      } else {
+        router.navigate("/").catch(console.error);
+      }
+
+      // Track page view
+      analytics.trackGameAction("page_view", {
+        screen: "fluid",
+      });
+
+      // Initial resize
+      handleResize();
+    }
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (terminalRef.current) {
+        terminalRef.current.destroy();
+        terminalRef.current = null;
+      }
+    };
+  }, []);
+
+  // Handle keyboard input
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!terminalRef.current) return;
+
       // Prevent default for terminal keys
       if (
         e.key === "Enter" ||
@@ -94,37 +124,35 @@ export function TerminalCanvas() {
         e.key.length === 1
       ) {
         e.preventDefault();
-        terminalRef.current?.handleInput(e.key, e);
+        terminalRef.current.handleInput(e.key, e);
       }
-    };
+    }
 
     window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
-    // Add scroll handler with smoother scrolling
-    const handleWheel = (e: WheelEvent) => {
+  // Handle scrolling
+  useEffect(() => {
+    function handleWheel(e: WheelEvent) {
+      if (!terminalRef.current) return;
       e.preventDefault();
-      if (terminalRef.current) {
-        terminalRef.current.scroll(e.deltaY);
-      }
-    };
+      terminalRef.current.scroll(e.deltaY);
+    }
 
     window.addEventListener("wheel", handleWheel, { passive: false });
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("wheel", handleWheel);
-      terminal.destroy();
-    };
+    return () => window.removeEventListener("wheel", handleWheel);
   }, []);
 
   return (
-    <div className="fixed inset-0 bg-black">
+    <div
+      ref={containerRef}
+      className="fixed inset-0 w-full h-full bg-black overflow-hidden"
+    >
       <canvas
         ref={canvasRef}
+        className="absolute inset-0 w-full h-full"
         style={{
-          display: "block",
-          width: "100%",
-          height: "100%",
           imageRendering: "pixelated",
         }}
       />

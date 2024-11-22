@@ -1,6 +1,9 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
 import { TERMINAL_COLORS } from "../Terminal";
 import { FluidAscii } from "../effects/fluidAscii";
+import { analytics } from "../../analytics";
+import { AdventureScreen } from "./AdventureScreen";
+import { ArchiveScreen } from "./ArchiveScreen";
 
 interface MenuItem {
   text: string;
@@ -61,11 +64,6 @@ export class FluidScreen extends BaseScreen {
       route: "archive",
       description: "Browse recovered data fragments and logs",
     },
-    {
-      text: "MEDIA PLAYER",
-      route: "media",
-      description: "Access recovered audio transmissions",
-    },
   ];
 
   private selectedMenuItem: number = 0;
@@ -73,7 +71,7 @@ export class FluidScreen extends BaseScreen {
 
   // Define handlers as class properties to keep references
   private handleKeyDown = (e: KeyboardEvent) => {
-    if (!this.menuVisible) return;
+    if (!this.menuVisible || this.isTransitioning) return;
 
     switch (e.key) {
       case "ArrowUp":
@@ -91,7 +89,7 @@ export class FluidScreen extends BaseScreen {
         break;
       case "Enter":
         e.preventDefault();
-        this.selectMenuItem();
+        this.selectMenuItem().catch(console.error);
         break;
     }
   };
@@ -178,7 +176,7 @@ export class FluidScreen extends BaseScreen {
 
     this.fluidEffect = new FluidAscii(fluidCanvas);
     this.fluidEffect.updateConfig({
-      backgroundOpacity: 0.3,
+      backgroundOpacity: 0.4,
       starPulseChance: 0.01,
       starPulseIntensity: 1,
       baseColor: "rgba(47, 183, 195, 0.4)",
@@ -372,43 +370,60 @@ export class FluidScreen extends BaseScreen {
   }
 
   private async selectMenuItem() {
+    if (this.isTransitioning) return;
+
     const selectedItem = this.menuItems[this.selectedMenuItem];
+    if (!selectedItem) return;
 
-    // Add a visual feedback effect before transitioning
-    const menuStartY =
-      (this.logoCanvas.height - this.logo.split("\n").length * 20) / 2 +
-      this.logoCanvas.height * 0.15 +
-      80;
+    this.isTransitioning = true;
 
-    // Clear the menu area first to prevent doubling
-    this.logoCtx.clearRect(
-      0,
-      menuStartY - 20,
-      this.logoCanvas.width,
-      this.logoCanvas.height - menuStartY
-    );
+    try {
+      // Add visual feedback
+      const menuStartY =
+        (this.logoCanvas.height - this.logo.split("\n").length * 20) / 2 +
+        this.logoCanvas.height * 0.15 +
+        80;
 
-    // Flash the selected item
-    this.logoCtx.fillStyle = "#ffffff";
-    this.logoCtx.fillText(
-      selectedItem.text,
-      this.logoCanvas.width / 2 - 80,
-      menuStartY + this.selectedMenuItem * 40
-    );
+      // Clear the menu area
+      this.logoCtx.clearRect(
+        0,
+        menuStartY - 20,
+        this.logoCanvas.width,
+        this.logoCanvas.height - menuStartY
+      );
 
-    // Wait a brief moment
-    await this.wait(100);
+      // Flash the selected item
+      this.logoCtx.fillStyle = "#ffffff";
+      this.logoCtx.fillText(
+        selectedItem.text,
+        this.logoCanvas.width / 2 - 80,
+        menuStartY + this.selectedMenuItem * 40
+      );
 
-    // Stop the fluid effect before transitioning
-    this.fluidEffect.stop();
+      // Wait a brief moment
+      await this.wait(100);
 
-    // Set isTransitioning to false before emitting the event
-    this.isTransitioning = false;
+      // Stop the fluid effect
+      this.fluidEffect.stop();
 
-    // Emit transition event
-    this.terminal.emit("screen:transition", {
-      to: selectedItem.route,
-    });
+      // Track the selection
+      analytics.trackGameAction("menu_select", {
+        item: selectedItem.text,
+        route: selectedItem.route,
+      });
+
+      // Navigate using the router
+      const path = `/${selectedItem.route}`;
+      await this.terminal.context.router.navigate(path);
+    } catch (error) {
+      console.error("Error during screen transition:", error);
+      analytics.trackGameAction("error", {
+        error_type: "screen_transition_error",
+        route: selectedItem.route,
+      });
+    } finally {
+      this.isTransitioning = false;
+    }
   }
 
   async render(): Promise<void> {
@@ -421,8 +436,8 @@ export class FluidScreen extends BaseScreen {
     this.menuVisible = false;
     this.renderLogo();
 
-    // Wait a moment before showing menu
-    await this.wait(2000);
+    // Shorter wait or no wait at all
+    await this.wait(500);
 
     // Show menu without re-rendering logo
     this.menuVisible = true;

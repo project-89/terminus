@@ -1,138 +1,57 @@
-import { Terminal, TERMINAL_COLORS } from "./Terminal";
-import { BaseScreen, TransitionOptions } from "./screens/BaseScreen";
-import { StaticScreen } from "./screens/StaticScreen";
+import { Terminal } from "./Terminal";
+import { BaseScreen, ScreenContext } from "./screens/BaseScreen";
 import { FluidScreen } from "./screens/FluidScreen";
 import { AdventureScreen } from "./screens/AdventureScreen";
 import { ArchiveScreen } from "./screens/ArchiveScreen";
-import { WelcomeScreen } from "./screens/WelcomeScreen";
-import { RetroMediaScreen } from "./screens/RetroMediaScreen";
 
 interface Route {
   path: string;
-  screen: new (context: any) => BaseScreen;
+  screen: new (context: ScreenContext) => BaseScreen;
 }
 
 export class ScreenRouter {
-  private routes: Map<string, Route> = new Map();
-  private currentScreen?: BaseScreen;
-  private history: string[] = [];
-  private isTransitioning: boolean = false;
-  private pendingTransition: string | null = null;
+  private routes: Route[] = [
+    { path: "/", screen: FluidScreen },
+    { path: "/adventure", screen: AdventureScreen },
+    { path: "/archive", screen: ArchiveScreen },
+  ];
 
   constructor(private terminal: Terminal) {
-    console.log("Initializing ScreenRouter");
-
-    terminal.on("screen:transition", async ({ to, options }) => {
-      console.log("Transition event received:", to, options);
-      await this.navigate(to, options);
-    });
-
-    // Register screens
-    this.register("fluid", FluidScreen);
-    this.register("static", StaticScreen);
-    this.register("adventure", AdventureScreen);
-    this.register("archive", ArchiveScreen);
-    this.register("welcome", WelcomeScreen);
-    this.register("media", RetroMediaScreen);
-
-    console.log("Available routes:", Array.from(this.routes.keys()));
-
-    // **Listen to URL changes**
-    window.addEventListener("popstate", (event) => {
-      const screen = event.state?.screen || this.getScreenFromURL() || "fluid";
-      this.navigate(screen, { type: "instant", replaceState: true }).catch(
-        console.error
-      );
-    });
-
-    // **Navigate to initial screen based on URL**
-    const initialScreen = this.getScreenFromURL() || "fluid";
-    this.navigate(initialScreen, { type: "instant", replaceState: true }).catch(
-      console.error
-    );
-  }
-
-  private getScreenFromURL(): string | null {
-    const urlParams = new URLSearchParams(window.location.search);
-    const screen = urlParams.get("screen");
-    if (screen && this.routes.has(screen)) {
-      return screen;
+    // Listen for popstate events to handle browser back/forward
+    if (typeof window !== "undefined") {
+      window.addEventListener("popstate", (event) => {
+        this.handlePopState(event);
+      });
     }
-    return null;
   }
 
-  public register(path: string, screen: new (context: any) => BaseScreen) {
-    console.log("Registering screen:", path);
-    this.routes.set(path, { path, screen });
-    return this;
-  }
-
-  public async navigate(
-    to: string,
-    options: TransitionOptions & { replaceState?: boolean } = {
-      type: "instant",
+  private async handlePopState(event: PopStateEvent) {
+    const path = window.location.pathname;
+    const route = this.routes.find((r) => r.path === path);
+    if (route) {
+      await this.terminal.screenManager.showScreen(route.screen);
     }
-  ) {
-    console.log(`Attempting to navigate to: ${to}`);
+  }
 
-    if (this.isTransitioning) {
-      console.log("Navigation already in progress, queuing:", to);
-      this.pendingTransition = to;
+  public async navigate(path: string) {
+    const route = this.routes.find((r) => r.path === path);
+    if (!route) {
+      console.error(`No route found for path: ${path}`);
       return;
     }
 
-    this.isTransitioning = true;
+    // Update URL without triggering a page reload
+    window.history.pushState({}, "", path);
 
-    try {
-      const route = this.routes.get(to);
-      if (!route) {
-        throw new Error(
-          `Screen "${to}" not found. Available routes: ${Array.from(
-            this.routes.keys()
-          ).join(", ")}`
-        );
-      }
-
-      if (this.currentScreen) {
-        console.log("Cleaning up current screen");
-        await this.currentScreen.cleanup();
-        this.currentScreen = undefined;
-      }
-
-      // **Update URL without reloading**
-      this.updateURL(to, options.replaceState);
-
-      console.log("Creating new screen instance");
-      const newScreen = new route.screen({ terminal: this.terminal });
-      await newScreen.render();
-
-      this.currentScreen = newScreen;
-
-      console.log("Navigation complete");
-    } catch (error) {
-      console.error("Navigation error:", error);
-      await this.terminal.print("An error occurred during navigation.", {
-        color: TERMINAL_COLORS.error,
-      });
-    } finally {
-      this.isTransitioning = false;
-
-      if (this.pendingTransition) {
-        const nextScreen = this.pendingTransition;
-        this.pendingTransition = null;
-        await this.navigate(nextScreen);
-      }
-    }
+    // Show the screen
+    await this.terminal.screenManager.showScreen(route.screen);
   }
 
-  private updateURL(screen: string, replaceState?: boolean) {
-    const url = new URL(window.location.href);
-    url.searchParams.set("screen", screen);
-
-    if (replaceState) {
-      window.history.replaceState({ screen }, "", url.toString());
-    } else {
-      window.history.pushState({ screen }, "", url.toString());
-    }
+  // Helper method to get route path from screen type
+  public getPathForScreen(
+    screen: new (context: ScreenContext) => BaseScreen
+  ): string {
+    const route = this.routes.find((r) => r.screen === screen);
+    return route ? route.path : "/";
   }
 }
