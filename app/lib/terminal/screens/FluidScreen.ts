@@ -371,50 +371,18 @@ export class FluidScreen extends BaseScreen {
 
   private async selectMenuItem() {
     if (this.isTransitioning) return;
-
-    const selectedItem = this.menuItems[this.selectedMenuItem];
-    if (!selectedItem) return;
-
     this.isTransitioning = true;
 
+    const selectedItem = this.menuItems[this.selectedMenuItem];
+
     try {
-      // Add visual feedback
-      const menuStartY =
-        (this.logoCanvas.height - this.logo.split("\n").length * 20) / 2 +
-        this.logoCanvas.height * 0.15 +
-        80;
-
-      // Clear the menu area
-      this.logoCtx.clearRect(
-        0,
-        menuStartY - 20,
-        this.logoCanvas.width,
-        this.logoCanvas.height - menuStartY
-      );
-
-      // Flash the selected item
-      this.logoCtx.fillStyle = "#ffffff";
-      this.logoCtx.fillText(
-        selectedItem.text,
-        this.logoCanvas.width / 2 - 80,
-        menuStartY + this.selectedMenuItem * 40
-      );
-
-      // Wait a brief moment
-      await this.wait(100);
-
-      // Stop the fluid effect
-      this.fluidEffect.stop();
-
-      // Track the selection
+      // Track menu selection
       analytics.trackGameAction("menu_select", {
-        item: selectedItem.text,
-        route: selectedItem.route,
+        item: selectedItem.route,
       });
 
-      // Navigate using the router
-      const path = `/${selectedItem.route}`;
-      await this.terminal.context.router.navigate(path);
+      // Navigate using screen name instead of path
+      await this.terminal.context.router.navigate(selectedItem.route);
     } catch (error) {
       console.error("Error during screen transition:", error);
       analytics.trackGameAction("error", {

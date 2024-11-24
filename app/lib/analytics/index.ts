@@ -1,5 +1,3 @@
-import posthog from "posthog-js";
-
 // Define PostHog type to avoid 'any'
 interface PostHogInstance {
   init: (key: string, options: Record<string, any>) => void;

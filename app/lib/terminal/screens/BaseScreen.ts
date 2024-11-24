@@ -172,8 +172,15 @@ export abstract class BaseScreen {
 
   // Handle command method that screens can override
   protected async handleCommand(command: string): Promise<boolean> {
+    console.log("Handle command", command);
     // Execute screen-specific middleware first
     await this.executeMiddleware(command);
+
+    // If the screen has a processCommand method, use it
+    if (typeof (this as any).processCommand === "function") {
+      return await (this as any).processCommand(command);
+    }
+
     return false; // Return false to allow command to propagate to global middleware
   }
 

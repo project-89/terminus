@@ -8,6 +8,8 @@ import { EventEmitter } from "events";
 import { toolEvents } from "./tools/registry";
 import { FaceRenderer } from "./effects/face";
 import { ScreenManager } from "./ScreenManager";
+import { adventureCommandsMiddleware } from "./middleware/adventure-commands";
+import { adventureMiddleware } from "./middleware/adventure";
 
 export const TERMINAL_COLORS = {
   primary: "#2fb7c3",
@@ -128,6 +130,7 @@ export class Terminal extends EventEmitter {
   private matrixRainEnabled: boolean = false;
   private faceRenderer: FaceRenderer;
   public screenManager: ScreenManager = new ScreenManager(this);
+  private hasFullAccess: boolean = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -972,5 +975,13 @@ export class Terminal extends EventEmitter {
       speed: 1,
       emotionHint: emotion,
     });
+  }
+
+  public setCommandAccess(enabled: boolean) {
+    this.hasFullAccess = enabled;
+  }
+
+  public hasCommandAccess(): boolean {
+    return this.hasFullAccess;
   }
 }

@@ -17,11 +17,7 @@ export const navigationMiddleware: TerminalMiddleware = async (ctx, next) => {
 
     try {
       // Clear history and force cleanup current screen
-      router.clearHistory();
-      router.forceCleanup();
-
-      // Navigate to main
-      await router.navigate("main", { type: "instant" });
+      await router.navigate("fluid");
     } catch (error) {
       console.error("Navigation error:", error);
       await ctx.terminal.print("Error navigating to main screen", {

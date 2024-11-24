@@ -5,19 +5,19 @@ import { AdventureScreen } from "./screens/AdventureScreen";
 import { ArchiveScreen } from "./screens/ArchiveScreen";
 
 interface Route {
-  path: string;
   screen: new (context: ScreenContext) => BaseScreen;
 }
 
 export class ScreenRouter {
-  private routes: Route[] = [
-    { path: "/", screen: FluidScreen },
-    { path: "/adventure", screen: AdventureScreen },
-    { path: "/archive", screen: ArchiveScreen },
-  ];
+  private currentScreen: BaseScreen | null = null;
+  private routes: Record<string, Route> = {
+    fluid: { screen: FluidScreen },
+    adventure: { screen: AdventureScreen },
+    archive: { screen: ArchiveScreen },
+    // Add other screens as needed
+  };
 
   constructor(private terminal: Terminal) {
-    // Listen for popstate events to handle browser back/forward
     if (typeof window !== "undefined") {
       window.addEventListener("popstate", (event) => {
         this.handlePopState(event);
@@ -26,32 +26,61 @@ export class ScreenRouter {
   }
 
   private async handlePopState(event: PopStateEvent) {
-    const path = window.location.pathname;
-    const route = this.routes.find((r) => r.path === path);
-    if (route) {
-      await this.terminal.screenManager.showScreen(route.screen);
-    }
+    const params = new URLSearchParams(window.location.search);
+    const screen = params.get("screen") || "fluid";
+    await this.showScreen(screen);
   }
 
-  public async navigate(path: string) {
-    const route = this.routes.find((r) => r.path === path);
+  private async showScreen(screenName: string) {
+    const route = this.routes[screenName];
     if (!route) {
-      console.error(`No route found for path: ${path}`);
+      console.error(`No route found for screen: ${screenName}`);
+      // Fallback to fluid screen
+      await this.terminal.screenManager.showScreen(this.routes.fluid.screen);
       return;
     }
 
-    // Update URL without triggering a page reload
-    window.history.pushState({}, "", path);
-
-    // Show the screen
     await this.terminal.screenManager.showScreen(route.screen);
   }
 
-  // Helper method to get route path from screen type
-  public getPathForScreen(
+  public async navigate(screenName: string, options: any = {}) {
+    // Cleanup current screen if it exists
+    if (this.currentScreen) {
+      await this.currentScreen.cleanup();
+    }
+
+    // Get the route
+    const route = this.routes[screenName];
+    if (!route) {
+      throw new Error(`Screen "${screenName}" not found`);
+    }
+
+    // Create new screen instance
+    const screen = new route.screen({ terminal: this.terminal });
+
+    // Set as current screen in both router and terminal context
+    this.currentScreen = screen;
+    this.terminal.context.currentScreen = screen;
+
+    // Render the new screen
+    await screen.render();
+
+    return screen;
+  }
+
+  getCurrentScreen(): BaseScreen | null {
+    return this.currentScreen;
+  }
+
+  // Helper method to get screen name from screen type
+  public getScreenName(
     screen: new (context: ScreenContext) => BaseScreen
   ): string {
-    const route = this.routes.find((r) => r.screen === screen);
-    return route ? route.path : "/";
+    for (const [name, route] of Object.entries(this.routes)) {
+      if (route.screen === screen) {
+        return name;
+      }
+    }
+    return "fluid"; // Default fallback
   }
 }

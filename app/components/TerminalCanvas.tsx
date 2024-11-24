@@ -11,110 +11,108 @@ export function TerminalCanvas() {
   const terminalRef = useRef<Terminal | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Initialize terminal once
+  useEffect(() => {
+    if (!canvasRef.current || terminalRef.current || !containerRef.current)
+      return;
+
+    const container = containerRef.current;
+    const rect = container.getBoundingClientRect();
+
+    const terminal = new Terminal(canvasRef.current, {
+      width: rect.width,
+      height: rect.height,
+      fontSize: 16,
+      fontFamily: "Berkeley Mono",
+      backgroundColor: "#090812",
+      foregroundColor: "#5cfffa",
+      cursorColor: "#5cfffa",
+      blinkRate: 500,
+      effects: {
+        glow: {
+          blur: 16,
+          color: "#5cfffa",
+          strength: 2.0,
+          passes: 2,
+        },
+        scanlines: {
+          spacing: 4,
+          opacity: 0.1,
+          speed: 0.005,
+          offset: 0,
+          thickness: 1,
+        },
+        crt: {
+          curvature: 0.15,
+          vignetteStrength: 0.25,
+          cornerBlur: 0.12,
+          scanlineGlow: 0.05,
+        },
+      },
+      cursor: {
+        centered: false,
+        leftPadding: 20,
+        mode: "dynamic",
+      },
+      pixelation: {
+        enabled: true,
+        scale: 0.75,
+      },
+    });
+
+    // Initialize router and properly set it in terminal context
+    const router = new ScreenRouter(terminal);
+    terminal.context = {
+      router,
+      currentScreen: null, // Add this to track current screen
+    };
+
+    // Store terminal reference
+    terminalRef.current = terminal;
+
+    // Show the initial screen based on URL query params
+    const params = new URLSearchParams(window.location.search);
+    const initialScreen = params.get("screen") || "fluid";
+
+    // Navigate and update current screen
+    router.navigate(initialScreen).catch(console.error);
+
+    // Track page view
+    analytics.trackGameAction("page_view", {
+      screen: initialScreen,
+    });
+
+    // Cleanup
+    return () => {
+      if (terminalRef.current) {
+        terminalRef.current.destroy();
+        terminalRef.current = null;
+      }
+    };
+  }, []); // Only run once on mount
+
   // Handle resize
   useEffect(() => {
     function handleResize() {
       if (!canvasRef.current || !containerRef.current || !terminalRef.current)
         return;
 
-      // Get container dimensions
       const container = containerRef.current;
       const rect = container.getBoundingClientRect();
-
-      // Update terminal dimensions
       terminalRef.current.resize(rect.width, rect.height);
     }
 
-    // Add resize listener
     window.addEventListener("resize", handleResize);
+    handleResize(); // Initial resize
 
-    // Initial setup
-    if (canvasRef.current && !terminalRef.current) {
-      const container = containerRef.current!;
-      const rect = container.getBoundingClientRect();
-
-      const terminal = new Terminal(canvasRef.current, {
-        width: rect.width,
-        height: rect.height,
-        fontSize: 16,
-        fontFamily: "Berkeley Mono",
-        backgroundColor: "#090812",
-        foregroundColor: "#5cfffa",
-        cursorColor: "#5cfffa",
-        blinkRate: 500,
-        effects: {
-          glow: {
-            blur: 16,
-            color: "#5cfffa",
-            strength: 2.0,
-            passes: 2,
-          },
-          scanlines: {
-            spacing: 4,
-            opacity: 0.1,
-            speed: 0.005,
-            offset: 0,
-            thickness: 1,
-          },
-          crt: {
-            curvature: 0.15,
-            vignetteStrength: 0.25,
-            cornerBlur: 0.12,
-            scanlineGlow: 0.05,
-          },
-        },
-        cursor: {
-          centered: false,
-          leftPadding: 20,
-          mode: "dynamic",
-        },
-        pixelation: {
-          enabled: true,
-          scale: 0.75,
-        },
-      });
-
-      // Initialize router
-      const router = new ScreenRouter(terminal);
-
-      // Add router to terminal context
-      terminal.context = { router };
-
-      terminalRef.current = terminal;
-
-      // Show the initial screen based on current URL
-      const initialPath = window.location.pathname;
-      const initialScreen = initialPath === "/" ? FluidScreen : undefined;
-      if (initialScreen) {
-        terminal.screenManager.showScreen(initialScreen).catch(console.error);
-      } else {
-        router.navigate("/").catch(console.error);
-      }
-
-      // Track page view
-      analytics.trackGameAction("page_view", {
-        screen: "fluid",
-      });
-
-      // Initial resize
-      handleResize();
-    }
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      if (terminalRef.current) {
-        terminalRef.current.destroy();
-        terminalRef.current = null;
-      }
-    };
-  }, []);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []); // Only run once on mount
 
   // Handle keyboard input
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!terminalRef.current) return;
 
-      // Prevent default for terminal keys
       if (
         e.key === "Enter" ||
         e.key === "Backspace" ||
@@ -130,7 +128,7 @@ export function TerminalCanvas() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, []); // Only run once on mount
 
   // Handle scrolling
   useEffect(() => {
@@ -142,7 +140,7 @@ export function TerminalCanvas() {
 
     window.addEventListener("wheel", handleWheel, { passive: false });
     return () => window.removeEventListener("wheel", handleWheel);
-  }, []);
+  }, []); // Only run once on mount
 
   return (
     <div
