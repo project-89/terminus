@@ -12,7 +12,7 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
     return next();
   }
 
-  // If the command has already been handled by another middleware (like adventure-commands),
+  // If the command has already been handled by another middleware,
   // don't process it further
   if (ctx.handled) {
     return next();
@@ -28,18 +28,28 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
       content: ctx.command,
     };
     chatHistory.push(userMessage);
-    context.setGameMessages(chatHistory);
 
+    // Get AI response
     const stream = await getAdventureResponse(chatHistory);
     if (!stream) {
       throw new Error("Failed to get adventure response");
     }
 
-    // Process the AI response stream
-    await ctx.terminal.processAIStream(stream, {
+    // Process and store the AI response
+    const aiResponse = (await ctx.terminal.processAIStream(stream, {
       color: TERMINAL_COLORS.primary,
       addSpacing: true,
+      returnContent: true,
+    })) as string; // Cast to string since we know returnContent is true
+
+    // Add AI response to chat history
+    chatHistory.push({
+      role: "assistant",
+      content: aiResponse,
     });
+
+    // Update chat history with both messages
+    context.setGameMessages(chatHistory);
 
     // Mark as handled after successful processing
     ctx.handled = true;

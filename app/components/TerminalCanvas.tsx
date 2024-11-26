@@ -5,6 +5,7 @@ import { Terminal, TERMINAL_COLORS } from "@/app/lib/terminal/Terminal";
 import { FluidScreen } from "@/app/lib/terminal/screens/FluidScreen";
 import { analytics } from "@/app/lib/analytics";
 import { ScreenRouter } from "@/app/lib/terminal/ScreenRouter";
+import { TerminalContext } from "@/app/lib/terminal/TerminalContext";
 
 export function TerminalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -15,6 +16,10 @@ export function TerminalCanvas() {
   useEffect(() => {
     if (!canvasRef.current || terminalRef.current || !containerRef.current)
       return;
+
+    // Clear game state on fresh load
+    const context = TerminalContext.getInstance();
+    context.clearState();
 
     const container = containerRef.current;
     const rect = container.getBoundingClientRect();

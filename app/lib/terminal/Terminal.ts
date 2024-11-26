@@ -10,6 +10,8 @@ import { FaceRenderer } from "./effects/face";
 import { ScreenManager } from "./ScreenManager";
 import { adventureCommandsMiddleware } from "./middleware/adventure-commands";
 import { adventureMiddleware } from "./middleware/adventure";
+import { commandsMiddleware } from "./middleware/commands";
+import { overrideMiddleware } from "./middleware/override";
 
 export const TERMINAL_COLORS = {
   primary: "#2fb7c3",
@@ -131,6 +133,7 @@ export class Terminal extends EventEmitter {
   private faceRenderer: FaceRenderer;
   public screenManager: ScreenManager = new ScreenManager(this);
   private hasFullAccess: boolean = false;
+  private isAtBottom: boolean = true;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -204,6 +207,11 @@ export class Terminal extends EventEmitter {
     canvas.parentElement?.appendChild(faceCanvas);
 
     this.faceRenderer = new FaceRenderer(faceCanvas);
+
+    // Register middlewares in order
+    this.use(commandsMiddleware); // Global ! commands first
+    this.use(overrideMiddleware); // Then override command
+    this.use(adventureMiddleware); // Then game input
   }
 
   private setupCanvas() {
@@ -294,6 +302,8 @@ export class Terminal extends EventEmitter {
     const speed = this.typingSpeeds[options.speed || "normal"];
     const lineHeight = this.options.fontSize * 1.5;
 
+    this.isAtBottom = this.checkIfAtBottom();
+
     if (speed === 0) {
       const lines = text.split("\n");
       for (const line of lines) {
@@ -304,6 +314,9 @@ export class Terminal extends EventEmitter {
             effect: options.effect || "none",
           });
           this.currentPrintY += lineHeight;
+          if (this.isAtBottom) {
+            this.scrollToLatest();
+          }
         }
       }
       this.render();
@@ -317,6 +330,9 @@ export class Terminal extends EventEmitter {
             effect: options.effect || "none",
           });
           this.currentPrintY += lineHeight;
+          if (this.isAtBottom) {
+            this.scrollToLatest();
+          }
           continue;
         }
 
@@ -330,6 +346,9 @@ export class Terminal extends EventEmitter {
 
           for (let i = 0; i < line.length; i++) {
             bufferLine.text += line[i];
+            if (this.isAtBottom) {
+              this.scrollToLatest();
+            }
             this.render();
             await this.wait(speed);
           }
@@ -439,13 +458,12 @@ export class Terminal extends EventEmitter {
             speed: "instant",
           });
 
-          const currentScreen = this.context.router?.currentScreen;
-          if (currentScreen && (await currentScreen.handleCommand(command))) {
-            ctx.handled = true;
-          } else {
-            await this.executeMiddleware(ctx);
-          }
+          await this.print("", { speed: "instant" });
 
+          // Execute middleware chain first
+          await this.executeMiddleware(ctx);
+
+          // If still not handled and has full access, show error
           if (!ctx.handled && ctx.hasFullAccess) {
             await this.print(`Command not found: ${ctx.command}`, {
               color: "#ff0000",
@@ -625,16 +643,17 @@ export class Terminal extends EventEmitter {
 
   public scroll(delta: number) {
     const lineHeight = this.options.fontSize * 1.5;
-    const maxScroll = Math.max(
-      0,
-      this.buffer.length * lineHeight - this.getHeight() / 2
-    );
+    const totalContentHeight = this.currentPrintY + lineHeight;
+    const visibleHeight = this.getHeight();
+    const maxScroll = Math.max(0, totalContentHeight - visibleHeight / 2);
 
-    this.scrollOffset = Math.max(
+    const newScrollOffset = Math.max(
       0,
       Math.min(maxScroll, this.scrollOffset + delta * 0.5)
     );
 
+    this.scrollOffset = newScrollOffset;
+    this.isAtBottom = this.checkIfAtBottom();
     this.render();
   }
 
@@ -675,7 +694,7 @@ export class Terminal extends EventEmitter {
       }
 
       return Math.max(
-        lastTextPosition + lineHeight,
+        lastTextPosition + lineHeight * 2,
         this.getVerticalPadding() + lineHeight
       );
     }
@@ -724,17 +743,24 @@ export class Terminal extends EventEmitter {
   }
 
   public scrollToLatest() {
+    if (!this.isAtBottom) return;
+
     const lineHeight = this.options.fontSize * 1.5;
     const totalContentHeight = this.currentPrintY + lineHeight;
     const visibleHeight = this.getHeight();
 
     if (totalContentHeight > visibleHeight) {
-      this.scrollOffset = totalContentHeight - visibleHeight + lineHeight;
+      this.scrollOffset = Math.max(
+        0,
+        totalContentHeight - visibleHeight + lineHeight
+      );
       this.render();
     }
   }
 
   private scrollForInput() {
+    if (!this.isAtBottom) return;
+
     const lineHeight = this.options.fontSize * 1.5;
     const extraScrollSpace = lineHeight * 3;
     const totalContentHeight = this.currentPrintY + extraScrollSpace;
@@ -760,64 +786,88 @@ export class Terminal extends EventEmitter {
   }
 
   public async processAIStream(
-    stream: ReadableStream<Uint8Array> | null,
-    options: PrintOptions & { addSpacing?: boolean } = { addSpacing: true }
-  ): Promise<string> {
-    if (!stream) throw new Error("No stream provided");
-
-    let responseText = "";
+    stream: ReadableStream,
+    options: {
+      color?: string;
+      addSpacing?: boolean;
+      returnContent?: boolean;
+    } = {}
+  ): Promise<string | void> {
+    const {
+      color = TERMINAL_COLORS.primary,
+      addSpacing = false,
+      returnContent = false,
+    } = options;
+    let fullContent = "";
     let currentLine = "";
-    let consecutiveNewlines = 0;
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-
-    this.startGeneration();
 
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const reader = stream.getReader();
+      let done = false;
 
-        const text = decoder.decode(value);
-        responseText += text;
+      while (!done) {
+        const result = await reader.read();
+        done = result.done;
 
-        for (const char of text) {
-          if (char === "\n") {
-            consecutiveNewlines++;
+        if (result.value) {
+          const text = new TextDecoder().decode(result.value);
 
-            if (currentLine.trim()) {
-              await this.print(currentLine, {
-                color: options.color || TERMINAL_COLORS.primary,
-                speed: "instant",
-              });
+          // Process text character by character
+          for (const char of text) {
+            if (char === "\n") {
+              // Check if current line is a tool command
+              if (await this.handleToolCommand(currentLine)) {
+                // If it was a tool command, don't add to fullContent
+                currentLine = "";
+                continue;
+              }
+
+              // Not a tool command, print the line
+              if (currentLine.trim()) {
+                await this.print(currentLine, { color, speed: "fast" });
+                fullContent += currentLine + "\n";
+              }
               currentLine = "";
+            } else {
+              currentLine += char;
             }
-
-            if (consecutiveNewlines === 2) {
-              await this.print("", { speed: "instant" });
-              consecutiveNewlines = 0;
-            }
-          } else {
-            consecutiveNewlines = 0;
-            currentLine += char;
           }
         }
       }
 
+      // Handle any remaining text
       if (currentLine.trim()) {
-        await this.print(currentLine, {
-          color: options.color || TERMINAL_COLORS.primary,
-          speed: "instant",
-        });
+        if (!(await this.handleToolCommand(currentLine))) {
+          await this.print(currentLine, { color, speed: "fast" });
+          fullContent += currentLine;
+        }
       }
 
-      this.scrollForInput();
-    } finally {
-      reader.releaseLock();
-      this.endGeneration();
-    }
+      if (addSpacing) {
+        await this.print("", { speed: "instant" });
+      }
 
-    return responseText;
+      return returnContent ? fullContent.trim() : undefined;
+    } catch (error) {
+      console.error("Error processing AI stream:", error);
+      throw error;
+    }
+  }
+
+  private async handleToolCommand(command: string): Promise<boolean> {
+    const trimmedCommand = command.trim();
+    if (trimmedCommand.startsWith("{") && trimmedCommand.endsWith("}")) {
+      try {
+        const toolCommand = JSON.parse(trimmedCommand);
+        if (toolCommand.tool && toolCommand.parameters) {
+          toolEvents.emit(`tool:${toolCommand.tool}`, toolCommand.parameters);
+          return true;
+        }
+      } catch (e) {
+        console.error("Error parsing tool command:", e);
+      }
+    }
+    return false;
   }
 
   public getBufferText(): string {
@@ -939,21 +989,6 @@ export class Terminal extends EventEmitter {
       .join("");
   }
 
-  private async handleToolCommand(command: string) {
-    if (command.trim().startsWith("{") && command.trim().endsWith("}")) {
-      try {
-        const toolCommand = JSON.parse(command);
-        if (toolCommand.tool && toolCommand.parameters) {
-          toolEvents.emit(`tool:${toolCommand.tool}`, toolCommand.parameters);
-        }
-        return true;
-      } catch (e) {
-        return false;
-      }
-    }
-    return false;
-  }
-
   private getVerticalPadding(): number {
     return this.layout.topPadding || 40;
   }
@@ -983,5 +1018,14 @@ export class Terminal extends EventEmitter {
 
   public hasCommandAccess(): boolean {
     return this.hasFullAccess;
+  }
+
+  private checkIfAtBottom(): boolean {
+    const lineHeight = this.options.fontSize * 1.5;
+    const totalContentHeight = this.currentPrintY + lineHeight;
+    const visibleHeight = this.getHeight();
+    const maxScroll = Math.max(0, totalContentHeight - visibleHeight);
+
+    return Math.abs(this.scrollOffset - maxScroll) <= lineHeight;
   }
 }

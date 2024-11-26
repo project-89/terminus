@@ -5,10 +5,9 @@ import { TerminalContext } from "../TerminalContext";
 let overrideAttempted = false;
 
 export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
-  const terminalContext = TerminalContext.getInstance();
-
   if (ctx.command === "override 89") {
     // Update global context
+    const terminalContext = TerminalContext.getInstance();
     terminalContext.setState({ hasFullAccess: true });
 
     // Update local context
@@ -33,11 +32,13 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
 
       await ctx.terminal.print("", { speed: "instant" });
 
-      // Process the AI response
-      await ctx.terminal.processAIStream(stream, {
-        color: TERMINAL_COLORS.system,
-        addSpacing: false,
-      });
+      // Process the AI response if stream exists
+      if (stream) {
+        await ctx.terminal.processAIStream(stream, {
+          color: TERMINAL_COLORS.system,
+          addSpacing: false,
+        });
+      }
 
       await ctx.terminal.print("", { speed: "instant" });
     } else {

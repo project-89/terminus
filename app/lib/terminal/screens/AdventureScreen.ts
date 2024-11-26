@@ -63,12 +63,11 @@ ESTABLISHING CONNECTION...`.trim();
       });
     }
 
-    await this.terminal.print("", { speed: "instant" });
+    await this.terminal.print("\n", { speed: "instant" });
 
     // Check for returning user
     const { walletConnected, walletAddress, lastSeen } = context.getState();
 
-    console.log("CHECKING WALLET", walletConnected, walletAddress, lastSeen);
     if (walletConnected && walletAddress) {
       // Generate welcome back message
       const prompt = `Returning user detected. Wallet ${walletAddress.slice(
