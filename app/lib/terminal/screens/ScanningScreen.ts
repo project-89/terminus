@@ -40,7 +40,8 @@ export class ScanningScreen extends BaseScreen {
     ]);
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
-    await this.terminal.context.router.navigate("consent");
+    // Use event emission for screen transition
+    await this.terminal.emit("screen:transition", { to: "consent" });
   }
 
   async cleanup(): Promise<void> {

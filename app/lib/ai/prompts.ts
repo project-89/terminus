@@ -1,12 +1,15 @@
 import { google } from "@ai-sdk/google";
 import { streamText } from "ai";
+import { Terminal } from "../terminal/Terminal";
 
 export async function generateOneOffResponse(
   message: string,
-  terminal: any,
-  options = { addSpacing: false }
+  terminal: Terminal,
+  options: { addSpacing?: boolean; color?: string } = { addSpacing: false }
 ) {
   try {
+    terminal.startGeneration();
+
     const response = await fetch("/api/adventure", {
       method: "POST",
       headers: {
@@ -22,24 +25,28 @@ export async function generateOneOffResponse(
       }),
     });
 
-    if (!response.ok) {
+    if (!response.ok || !response.body) {
       throw new Error("Failed to get AI response");
     }
 
-    // Process the stream
-    return terminal.processAIStream(response.body, options);
+    // Process the streamammrs
+    return await terminal.processAIStream(response.body, options);
   } catch (error) {
     console.error("Error in one-off generation:", error);
     throw error;
+  } finally {
+    terminal.endGeneration();
   }
 }
 
 export async function generateCLIResponse(
   message: string,
-  terminal: any,
+  terminal: Terminal,
   options = { addSpacing: false }
 ) {
   try {
+    terminal.startGeneration();
+
     const response = await fetch("/api/project89cli", {
       method: "POST",
       headers: {
@@ -55,14 +62,16 @@ export async function generateCLIResponse(
       }),
     });
 
-    if (!response.ok) {
+    if (!response.ok || !response.body) {
       throw new Error("Failed to get CLI response");
     }
 
     // Process the stream
-    return terminal.processAIStream(response.body, options);
+    return await terminal.processAIStream(response.body, options);
   } catch (error) {
     console.error("Error in CLI generation:", error);
     throw error;
+  } finally {
+    terminal.endGeneration();
   }
 }

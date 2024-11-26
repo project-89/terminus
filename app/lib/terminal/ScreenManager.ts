@@ -1,57 +1,79 @@
 import { Terminal } from "./Terminal";
 import { BaseScreen, ScreenContext } from "./screens/BaseScreen";
+import { WelcomeScreen } from "./screens/WelcomeScreen";
+import { StaticScreen } from "./screens/StaticScreen";
+import { ScanningScreen } from "./screens/ScanningScreen";
+import { ConsentScreen } from "./screens/ConsentScreen";
+import { AdventureScreen } from "./screens/AdventureScreen";
+import { FluidScreen } from "./screens/FluidScreen";
+import { ArchiveScreen } from "./screens/ArchiveScreen";
+import { MainScreen } from "./screens/MainScreen";
 
 export class ScreenManager {
-  private currentScreen?: BaseScreen;
-  private history: BaseScreen[] = [];
+  private screens = new Map<
+    string,
+    new (context: ScreenContext) => BaseScreen
+  >();
+  private terminal: Terminal;
 
-  constructor(private terminal: Terminal) {}
+  constructor(terminal: Terminal) {
+    this.terminal = terminal;
+    this.registerScreens();
+  }
 
-  async showScreen(
-    Screen: new (context: ScreenContext) => BaseScreen,
-    params?: Record<string, any>
+  private registerScreens() {
+    // Central place for all screen registration
+    this.registerScreen("fluid", FluidScreen);
+    this.registerScreen("adventure", AdventureScreen);
+    this.registerScreen("archive", ArchiveScreen);
+    this.registerScreen("static", StaticScreen);
+    this.registerScreen("scanning", ScanningScreen);
+    this.registerScreen("consent", ConsentScreen);
+    this.registerScreen("main", MainScreen);
+  }
+
+  private registerScreen<T extends BaseScreen>(
+    name: string,
+    screenClass: new (context: ScreenContext) => T
   ) {
+    this.screens.set(name, screenClass as any);
+  }
+
+  public async navigate(screenName: string, options?: any): Promise<void> {
+    console.log(`Navigating to screen: ${screenName}`);
+
     try {
-      // Cleanup current screen if it exists
-      if (this.currentScreen) {
-        await this.currentScreen.cleanup();
+      // Clear terminal and wait for it to complete
+      await this.terminal.clear();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Get screen class
+      const ScreenClass = this.screens.get(screenName);
+      if (!ScreenClass) {
+        throw new Error(`Screen '${screenName}' not found`);
       }
 
-      // Create and initialize new screen
-      const screen = new Screen({ terminal: this.terminal, params });
+      // Create new screen instance
+      const screenContext = {
+        terminal: this.terminal,
+        options,
+      };
 
-      // Store current screen in history before changing
-      if (this.currentScreen) {
-        this.history.push(this.currentScreen);
+      const newScreen = new ScreenClass(screenContext);
+
+      // Render new screen
+      if (newScreen.beforeRender) {
+        await newScreen.beforeRender();
+      }
+      await newScreen.render();
+      if (newScreen.afterRender) {
+        await newScreen.afterRender();
       }
 
-      // Set new screen as current
-      this.currentScreen = screen;
-
-      // Render the new screen
-      await screen.beforeRender?.();
-      await screen.render();
-      await screen.afterRender?.();
-
-      return screen;
+      console.log(`Successfully navigated to ${screenName}`);
     } catch (error) {
-      console.error("Error showing screen:", error);
+      console.error(`Error navigating to screen ${screenName}:`, error);
       throw error;
-    }
-  }
-
-  getCurrentScreen(): BaseScreen | undefined {
-    return this.currentScreen;
-  }
-
-  async back() {
-    const previousScreen = this.history.pop();
-    if (previousScreen) {
-      if (this.currentScreen) {
-        await this.currentScreen.cleanup();
-      }
-      this.currentScreen = previousScreen;
-      await previousScreen.render();
     }
   }
 }

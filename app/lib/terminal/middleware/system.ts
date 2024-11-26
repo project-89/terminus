@@ -32,13 +32,23 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
 
         const walletService = new WalletService();
         const address = await walletService.connect();
+
+        terminalContext.setState({
+          walletConnected: true,
+          walletAddress: address,
+        });
+
         await ctx.terminal.print(`\nWallet connected: ${address}`, {
           color: TERMINAL_COLORS.success,
           speed: "normal",
         });
 
-        // Check for PROJECT89 token
         const balance = await walletService.checkTokenBalance();
+
+        terminalContext.setState({
+          tokenBalance: balance,
+        });
+
         if (balance > 0) {
           await ctx.terminal.print("\nPROJECT89 token detected", {
             color: TERMINAL_COLORS.success,
@@ -49,7 +59,6 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
             speed: "normal",
           });
 
-          // Prompt for identification
           await ctx.terminal.print(
             "\nPlease use 'identify' command to begin initialization sequence.",
             {
@@ -70,17 +79,19 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
             }
           );
         }
-
-        // Update wallet state in context
-        terminalContext.setState({
-          walletConnected: true,
-          tokenBalance: balance,
-        });
       } catch (error: any) {
+        console.error("Wallet connection error:", error);
         await ctx.terminal.print(`\nConnection error: ${error.message}`, {
           color: TERMINAL_COLORS.error,
           speed: "normal",
         });
+
+        terminalContext.setState({
+          walletConnected: false,
+          walletAddress: undefined,
+          tokenBalance: undefined,
+        });
+
         if (error.message.includes("install")) {
           await ctx.terminal.print(
             "\nVisit phantom.app to install the wallet",
@@ -109,9 +120,8 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
           speed: "normal",
         });
 
-        // Trigger the welcome screen sequence
         await ctx.terminal.emit("screen:transition", {
-          to: "welcome",
+          to: "scanning",
           options: { type: "fade", duration: 500 },
         });
       }
@@ -178,7 +188,6 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
         const walletService = new WalletService();
         await walletService.disconnect();
 
-        // Clear wallet state
         terminalContext.setState({
           walletConnected: false,
           walletAddress: undefined,

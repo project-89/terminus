@@ -12,6 +12,8 @@ import { adventureCommandsMiddleware } from "./middleware/adventure-commands";
 import { adventureMiddleware } from "./middleware/adventure";
 import { commandsMiddleware } from "./middleware/commands";
 import { overrideMiddleware } from "./middleware/override";
+import { systemCommandsMiddleware } from "./middleware/system";
+import { generateOneOffResponse } from "../ai/prompts";
 
 export const TERMINAL_COLORS = {
   primary: "#2fb7c3",
@@ -107,16 +109,14 @@ export class Terminal extends EventEmitter {
   private isGenerating: boolean = false;
   private loadingInterval: NodeJS.Timeout | null = null;
   private loadingMessages: string[] = [
-    "Processing quantum data stream...",
-    "Analyzing reality matrices...",
-    "Calculating probability vectors...",
-    "Synchronizing neural pathways...",
-    "Stabilizing quantum fluctuations...",
-    "Decoding hyperdimensional signals...",
-    "Interfacing with quantum substrate...",
-    "Parsing reality fragments...",
-    "Aligning dimensional coordinates...",
-    "Channeling void resonance...",
+    "Processing",
+    "Analyzing",
+    "Computing",
+    "Decoding",
+    "Interfacing",
+    "Parsing",
+    "Stabilizing",
+    "Synchronizing",
   ];
 
   private layout = {
@@ -134,6 +134,17 @@ export class Terminal extends EventEmitter {
   public screenManager: ScreenManager = new ScreenManager(this);
   private hasFullAccess: boolean = false;
   private isAtBottom: boolean = true;
+
+  // Add new property for thinking animation
+  private thinkingAnimationFrame: number = 0;
+  private thinkingChars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  private thinkingInterval: NodeJS.Timeout | null = null;
+
+  // Add cursor position tracking
+  private cursorPosition: number = 0;
+
+  private loadingMessageIndex: number = 0;
+  private loadingMessageInterval: NodeJS.Timeout | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -208,10 +219,19 @@ export class Terminal extends EventEmitter {
 
     this.faceRenderer = new FaceRenderer(faceCanvas);
 
-    // Register middlewares in order
+    // Register middlewares in correct order
     this.use(commandsMiddleware); // Global ! commands first
     this.use(overrideMiddleware); // Then override command
-    this.use(adventureMiddleware); // Then game input
+    this.use(systemCommandsMiddleware); // Then system commands (connect, etc)
+    this.use(adventureMiddleware); // Then game input last
+
+    // Initialize cursor position
+    this.cursorPosition = 0;
+
+    // Add screen transition event listener
+    this.on("screen:transition", (event) => {
+      this.handleScreenTransition(event).catch(console.error);
+    });
   }
 
   private setupCanvas() {
@@ -395,6 +415,38 @@ export class Terminal extends EventEmitter {
 
     if (event) {
       switch (event.key) {
+        case "ArrowLeft":
+          if (this.cursorPosition > 0) {
+            this.cursorPosition--;
+            this.validateCursorPosition();
+            this.render();
+          }
+          event.preventDefault();
+          return;
+
+        case "ArrowRight":
+          if (this.cursorPosition < this.inputBuffer.length) {
+            this.cursorPosition++;
+            this.validateCursorPosition();
+            this.render();
+          }
+          event.preventDefault();
+          return;
+
+        case "Home":
+          this.cursorPosition = 0;
+          this.validateCursorPosition();
+          this.render();
+          event.preventDefault();
+          return;
+
+        case "End":
+          this.cursorPosition = this.inputBuffer.length;
+          this.validateCursorPosition();
+          this.render();
+          event.preventDefault();
+          return;
+
         case "ArrowUp":
           if (this.historyIndex < this.inputHistory.length - 1) {
             if (this.historyIndex === -1) {
@@ -402,8 +454,11 @@ export class Terminal extends EventEmitter {
             }
             this.historyIndex++;
             this.inputBuffer = this.inputHistory[this.historyIndex];
+            this.cursorPosition = this.inputBuffer.length;
+            this.validateCursorPosition();
             this.render();
           }
+          event.preventDefault();
           return;
 
         case "ArrowDown":
@@ -413,8 +468,11 @@ export class Terminal extends EventEmitter {
               this.historyIndex === -1
                 ? this.tempInput
                 : this.inputHistory[this.historyIndex];
+            this.cursorPosition = this.inputBuffer.length;
+            this.validateCursorPosition();
             this.render();
           }
+          event.preventDefault();
           return;
 
         case "Paste":
@@ -422,7 +480,12 @@ export class Terminal extends EventEmitter {
           if (event.ctrlKey || event.metaKey) {
             try {
               const text = await navigator.clipboard.readText();
-              this.inputBuffer += text;
+              this.inputBuffer =
+                this.inputBuffer.slice(0, this.cursorPosition) +
+                text +
+                this.inputBuffer.slice(this.cursorPosition);
+              this.cursorPosition += text.length;
+              this.validateCursorPosition();
               this.render();
             } catch (err) {
               console.error("Failed to paste:", err);
@@ -438,9 +501,10 @@ export class Terminal extends EventEmitter {
         this.inputHistory.unshift(this.inputBuffer);
         this.historyIndex = -1;
         this.tempInput = "";
-
         const command = this.inputBuffer;
         this.inputBuffer = "";
+        this.cursorPosition = 0;
+        this.validateCursorPosition();
         this.render();
 
         const ctx: TerminalContext = {
@@ -482,10 +546,29 @@ export class Terminal extends EventEmitter {
       }
       this.render();
     } else if (char === "Backspace") {
-      this.inputBuffer = this.inputBuffer.slice(0, -1);
-      this.render();
+      if (this.cursorPosition > 0) {
+        this.inputBuffer =
+          this.inputBuffer.slice(0, this.cursorPosition - 1) +
+          this.inputBuffer.slice(this.cursorPosition);
+        this.cursorPosition--;
+        this.validateCursorPosition();
+        this.render();
+      }
+    } else if (char === "Delete" && event?.key === "Delete") {
+      if (this.cursorPosition < this.inputBuffer.length) {
+        this.inputBuffer =
+          this.inputBuffer.slice(0, this.cursorPosition) +
+          this.inputBuffer.slice(this.cursorPosition + 1);
+        this.validateCursorPosition();
+        this.render();
+      }
     } else if (char.length === 1) {
-      this.inputBuffer += char;
+      this.inputBuffer =
+        this.inputBuffer.slice(0, this.cursorPosition) +
+        char +
+        this.inputBuffer.slice(this.cursorPosition);
+      this.cursorPosition++;
+      this.validateCursorPosition();
       this.ensureInputVisible();
       this.render();
     }
@@ -551,15 +634,36 @@ export class Terminal extends EventEmitter {
       this.ctx.fillStyle = this.options.foregroundColor;
       this.ctx.fillText(inputText, cursorStartX, cursorY);
 
-      if (this.cursorVisible && !this.isGenerating) {
-        const cursorX = cursorStartX + this.ctx.measureText(inputText).width;
-        this.ctx.fillStyle = this.options.cursorColor;
-        this.ctx.fillRect(
-          cursorX,
-          cursorY,
-          this.options.fontSize / 2,
-          this.options.fontSize
-        );
+      if (this.cursorVisible) {
+        // Calculate cursor position based on text width up to cursor
+        const textBeforeCursor = `> ${this.inputBuffer.slice(
+          0,
+          this.cursorPosition
+        )}`;
+        const cursorX =
+          cursorStartX + this.ctx.measureText(textBeforeCursor).width;
+
+        if (this.isGenerating) {
+          // Show thinking animation with loading message
+          this.ctx.fillStyle = this.options.cursorColor;
+          this.ctx.font = `${this.options.fontSize}px "${this.options.fontFamily}"`;
+          const thinkingChar = this.thinkingChars[this.thinkingAnimationFrame];
+          const loadingMessage = this.loadingMessages[this.loadingMessageIndex];
+          this.ctx.fillText(
+            `${thinkingChar} ${loadingMessage}...`,
+            cursorX,
+            cursorY
+          );
+        } else {
+          // Show regular cursor block
+          this.ctx.fillStyle = this.options.cursorColor;
+          this.ctx.fillRect(
+            cursorX,
+            cursorY,
+            this.options.fontSize / 2,
+            this.options.fontSize
+          );
+        }
       }
     }
 
@@ -574,6 +678,12 @@ export class Terminal extends EventEmitter {
     }
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
+    }
+    if (this.thinkingInterval) {
+      clearInterval(this.thinkingInterval);
+    }
+    if (this.loadingMessageInterval) {
+      clearInterval(this.loadingMessageInterval);
     }
     if (this.hiddenTextarea && this.hiddenTextarea.parentNode) {
       this.hiddenTextarea.parentNode.removeChild(this.hiddenTextarea);
@@ -592,9 +702,24 @@ export class Terminal extends EventEmitter {
   }
 
   public clear() {
+    // Stop any ongoing printing
     this.clearPrintQueue();
+
+    // Clear all content
     this.buffer = [];
-    this.currentPrintY = 50;
+
+    // Reset all position tracking
+    this.currentPrintY = this.layout.topPadding; // Start from top padding instead of 50
+    this.scrollOffset = 0;
+    this.inputBuffer = "";
+    this.cursorPosition = 0;
+    this.isAtBottom = true; // Reset scroll tracking
+
+    // Clear the canvas completely
+    this.ctx.fillStyle = this.options.backgroundColor;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // Re-render empty state
     this.render();
   }
 
@@ -743,16 +868,15 @@ export class Terminal extends EventEmitter {
   }
 
   public scrollToLatest() {
-    if (!this.isAtBottom) return;
-
     const lineHeight = this.options.fontSize * 1.5;
     const totalContentHeight = this.currentPrintY + lineHeight;
     const visibleHeight = this.getHeight();
 
-    if (totalContentHeight > visibleHeight) {
+    // If generating, always scroll to bottom regardless of isAtBottom state
+    if (this.isGenerating || this.isAtBottom) {
       this.scrollOffset = Math.max(
         0,
-        totalContentHeight - visibleHeight + lineHeight
+        totalContentHeight - visibleHeight + lineHeight * 2 // Add extra padding
       );
       this.render();
     }
@@ -774,14 +898,48 @@ export class Terminal extends EventEmitter {
 
   public startGeneration() {
     this.isGenerating = true;
-    this.cursorVisible = false;
-    this.render();
+    this.cursorVisible = true;
+
+    // Separate intervals for cursor animation and loading message
+    if (this.thinkingInterval) {
+      clearInterval(this.thinkingInterval);
+    }
+    if (this.loadingMessageInterval) {
+      clearInterval(this.loadingMessageInterval);
+    }
+
+    // Faster interval for cursor animation
+    this.thinkingInterval = setInterval(() => {
+      this.thinkingAnimationFrame =
+        (this.thinkingAnimationFrame + 1) % this.thinkingChars.length;
+      this.cursorVisible = true;
+      this.render();
+    }, 150);
+
+    // Slower interval for loading message changes
+    this.loadingMessageInterval = setInterval(() => {
+      this.loadingMessageIndex =
+        (this.loadingMessageIndex + 1) % this.loadingMessages.length;
+      this.render();
+      this.scrollToLatest();
+    }, 2000); // Much slower rotation of messages
+
+    this.scrollToLatest();
   }
 
   public endGeneration() {
     this.isGenerating = false;
+
+    if (this.thinkingInterval) {
+      clearInterval(this.thinkingInterval);
+      this.thinkingInterval = null;
+    }
+
+    this.thinkingAnimationFrame = 0;
+    this.loadingMessageIndex = 0;
     this.cursorVisible = true;
     this.render();
+    this.scrollToLatest();
     this.scrollForInput();
   }
 
@@ -800,6 +958,7 @@ export class Terminal extends EventEmitter {
     } = options;
     let fullContent = "";
     let currentLine = "";
+    let consecutiveNewlines = 0;
 
     try {
       const reader = stream.getReader();
@@ -815,21 +974,43 @@ export class Terminal extends EventEmitter {
           // Process text character by character
           for (const char of text) {
             if (char === "\n") {
-              // Check if current line is a tool command
-              if (await this.handleToolCommand(currentLine)) {
-                // If it was a tool command, don't add to fullContent
-                currentLine = "";
-                continue;
+              consecutiveNewlines++;
+
+              // Handle current line if it exists
+              if (currentLine.trim()) {
+                // Check for tool commands in the line
+                const toolCommandMatch = currentLine.match(/\{.*?\}/g);
+                if (toolCommandMatch) {
+                  // Process each tool command found
+                  for (const match of toolCommandMatch) {
+                    await this.handleToolCommand(match);
+                  }
+                  // Replace tool commands with empty string and print remaining text
+                  const remainingText = currentLine
+                    .replace(/\{.*?\}/g, "")
+                    .trim();
+                  if (remainingText) {
+                    await this.print(remainingText, { color, speed: "fast" });
+                    fullContent += remainingText + "\n";
+                  }
+                } else {
+                  // No tool command, print the line normally
+                  await this.print(currentLine, { color, speed: "fast" });
+                  fullContent += currentLine + "\n";
+                }
               }
 
-              // Not a tool command, print the line
-              if (currentLine.trim()) {
-                await this.print(currentLine, { color, speed: "fast" });
-                fullContent += currentLine + "\n";
+              // Add extra newline if we see two consecutive ones
+              if (consecutiveNewlines === 2) {
+                await this.print("", { speed: "instant" });
+                fullContent += "\n";
+                consecutiveNewlines = 0;
               }
+
               currentLine = "";
             } else {
               currentLine += char;
+              consecutiveNewlines = 0;
             }
           }
         }
@@ -837,14 +1018,26 @@ export class Terminal extends EventEmitter {
 
       // Handle any remaining text
       if (currentLine.trim()) {
-        if (!(await this.handleToolCommand(currentLine))) {
+        const toolCommandMatch = currentLine.match(/\{.*?\}/g);
+        if (toolCommandMatch) {
+          for (const match of toolCommandMatch) {
+            await this.handleToolCommand(match);
+          }
+          const remainingText = currentLine.replace(/\{.*?\}/g, "").trim();
+          if (remainingText) {
+            await this.print(remainingText, { color, speed: "fast" });
+            fullContent += remainingText;
+          }
+        } else {
           await this.print(currentLine, { color, speed: "fast" });
           fullContent += currentLine;
         }
       }
 
+      // Add final spacing if requested
       if (addSpacing) {
         await this.print("", { speed: "instant" });
+        fullContent += "\n";
       }
 
       return returnContent ? fullContent.trim() : undefined;
@@ -1027,5 +1220,50 @@ export class Terminal extends EventEmitter {
     const maxScroll = Math.max(0, totalContentHeight - visibleHeight);
 
     return Math.abs(this.scrollOffset - maxScroll) <= lineHeight;
+  }
+
+  public async generateOneOffResponse(
+    prompt: string,
+    options: {
+      color?: string;
+      addSpacing?: boolean;
+    } = {}
+  ): Promise<void> {
+    const { color = TERMINAL_COLORS.primary, addSpacing = false } = options;
+
+    try {
+      const response = await generateOneOffResponse(prompt, this, {
+        color,
+        addSpacing,
+      });
+    } catch (error) {
+      console.error("Error generating one-off response:", error);
+      await this.print("Error processing response", {
+        color: TERMINAL_COLORS.error,
+        speed: "fast",
+      });
+    }
+  }
+
+  // Add method to ensure cursor stays in valid range
+  private validateCursorPosition() {
+    this.cursorPosition = Math.max(
+      0,
+      Math.min(this.cursorPosition, this.inputBuffer.length)
+    );
+  }
+
+  // Add screen transition handling
+  public async handleScreenTransition(event: { to: string; options?: any }) {
+    try {
+      console.log("Handling screen transition to:", event.to);
+      await this.screenManager.navigate(event.to, event.options);
+    } catch (error) {
+      console.error("Error during screen transition:", error);
+      await this.print("\nError during screen transition", {
+        color: TERMINAL_COLORS.error,
+        speed: "fast",
+      });
+    }
   }
 }

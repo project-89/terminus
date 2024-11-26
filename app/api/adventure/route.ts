@@ -47,7 +47,9 @@ const glitchParameters = z.object({
 });
 
 const soundParameters = z.object({
-  type: z.enum(["beep", "alert", "error", "success"]).describe("Sound type"),
+  type: z
+    .enum(["beep", "alert", "error", "success", "hum"])
+    .describe("Sound type"),
   volume: z.number().min(0).max(1).describe("Volume level (0-1)"),
 });
 

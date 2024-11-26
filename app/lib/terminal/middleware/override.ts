@@ -21,6 +21,8 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
         speed: "normal",
       });
 
+      ctx.terminal.startGeneration();
+
       // Add override event to chat history and get AI response
       const stream = await getAdventureResponse([
         {
@@ -39,6 +41,8 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
           addSpacing: false,
         });
       }
+
+      ctx.terminal.endGeneration();
 
       await ctx.terminal.print("", { speed: "instant" });
     } else {

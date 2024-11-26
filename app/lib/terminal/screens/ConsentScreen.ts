@@ -78,7 +78,10 @@ export class ConsentScreen extends BaseScreen {
     ]);
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
-    await this.transition("main", { type: "fade", duration: 1000 });
+    await this.transition("main", {
+      type: "fade",
+      duration: 1000,
+    });
   }
 
   private async processDenial() {

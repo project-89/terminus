@@ -22,7 +22,7 @@ export interface MatrixRainParameters {
 }
 
 export interface SoundParameters {
-  type: "beep" | "alert" | "error" | "success";
+  type: "beep" | "alert" | "error" | "success" | "hum";
   volume: number;
 }
 

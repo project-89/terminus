@@ -121,17 +121,13 @@ export abstract class BaseScreen {
     to: string,
     options: TransitionOptions = { type: "instant" }
   ) {
-    // Check if emit is available, otherwise use the screen manager directly
-    if (typeof this.context.terminal.emit === "function") {
-      await this.context.terminal.emit("screen:transition", { to, options });
-    } else {
-      // Fallback to using screen manager if available
-      if (this.context.screenManager) {
-        await this.context.screenManager.navigate(to, options);
-      } else {
-        console.warn("No transition mechanism available");
-      }
-    }
+    // Update URL
+    const url = new URL(window.location.href);
+    url.searchParams.set("screen", to);
+    window.history.pushState({}, "", url.toString());
+
+    // Emit event for screen transition
+    await this.context.terminal.emit("screen:transition", { to, options });
   }
 
   protected setTimeout(callback: () => void, delay: number): NodeJS.Timeout {

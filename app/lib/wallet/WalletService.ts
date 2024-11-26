@@ -16,16 +16,53 @@ import { TerminalContext } from "../terminal/TerminalContext";
 export class WalletService {
   private wallet: PhantomWalletAdapter | null = null;
   private connection: Connection;
+  private terminalContext: TerminalContext;
 
   // PROJECT89 token mint address on mainnet
   private PROJECT89_MINT = "Bz4MhmVRQENiCou7ZpJ575wpjNFjBjVBSiVhuNg1pump";
 
   constructor() {
-    // Use Alchemy endpoint
     this.connection = new Connection(
-      "https://solana-mainnet.g.alchemy.com/v2/Mhtfn7T2mB7i3tsApF_2vOob_0AqRMLm",
+      process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL ||
+        "https://api.mainnet-beta.solana.com",
       "confirmed"
     );
+    this.terminalContext = TerminalContext.getInstance();
+
+    // Try to restore wallet connection if previously connected
+    this.tryRestoreConnection();
+  }
+
+  private async tryRestoreConnection() {
+    const state = this.terminalContext.getState();
+    if (state.walletConnected && state.walletAddress) {
+      try {
+        // Only attempt reconnect if last seen within 24 hours
+        const lastSeen = state.lastSeen ? new Date(state.lastSeen) : null;
+        const isRecent =
+          lastSeen &&
+          new Date().getTime() - lastSeen.getTime() < 24 * 60 * 60 * 1000;
+
+        if (isRecent) {
+          await this.connect();
+        } else {
+          // Clear stale wallet state
+          this.terminalContext.setState({
+            walletConnected: false,
+            walletAddress: undefined,
+            lastSeen: undefined,
+          });
+        }
+      } catch (error) {
+        console.error("Failed to restore wallet connection:", error);
+        // Clear wallet state on failed reconnect
+        this.terminalContext.setState({
+          walletConnected: false,
+          walletAddress: undefined,
+          lastSeen: undefined,
+        });
+      }
+    }
   }
 
   private async initializeWallet() {
@@ -61,8 +98,7 @@ export class WalletService {
       const address = this.wallet.publicKey.toBase58();
 
       // Update terminal context with wallet info
-      const terminalContext = TerminalContext.getInstance();
-      terminalContext.setState({
+      this.terminalContext.setState({
         walletConnected: true,
         walletAddress: address,
         lastSeen: new Date(),
@@ -70,10 +106,12 @@ export class WalletService {
 
       return address;
     } catch (error: any) {
-      console.error("Error connecting wallet:", error);
-      if (error.message.includes("not found")) {
-        throw new Error("Please install Phantom wallet from phantom.app");
-      }
+      // Clear wallet state on error
+      this.terminalContext.setState({
+        walletConnected: false,
+        walletAddress: undefined,
+        lastSeen: undefined,
+      });
       throw error;
     }
   }
@@ -93,18 +131,32 @@ export class WalletService {
         { mint: mintPubkey }
       );
 
+      console.log("Token accounts:", tokenAccounts);
+
       if (tokenAccounts.value.length === 0) {
         return 0;
       }
 
-      console.log("tokenAccounts", tokenAccounts);
-
       // Get balance from the first token account
       const balance =
-        tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount;
+        tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount ||
+        0;
+
+      // Add debug logging
+      console.log("Token account data:", {
+        mint: this.PROJECT89_MINT,
+        accounts: tokenAccounts.value,
+        balance,
+      });
+
       return balance;
     } catch (error) {
       console.error("Error checking token balance:", error);
+      // Add more detailed error logging
+      if (error instanceof Error) {
+        console.error("Error details:", error.message);
+        console.error("Error stack:", error.stack);
+      }
       return 0;
     }
   }
@@ -114,6 +166,13 @@ export class WalletService {
       if (this.wallet) {
         await this.wallet.disconnect();
         this.wallet = null;
+
+        // Clear wallet state in context
+        this.terminalContext.setState({
+          walletConnected: false,
+          walletAddress: undefined,
+          lastSeen: undefined,
+        });
       }
     } catch (error) {
       console.error("Error disconnecting wallet:", error);
