@@ -381,8 +381,16 @@ export class FluidScreen extends BaseScreen {
         item: selectedItem.route,
       });
 
-      // Navigate using screen name instead of path
-      await this.terminal.context.router.navigate(selectedItem.route);
+      // Stop fluid effect before transition
+      this.fluidEffect.stop();
+
+      // Clear all canvases
+      await this.cleanup();
+
+      await this.transition(selectedItem.route, {
+        type: "fade",
+        duration: 1000,
+      });
     } catch (error) {
       console.error("Error during screen transition:", error);
       analytics.trackGameAction("error", {
