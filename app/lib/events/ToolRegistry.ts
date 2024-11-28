@@ -84,7 +84,7 @@ export class ToolRegistry {
   private tools: Map<string, ToolRegistration>;
   private subscribers: Map<string, Set<(args: any) => void>>;
 
-  private constructor() {
+  constructor() {
     this.tools = new Map();
     this.subscribers = new Map();
     this.initializeTools();

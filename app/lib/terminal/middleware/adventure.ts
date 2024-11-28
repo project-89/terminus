@@ -7,16 +7,18 @@ import { analytics } from "@/app/lib/analytics";
 
 export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
   // Only process commands if we're in the adventure screen
-  const currentScreen = ctx.terminal.context.router?.currentScreen;
+  const currentScreen = ctx.terminal.context?.currentScreen;
   if (!(currentScreen instanceof AdventureScreen)) {
     return next();
   }
 
-  // If the command has already been handled by another middleware,
-  // don't process it further
-  if (ctx.handled) {
+  // Skip if command was already handled (like by override middleware)
+  if (ctx.handled || ctx.command.startsWith("!")) {
     return next();
   }
+
+  // Track that we're handling this command
+  ctx.handled = true;
 
   try {
     const context = TerminalContext.getInstance();
@@ -40,7 +42,7 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
       color: TERMINAL_COLORS.primary,
       addSpacing: true,
       returnContent: true,
-    })) as string; // Cast to string since we know returnContent is true
+    })) as string;
 
     // Add AI response to chat history
     chatHistory.push({
@@ -50,15 +52,11 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
 
     // Update chat history with both messages
     context.setGameMessages(chatHistory);
-
-    // Mark as handled after successful processing
-    ctx.handled = true;
   } catch (error) {
     console.error("Adventure middleware error:", error);
     await ctx.terminal.print("Error processing command", {
       color: TERMINAL_COLORS.error,
       speed: "fast",
     });
-    ctx.handled = true;
   }
 };

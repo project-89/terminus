@@ -1,4 +1,6 @@
-import { Terminal, TERMINAL_COLORS } from "../Terminal";
+import { ScreenCommandRegistry } from "../commands/registry";
+import { CommandConfig } from "../commands/types";
+import { Terminal, TERMINAL_COLORS, type TerminalContext } from "../Terminal";
 
 export interface ScreenDimensions {
   width: number;
@@ -26,17 +28,19 @@ export interface TransitionOptions {
 }
 
 export type ScreenMiddleware = (
-  command: string,
+  ctx: TerminalContext,
   next: () => Promise<void>
 ) => Promise<void>;
 
 export abstract class BaseScreen {
   protected terminal: Terminal;
   protected dimensions: ScreenDimensions;
-  private middlewares: ScreenMiddleware[] = [];
+  protected commandRegistry: ScreenCommandRegistry;
+  private middlewareChain: ScreenMiddleware[] = [];
 
   constructor(protected context: ScreenContext) {
     this.terminal = context.terminal;
+    this.commandRegistry = new ScreenCommandRegistry();
 
     // Get terminal dimensions or use defaults
     const terminalWidth = this.terminal.getWidth?.() || window.innerWidth;
@@ -53,6 +57,18 @@ export abstract class BaseScreen {
       },
       centered: context.dimensions?.centered ?? true,
     };
+  }
+
+  registerCommands(commands: CommandConfig[]) {
+    this.commandRegistry.registerCommands(commands);
+  }
+
+  registerCommand(command: CommandConfig) {
+    this.commandRegistry.registerCommand(command);
+  }
+
+  clearCommands() {
+    this.commandRegistry.clearCommands();
   }
 
   // Helper method to center text horizontally with proper width calculation
@@ -146,38 +162,22 @@ export abstract class BaseScreen {
     return setInterval(callback, delay);
   }
 
-  // Add middleware support
-  protected use(middleware: ScreenMiddleware) {
-    this.middlewares.push(middleware);
-    return this;
+  // Middleware management
+  protected registerMiddleware(middleware: ScreenMiddleware) {
+    this.middlewareChain.push(middleware);
   }
 
-  // Execute screen-specific middleware chain
-  protected async executeMiddleware(command: string) {
+  // Base command handling that runs middleware
+  async handleCommand(ctx: TerminalContext): Promise<void> {
     let index = 0;
     const executeNext = async (): Promise<void> => {
-      if (index < this.middlewares.length) {
-        const middleware = this.middlewares[index];
-        index++;
-        await middleware(command, executeNext);
+      if (index < this.middlewareChain.length) {
+        const middleware = this.middlewareChain[index++];
+        await middleware(ctx, executeNext);
       }
     };
 
     await executeNext();
-  }
-
-  // Handle command method that screens can override
-  protected async handleCommand(command: string): Promise<boolean> {
-    console.log("Handle command", command);
-    // Execute screen-specific middleware first
-    await this.executeMiddleware(command);
-
-    // If the screen has a processCommand method, use it
-    if (typeof (this as any).processCommand === "function") {
-      return await (this as any).processCommand(command);
-    }
-
-    return false; // Return false to allow command to propagate to global middleware
   }
 
   abstract render(): Promise<void>;

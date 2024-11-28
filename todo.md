@@ -1,9 +1,9 @@
 V1 MVP
 [x] Remove analytics for now
 [ ] add anonymous user registration
-[ ] Google analytics
-[x] Message persistence
-[x] Game save
-[x] Game load
+[X] Google analytics
+[] Message persistence
+[ ] Game save
+[] Game load
 [ ] Testing
 [ ] Mobile?

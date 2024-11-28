@@ -61,6 +61,11 @@ export class ScreenManager {
 
       const newScreen = new ScreenClass(screenContext);
 
+      // Update terminal context with new screen
+      if (this.terminal.context) {
+        this.terminal.context.currentScreen = newScreen;
+      }
+
       // Ensure terminal is clear before rendering new screen
       await this.terminal.clear();
 

@@ -1,5 +1,5 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
-import { TERMINAL_COLORS } from "../Terminal";
+import { TERMINAL_COLORS, type TerminalContext } from "../Terminal";
 import { FluidAscii } from "../effects/fluidAscii";
 import { analytics } from "../../analytics";
 import { AdventureScreen } from "./AdventureScreen";
@@ -475,17 +475,14 @@ export class FluidScreen extends BaseScreen {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async handleCommand(command: string): Promise<boolean> {
+  async handleCommand(ctx: TerminalContext): Promise<void> {
     if (this.isTransitioning) {
-      return true;
+      ctx.handled = true;
+      return;
     }
 
-    // Create fluid effect at cursor position
-    const rect = this.terminal.canvas.getBoundingClientRect();
-    const cursorY = this.terminal.getCursorY();
-    this.fluidEffect.addForce(rect.width / 2, cursorY, 1);
-
-    // Process command normally
-    return false;
+    // Rest of your command handling logic
+    const command = ctx.command;
+    // ... use command as before ...
   }
 }

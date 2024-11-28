@@ -8,8 +8,6 @@ import { EventEmitter } from "events";
 import { toolEvents } from "./tools/registry";
 import { FaceRenderer } from "./effects/face";
 import { ScreenManager } from "./ScreenManager";
-import { adventureCommandsMiddleware } from "./middleware/adventure-commands";
-import { adventureMiddleware } from "./middleware/adventure";
 import { commandsMiddleware } from "./middleware/commands";
 import { overrideMiddleware } from "./middleware/override";
 import { systemCommandsMiddleware } from "./middleware/system";
@@ -74,6 +72,24 @@ export type TerminalMiddleware = (
   next: () => Promise<void>
 ) => Promise<void>;
 
+export type MiddlewareType = "system" | "screen" | "adventure" | "fallback";
+
+export interface MiddlewareConfig {
+  type: MiddlewareType;
+  priority: number;
+  middleware: TerminalMiddleware;
+}
+
+// Update command registry types
+export interface CommandConfig {
+  name: string;
+  type: "system" | "adventure";
+  description: string;
+  handler: (ctx: TerminalContext) => Promise<void>;
+  blockProcessing?: boolean;
+  hidden?: boolean;
+}
+
 export class Terminal extends EventEmitter {
   canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -88,7 +104,6 @@ export class Terminal extends EventEmitter {
   private blinkInterval: NodeJS.Timeout | null = null;
   private effects: TerminalEffects;
   private animationFrame: number | null = null;
-  private middlewares: TerminalMiddleware[] = [];
   private printQueue: Array<{
     text: string;
     options: PrintOptions;
@@ -135,7 +150,7 @@ export class Terminal extends EventEmitter {
   private hasFullAccess: boolean = false;
   private isAtBottom: boolean = true;
 
-  // Add new property for thinking animation
+  // Simplify thinking animation to just use a spinner
   private thinkingAnimationFrame: number = 0;
   private thinkingChars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   private thinkingInterval: NodeJS.Timeout | null = null;
@@ -145,6 +160,11 @@ export class Terminal extends EventEmitter {
 
   private loadingMessageIndex: number = 0;
   private loadingMessageInterval: NodeJS.Timeout | null = null;
+
+  private middlewares: TerminalMiddleware[] = [];
+  private middlewareChain: MiddlewareConfig[] = [];
+
+  private static commandRegistry: Map<string, CommandConfig> = new Map();
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -219,14 +239,29 @@ export class Terminal extends EventEmitter {
 
     this.faceRenderer = new FaceRenderer(faceCanvas);
 
-    // Register middlewares in correct order
-    this.use(commandsMiddleware); // Global ! commands first
-    this.use(overrideMiddleware); // Then override command
-    this.use(systemCommandsMiddleware); // Then system commands (connect, etc)
-    this.use(adventureMiddleware); // Then game input last
+    // Register system middlewares with priorities
+    this.use({
+      type: "system",
+      priority: 1000,
+      middleware: systemCommandsMiddleware,
+    });
+
+    this.use({
+      type: "system",
+      priority: 900,
+      middleware: overrideMiddleware,
+    });
+
+    this.use({
+      type: "system",
+      priority: 800,
+      middleware: commandsMiddleware,
+    });
 
     // Initialize cursor position
     this.cursorPosition = 0;
+
+    this.registerDefaultCommands();
 
     // Add screen transition event listener
     this.on("screen:transition", (event) => {
@@ -386,8 +421,10 @@ export class Terminal extends EventEmitter {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  public use(middleware: TerminalMiddleware) {
-    this.middlewares.push(middleware);
+  public use(config: MiddlewareConfig) {
+    console.warn(
+      "Terminal.use() is deprecated. Register commands with the screen instead."
+    );
     return this;
   }
 
@@ -397,12 +434,24 @@ export class Terminal extends EventEmitter {
       ...this.context,
     };
 
+    // First check for system commands
+    if (ctx.command.startsWith("!")) {
+      const command = Terminal.getCommand(ctx.command);
+      if (command) {
+        await command.handler(ctx);
+        ctx.handled = true;
+        return ctx;
+      }
+    }
+
+    // Then process through middleware chain
     let index = 0;
     const executeNext = async (): Promise<void> => {
-      if (index < this.middlewares.length) {
-        const middleware = this.middlewares[index];
-        index++;
-        await middleware(ctx, executeNext);
+      if (index < this.middlewareChain.length) {
+        const config = this.middlewareChain[index++];
+        if (!ctx.handled) {
+          await config.middleware(ctx, executeNext);
+        }
       }
     };
 
@@ -507,38 +556,31 @@ export class Terminal extends EventEmitter {
         this.validateCursorPosition();
         this.render();
 
-        const ctx: TerminalContext = {
-          command: command.trim(),
-          args: command.trim().split(/\s+/),
-          flags: {},
-          terminal: this,
-          handled: false,
-          hasFullAccess: false,
-        };
+        // Print the command
+        await this.print(`> ${command}`, {
+          color: this.options.foregroundColor,
+          speed: "instant",
+        });
+        await this.print("", { speed: "instant" });
 
-        try {
-          await this.print(`> ${command}`, {
-            color: this.options.foregroundColor,
-            speed: "instant",
-          });
-
-          await this.print("", { speed: "instant" });
-
-          // Execute middleware chain first
-          await this.executeMiddleware(ctx);
-
-          // If still not handled and has full access, show error
-          if (!ctx.handled && ctx.hasFullAccess) {
-            await this.print(`Command not found: ${ctx.command}`, {
+        // Let the current screen handle the command
+        console.log("Handling command:", command);
+        console.log("Current screen:", this.context?.currentScreen);
+        if (this.context?.currentScreen) {
+          try {
+            await this.context.currentScreen.handleCommand({
+              command: command.trim(),
+              args: command.trim().split(/\s+/),
+              flags: {},
+              terminal: this,
+              handled: false,
+            });
+          } catch (error: any) {
+            await this.print(`System Error: ${error.message}`, {
               color: "#ff0000",
               speed: "normal",
             });
           }
-        } catch (error: any) {
-          await this.print(`System Error: ${error.message}`, {
-            color: "#ff0000",
-            speed: "normal",
-          });
         }
       } else {
         await this.print("", { speed: "instant" });
@@ -635,7 +677,6 @@ export class Terminal extends EventEmitter {
       this.ctx.fillText(inputText, cursorStartX, cursorY);
 
       if (this.cursorVisible) {
-        // Calculate cursor position based on text width up to cursor
         const textBeforeCursor = `> ${this.inputBuffer.slice(
           0,
           this.cursorPosition
@@ -644,13 +685,10 @@ export class Terminal extends EventEmitter {
           cursorStartX + this.ctx.measureText(textBeforeCursor).width;
 
         if (this.isGenerating) {
-          // Show thinking animation with loading message
+          // Show just the spinner
           this.ctx.fillStyle = this.options.cursorColor;
-          this.ctx.font = `${this.options.fontSize}px "${this.options.fontFamily}"`;
-          const thinkingChar = this.thinkingChars[this.thinkingAnimationFrame];
-          const loadingMessage = this.loadingMessages[this.loadingMessageIndex];
           this.ctx.fillText(
-            `${thinkingChar} ${loadingMessage}...`,
+            this.thinkingChars[this.thinkingAnimationFrame],
             cursorX,
             cursorY
           );
@@ -900,29 +938,17 @@ export class Terminal extends EventEmitter {
     this.isGenerating = true;
     this.cursorVisible = true;
 
-    // Separate intervals for cursor animation and loading message
     if (this.thinkingInterval) {
       clearInterval(this.thinkingInterval);
     }
-    if (this.loadingMessageInterval) {
-      clearInterval(this.loadingMessageInterval);
-    }
 
-    // Faster interval for cursor animation
+    // Just use a simple spinner animation
     this.thinkingInterval = setInterval(() => {
       this.thinkingAnimationFrame =
         (this.thinkingAnimationFrame + 1) % this.thinkingChars.length;
       this.cursorVisible = true;
       this.render();
-    }, 150);
-
-    // Slower interval for loading message changes
-    this.loadingMessageInterval = setInterval(() => {
-      this.loadingMessageIndex =
-        (this.loadingMessageIndex + 1) % this.loadingMessages.length;
-      this.render();
-      this.scrollToLatest();
-    }, 2000); // Much slower rotation of messages
+    }, 80);
 
     this.scrollToLatest();
   }
@@ -936,7 +962,6 @@ export class Terminal extends EventEmitter {
     }
 
     this.thinkingAnimationFrame = 0;
-    this.loadingMessageIndex = 0;
     this.cursorVisible = true;
     this.render();
     this.scrollToLatest();
@@ -1048,19 +1073,27 @@ export class Terminal extends EventEmitter {
   }
 
   private async handleToolCommand(command: string): Promise<boolean> {
-    const trimmedCommand = command.trim();
-    if (trimmedCommand.startsWith("{") && trimmedCommand.endsWith("}")) {
-      try {
-        const toolCommand = JSON.parse(trimmedCommand);
-        if (toolCommand.tool && toolCommand.parameters) {
-          toolEvents.emit(`tool:${toolCommand.tool}`, toolCommand.parameters);
-          return true;
-        }
-      } catch (e) {
-        console.error("Error parsing tool command:", e);
+    try {
+      // Try to extract JSON from the text if it exists
+      const jsonMatch = command.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return false;
       }
+
+      const jsonStr = jsonMatch[0];
+      const toolCommand = JSON.parse(jsonStr);
+
+      if (!toolCommand.tool || !toolCommand.parameters) {
+        return false;
+      }
+
+      // Emit the tool event
+      toolEvents.emit(`tool:${toolCommand.tool}`, toolCommand.parameters);
+      return true;
+    } catch (error) {
+      console.error("Error parsing tool command:", error);
+      return false;
     }
-    return false;
   }
 
   public getBufferText(): string {
@@ -1265,5 +1298,100 @@ export class Terminal extends EventEmitter {
         speed: "fast",
       });
     }
+  }
+
+  public isCommandHandled(command: string): boolean {
+    // Special commands always block
+    if (command.startsWith("!")) return true;
+
+    // Check registry for system commands that should block processing
+    const cmd = Terminal.commandRegistry.get(command);
+    return cmd?.blockProcessing === true;
+  }
+
+  // Simplified help system that only shows system commands
+  public async showHelp() {
+    const systemCommands = Terminal.getCommands("system");
+    if (systemCommands.length > 0) {
+      await this.print("\nSystem Commands:", {
+        color: TERMINAL_COLORS.system,
+        speed: "fast",
+      });
+
+      for (const cmd of systemCommands) {
+        await this.print(`  ${cmd.name.padEnd(12)} - ${cmd.description}`, {
+          color: TERMINAL_COLORS.primary,
+          speed: "fast",
+        });
+      }
+    }
+
+    const adventureCommands = Terminal.getCommands("adventure");
+    if (adventureCommands.length > 0) {
+      await this.print("\nAdventure Commands:", {
+        color: TERMINAL_COLORS.system,
+        speed: "fast",
+      });
+
+      for (const cmd of adventureCommands) {
+        await this.print(`  ${cmd.name.padEnd(12)} - ${cmd.description}`, {
+          color: TERMINAL_COLORS.primary,
+          speed: "fast",
+        });
+      }
+    }
+  }
+
+  // Updated command registration methods
+  public static registerCommand(command: CommandConfig) {
+    Terminal.commandRegistry.set(command.name, command);
+  }
+
+  public static registerCommands(commands: CommandConfig[]) {
+    commands.forEach((command) =>
+      Terminal.commandRegistry.set(command.name, command)
+    );
+  }
+
+  public static getCommand(name: string): CommandConfig | undefined {
+    return Terminal.commandRegistry.get(name);
+  }
+
+  public static getCommands(type?: "system" | "adventure"): CommandConfig[] {
+    const commands = Array.from(Terminal.commandRegistry.values());
+    if (type) {
+      return commands.filter((cmd) => cmd.type === type && !cmd.hidden);
+    }
+    return commands.filter((cmd) => !cmd.hidden);
+  }
+
+  // Helper to register default system commands
+  private registerDefaultCommands() {
+    Terminal.registerCommands([
+      {
+        name: "!help",
+        type: "system",
+        description: "Show available commands",
+        handler: async (ctx) => {
+          await this.showHelp();
+        },
+      },
+      {
+        name: "!clear",
+        type: "system",
+        description: "Clear terminal display",
+        handler: async (ctx) => {
+          await this.clear();
+        },
+      },
+      {
+        name: "!main",
+        type: "system",
+        description: "Return to main screen",
+        handler: async (ctx) => {
+          await ctx.terminal.emit("screen:transition", { to: "main" });
+        },
+      },
+    ]);
   }
 }

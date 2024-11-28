@@ -1,6 +1,6 @@
-import { TerminalMiddleware, TERMINAL_COLORS } from "../Terminal";
-import { TerminalContext } from "../TerminalContext";
-import { AdventureScreen } from "../screens/AdventureScreen";
+import { CommandConfig } from "../types";
+import { TerminalContext } from "../../TerminalContext";
+import { TERMINAL_COLORS } from "../../Terminal";
 import { analytics } from "@/app/lib/analytics";
 
 interface SavedGameSession {
@@ -8,46 +8,6 @@ interface SavedGameSession {
   timestamp: number;
   name: string;
 }
-
-export const adventureCommandsMiddleware: TerminalMiddleware = async (
-  ctx,
-  next
-) => {
-  console.log("Advneture middleware!!");
-  // Only process commands if we're in the adventure screen
-  const currentScreen = ctx.terminal.context.router?.currentScreen;
-  if (!(currentScreen instanceof AdventureScreen)) {
-    return next();
-  }
-
-  // Handle special commands that start with !
-  if (ctx.command.startsWith("!")) {
-    const [cmd, ...args] = ctx.command.slice(1).split(" ");
-    const saveName = args.join(" ") || "default";
-
-    switch (cmd.toLowerCase()) {
-      case "save":
-        await saveGame(ctx, saveName);
-        ctx.handled = true;
-        return;
-      case "load":
-        await loadGame(ctx, saveName);
-        ctx.handled = true;
-        return;
-      case "new":
-        await newGame(ctx);
-        ctx.handled = true;
-        return;
-      case "list":
-        await listSaves(ctx);
-        ctx.handled = true;
-        return;
-    }
-  }
-
-  // If not a special command, continue to next middleware
-  await next();
-};
 
 // Helper functions
 async function saveGame(ctx: any, name: string) {
@@ -104,22 +64,6 @@ async function loadGame(ctx: any, name: string) {
   analytics.trackGameLoad(name);
 }
 
-async function newGame(ctx: any) {
-  const context = TerminalContext.getInstance();
-  context.setGameMessages([]);
-
-  await ctx.terminal.print("Starting new game...", {
-    color: TERMINAL_COLORS.success,
-    speed: "fast",
-  });
-
-  // Re-render initial game state
-  const currentScreen = ctx.terminal.context.router?.currentScreen;
-  if (currentScreen instanceof AdventureScreen) {
-    await currentScreen.render();
-  }
-}
-
 async function listSaves(ctx: any) {
   const saves = getSavedGames();
   const saveNames = Object.entries(saves);
@@ -152,3 +96,35 @@ function getSavedGames(): Record<string, SavedGameSession> {
   const saves = localStorage.getItem("p89_saved_games");
   return saves ? JSON.parse(saves) : {};
 }
+
+// Adventure screen commands
+export const adventureCommands: CommandConfig[] = [
+  {
+    name: "!save",
+    type: "game",
+    description: "Save current game state",
+    handler: async (ctx) => {
+      const [_, ...args] = ctx.command.split(" ");
+      const saveName = args.join(" ") || "default";
+      await saveGame(ctx, saveName);
+    },
+  },
+  {
+    name: "!load",
+    type: "game",
+    description: "Load a saved game",
+    handler: async (ctx) => {
+      const [_, ...args] = ctx.command.split(" ");
+      const saveName = args.join(" ") || "default";
+      await loadGame(ctx, saveName);
+    },
+  },
+  {
+    name: "!list",
+    type: "game",
+    description: "List saved games",
+    handler: async (ctx) => {
+      await listSaves(ctx);
+    },
+  },
+];

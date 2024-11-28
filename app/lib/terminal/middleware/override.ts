@@ -5,7 +5,7 @@ import { TerminalContext } from "../TerminalContext";
 let overrideAttempted = false;
 
 export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
-  if (ctx.command.startsWith("override ")) {
+  if (ctx.command.toLowerCase().startsWith("override ")) {
     const code = ctx.command.split(" ")[1];
 
     try {
@@ -38,13 +38,15 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
             }
           );
 
+          await ctx.terminal.print("", { speed: "instant" });
+
           ctx.terminal.startGeneration();
 
           const stream = await getAdventureResponse([
             {
               role: "user",
               content:
-                "The user has just discovered and entered the correct override code...",
+                "The user has just discovered and entered the correct access code to unlock the secret back end of the terminal. The user now has full access to all system commands.  Print a brief message to the user welcoming them to the system and explaining that they can now use all system commands.",
             },
           ]);
 

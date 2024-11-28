@@ -1,21 +1,36 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
-import { TERMINAL_COLORS } from "../Terminal";
+import { TERMINAL_COLORS, type TerminalContext } from "../Terminal";
+import { ScreenCommandRegistry } from "../commands/registry";
 
 export class MainScreen extends BaseScreen {
   constructor(context: ScreenContext) {
     super(context);
 
-    // Add screen-specific middleware
-    this.use(async (command, next) => {
-      if (command.startsWith("tool")) {
-        // Handle tool-specific commands
-        await this.terminal.print("Handling tool command...", {
-          color: TERMINAL_COLORS.system,
-        });
-        return; // Don't call next() to prevent command propagation
-      }
-      await next(); // Pass to next middleware
-    });
+    // Register screen-specific commands
+    this.registerCommands([
+      {
+        name: "tool",
+        type: "system",
+        description: "Handle tool commands",
+        handler: async (ctx) => {
+          await this.terminal.print("Handling tool command...", {
+            color: TERMINAL_COLORS.primary,
+            speed: "normal",
+          });
+          ctx.handled = true;
+        },
+      },
+    ]);
+  }
+
+  async handleCommand(ctx: TerminalContext): Promise<void> {
+    const command = this.commandRegistry.getCommand(ctx.command);
+    if (command) {
+      await command.handler(ctx);
+      return;
+    }
+
+    // Handle other commands...
   }
 
   private banner = `

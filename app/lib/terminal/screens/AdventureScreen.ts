@@ -1,15 +1,17 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
-import { TERMINAL_COLORS, TerminalMiddleware } from "../Terminal";
+import { TERMINAL_COLORS } from "../Terminal";
+import type { TerminalContext } from "../Terminal";
 import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
-import { TerminalContext } from "../TerminalContext";
+import { TerminalContext as GameContext } from "../TerminalContext";
 import {
   generateCLIResponse,
   generateOneOffResponse,
 } from "@/app/lib/ai/prompts";
-import { analytics } from "@/app/lib/analytics";
-import { adventureCommandsMiddleware } from "../middleware/adventure-commands";
-import { adventureMiddleware } from "../middleware/adventure";
 import { WalletService } from "../../wallet/WalletService";
+import { adventureMiddleware } from "../middleware/adventure";
+import { overrideMiddleware } from "../middleware/override";
+import { systemCommandsMiddleware } from "../middleware/system";
+import { adventureCommands } from "../commands/adventure";
 
 export class AdventureScreen extends BaseScreen {
   private introText = `
@@ -19,26 +21,77 @@ ESTABLISHING CONNECTION...`.trim();
   constructor(context: ScreenContext) {
     super(context);
 
-    // Convert terminal middleware to screen middleware
-    const adaptMiddleware = (terminalMiddleware: TerminalMiddleware) => {
-      return async (command: string, next: () => Promise<void>) => {
-        // Create terminal context from command
-        const ctx = {
-          command,
-          args: command.split(" "),
-          terminal: this.terminal,
-          handled: false,
-          flags: {},
-        };
+    // Register middleware in order of priority
+    this.registerMiddleware(systemCommandsMiddleware);
+    this.registerMiddleware(overrideMiddleware);
+    this.registerMiddleware(adventureMiddleware);
 
-        // Run terminal middleware with adapted context
-        await terminalMiddleware(ctx, next);
-      };
-    };
+    // Register screen-specific commands
+    this.registerCommands([
+      ...adventureCommands,
+      {
+        name: "!help",
+        type: "system",
+        description: "Show available commands",
+        handler: async (ctx: TerminalContext) => {
+          await this.showHelp();
+        },
+      },
+      {
+        name: "!clear",
+        type: "system",
+        description: "Clear terminal display",
+        handler: async (ctx: TerminalContext) => {
+          await this.terminal.clear();
+        },
+      },
+      {
+        name: "!main",
+        type: "system",
+        description: "Return to main screen",
+        handler: async (ctx: TerminalContext) => {
+          await this.terminal.emit("screen:transition", { to: "main" });
+        },
+      },
+    ]);
+  }
 
-    // Register adapted middlewares
-    this.use(adaptMiddleware(adventureCommandsMiddleware));
-    this.use(adaptMiddleware(adventureMiddleware));
+  private async showHelp() {
+    const systemCommands = this.commandRegistry.getCommands("system");
+    if (systemCommands.length > 0) {
+      await this.terminal.print("\nSystem Commands:", {
+        color: TERMINAL_COLORS.system,
+        speed: "fast",
+      });
+
+      for (const cmd of systemCommands) {
+        await this.terminal.print(
+          `  ${cmd.name.padEnd(12)} - ${cmd.description}`,
+          {
+            color: TERMINAL_COLORS.primary,
+            speed: "fast",
+          }
+        );
+      }
+    }
+
+    const gameCommands = this.commandRegistry.getCommands("game");
+    if (gameCommands.length > 0) {
+      await this.terminal.print("\nGame Commands:", {
+        color: TERMINAL_COLORS.system,
+        speed: "fast",
+      });
+
+      for (const cmd of gameCommands) {
+        await this.terminal.print(
+          `  ${cmd.name.padEnd(12)} - ${cmd.description}`,
+          {
+            color: TERMINAL_COLORS.primary,
+            speed: "fast",
+          }
+        );
+      }
+    }
   }
 
   async render(): Promise<void> {
@@ -51,7 +104,7 @@ ESTABLISHING CONNECTION...`.trim();
     });
 
     // Get terminal context
-    const context = TerminalContext.getInstance();
+    const context = GameContext.getInstance();
     const { walletConnected, walletAddress, lastSeen } = context.getState();
 
     // Clear any existing game messages when starting fresh
@@ -121,7 +174,6 @@ ESTABLISHING CONNECTION...`.trim();
   }
 
   async cleanup(): Promise<void> {
-    // Disable command handling when cleaning up
     this.terminal.setCommandAccess(false);
     await this.terminal.clear();
   }

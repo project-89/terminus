@@ -1,5 +1,5 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
-import { Terminal, TERMINAL_COLORS } from "../Terminal";
+import { TERMINAL_COLORS, TerminalContext } from "../Terminal";
 import { StaticEffect } from "../effects/static";
 import { FaceRenderer } from "../effects/face";
 
@@ -114,19 +114,20 @@ export class StaticScreen extends BaseScreen {
   }
 
   // Handle user input during the sequence
-  async handleCommand(command: string): Promise<boolean> {
+  async handleCommand(ctx: TerminalContext): Promise<void> {
     if (this.isTransitioning) {
-      return true; // Ignore input during transition
+      ctx.handled = true;
+      return;
     }
 
+    // Use the command from context
+    const command = ctx.command;
     // Process commands through the face
     await this.faceRenderer.speak(command, {
       intensity: 0.7,
       speed: 1,
       emotionHint: this.getEmotionForResponse(command),
     });
-
-    return true;
   }
 
   private getEmotionForResponse(
