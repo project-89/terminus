@@ -17,7 +17,7 @@ export class ScreenRouter {
 
   private async handlePopState(event: PopStateEvent) {
     const params = new URLSearchParams(window.location.search);
-    const screen = params.get("screen") || "fluid";
+    const screen = params.get("screen") || "home";
     await this.navigate(screen);
   }
 

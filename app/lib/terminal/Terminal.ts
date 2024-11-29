@@ -832,7 +832,13 @@ export class Terminal extends EventEmitter {
   }
 
   private wrapText(text: string): string[] {
-    const maxWidth = this.getWidth() - this.layout.sidePadding * 2;
+    // Calculate max width - use the smaller of the screen width or max layout width
+    const maxLayoutWidth = Math.min(
+      this.layout.maxWidth || 900,
+      this.getWidth()
+    );
+    const effectiveWidth = maxLayoutWidth - this.layout.sidePadding * 2;
+
     const words = text.split(" ");
     const lines: string[] = [];
     let currentLine = "";
@@ -841,7 +847,7 @@ export class Terminal extends EventEmitter {
       const testLine = currentLine ? `${currentLine} ${word}` : word;
       const metrics = this.ctx.measureText(testLine);
 
-      if (metrics.width > maxWidth && currentLine) {
+      if (metrics.width > effectiveWidth && currentLine) {
         lines.push(currentLine);
         currentLine = word;
       } else {

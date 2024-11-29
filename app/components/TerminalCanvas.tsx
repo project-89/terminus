@@ -77,7 +77,7 @@ export function TerminalCanvas() {
 
     // Show the initial screen based on URL query params
     const params = new URLSearchParams(window.location.search);
-    const initialScreen = params.get("screen") || "fluid";
+    const initialScreen = params.get("screen") || "home";
 
     // Navigate and update current screen
     router.navigate(initialScreen).catch(console.error);

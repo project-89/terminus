@@ -23,7 +23,7 @@ export class ScreenManager {
 
   private registerScreens() {
     // Central place for all screen registration
-    this.registerScreen("fluid", FluidScreen);
+    this.registerScreen("home", FluidScreen);
     this.registerScreen("adventure", AdventureScreen);
     this.registerScreen("archive", ArchiveScreen);
     this.registerScreen("static", StaticScreen);

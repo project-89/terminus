@@ -46,11 +46,11 @@ ESTABLISHING CONNECTION...`.trim();
         },
       },
       {
-        name: "!main",
+        name: "!home",
         type: "system",
-        description: "Return to main screen",
+        description: "Return to home screen",
         handler: async (ctx: TerminalContext) => {
-          await this.terminal.emit("screen:transition", { to: "main" });
+          await this.terminal.emit("screen:transition", { to: "home" });
         },
       },
     ]);

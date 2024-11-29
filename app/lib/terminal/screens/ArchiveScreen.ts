@@ -28,30 +28,51 @@ export class ArchiveScreen extends BaseScreen {
     },
     colors: {
       background: "#090812",
-      foreground: "#5cfffa",
+      foreground: "#2fb7c3",
       highlight: "#ffffff",
-      folder: "#5cfffa",
-      file: "rgba(92, 255, 250, 0.7)",
-      selectedBackground: "rgba(92, 255, 250, 0.1)",
-      dim: "rgba(92, 255, 250, 0.4)",
+      folder: "#2fb7c3",
+      file: "rgba(47, 183, 195, 0.7)",
+      selectedBackground: "rgba(47, 183, 195, 0.1)",
+      dim: "rgba(47, 183, 195, 0.4)",
     },
     fontFamily: "Berkeley Mono",
     textShadow: {
-      color: "rgba(92, 255, 250, 0.6)",
-      blur: "10px",
+      color: "rgba(47, 183, 195, 0.4)",
+      blur: "8px",
       offset: "0px",
+    },
+    effects: {
+      glow: {
+        blur: 16,
+        color: "#2fb7c3",
+        strength: 1.5,
+        passes: 2,
+      },
+      scanlines: {
+        spacing: 4,
+        opacity: 0.1,
+        speed: 0.005,
+        offset: 0,
+        thickness: 1,
+      },
+      crt: {
+        curvature: 0.15,
+        vignetteStrength: 0.25,
+        cornerBlur: 0.12,
+        scanlineGlow: 0.05,
+      },
     },
   };
 
   private header = `
 ███████████████████████████████████████████████████████████████████████████████████
 
-██████╗  █████╗ ████████╗ █████╗     ██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗
-██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗    ██║   ██║██╔══██╗██║   ██║██║  ╚══██╔══╝
-██║  ██║███████║   ██║   ███████║    ██║   ██║███████║██║   ██║██║     ██║   
-██║  ██║██╔══██║   ██║   ██╔══██║    ╚██╗ ██╔╝██╔══██║██║   ██║██║     ██║   
-██████╔╝██║  ██║   ██║   ██║  ██║     ╚████╔╝ ██║  ██║╚██████╔╝███████╗██║   
-╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝      ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝   
+ █████╗  █████╗      █████╗ ██████╗  ██████╗██╗  ██╗██╗██╗   ██╗███████╗
+██╔══██╗██╔══██╗    ██╔══██╗██╔══██╗██╔════╝██║  ██║██║██║   ██║██╔════╝
+╚█████╔╝╚██████║    ███████║██████╔╝██║     ███████║██║██║   ██║█████╗  
+██╔══██╗ ╚═══██║    ██╔══██║██╔══██╗██║     ██╔══██║██║╚██╗ ██╔╝██╔══╝  
+╚█████╔╝ █████╔╝    ██║  ██║██║  ██║╚██████╗██║  ██║██║ ╚████╔╝ ███████╗
+ ╚════╝  ╚════╝     ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝  ╚══════╝
 [RESTRICTED ACCESS] [REALITY COHERENCE: 89.3%] [SIMULATION ANOMALIES DETECTED]
 ///////////////////////////////////////////////////////////////////////////////
 >> AUTHORIZED PERSONNEL ONLY << ONEIROCOM SECURITY MONITORING ACTIVE << BEWARE //
@@ -294,14 +315,14 @@ export class ArchiveScreen extends BaseScreen {
   ) {
     const dpr = window.devicePixelRatio || 1;
     const {
-      color = TERMINAL_COLORS.primary,
+      color = this.layout.colors.foreground,
       size = this.layout.sizes.text,
       align = "left",
       weight = "normal",
       glow = true,
     } = options;
 
-    this.ctx.font = `${weight} ${size}px "Berkeley Mono Variable"`;
+    this.ctx.font = `${weight} ${size}px "${this.layout.fontFamily}"`;
 
     // Calculate position
     let xPos = x;
@@ -316,21 +337,23 @@ export class ArchiveScreen extends BaseScreen {
 
     // Add glow effect
     if (glow) {
+      const { glow: glowEffect } = this.layout.effects;
       this.ctx.save();
-      this.ctx.shadowColor = this.layout.textShadow.color;
-      this.ctx.shadowBlur = parseInt(this.layout.textShadow.blur);
-      this.ctx.shadowOffsetX = parseInt(this.layout.textShadow.offset);
-      this.ctx.shadowOffsetY = parseInt(this.layout.textShadow.offset);
-    }
 
-    // Draw the text
-    this.ctx.fillStyle = color;
-    this.ctx.fillText(text, xPos, y);
+      for (let i = 0; i < glowEffect.passes; i++) {
+        this.ctx.shadowColor = glowEffect.color;
+        this.ctx.shadowBlur = glowEffect.blur * (i + 1) * 0.8;
+        this.ctx.globalAlpha = (glowEffect.strength / glowEffect.passes) * 0.8;
+        this.ctx.fillStyle = color;
+        this.ctx.fillText(text, xPos, y);
+      }
 
-    // Reset shadow if glow was applied
-    if (glow) {
       this.ctx.restore();
     }
+
+    // Draw the main text
+    this.ctx.fillStyle = color;
+    this.ctx.fillText(text, xPos, y);
   }
 
   private async renderItems() {
@@ -820,10 +843,13 @@ export class ArchiveScreen extends BaseScreen {
     this.ctx.fillStyle = this.layout.colors.background;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Calculate available width for text (accounting for padding)
-    const availableWidth =
-      this.canvas.width / window.devicePixelRatio -
-      (this.layout.padding.left + this.layout.padding.right);
+    // Calculate max width for content (use 900px or 80% of screen width, whichever is smaller)
+    const maxContentWidth = Math.min(
+      900,
+      (this.canvas.width / window.devicePixelRatio) * 0.8
+    );
+    const sidePadding =
+      (this.canvas.width / window.devicePixelRatio - maxContentWidth) / 2;
 
     // Word wrap function
     const wrapText = (text: string): string[] => {
@@ -842,7 +868,7 @@ export class ArchiveScreen extends BaseScreen {
         const testLine = currentLine ? `${currentLine} ${word}` : word;
         const metrics = this.ctx.measureText(testLine);
 
-        if (metrics.width > availableWidth && currentLine) {
+        if (metrics.width > maxContentWidth && currentLine) {
           lines.push(currentLine);
           currentLine = word;
         } else {
@@ -868,7 +894,7 @@ export class ArchiveScreen extends BaseScreen {
       this.canvas.height / window.devicePixelRatio -
       (this.layout.padding.top +
         this.layout.padding.bottom +
-        this.layout.spacing.line * 2); // Extra space for footer
+        this.layout.spacing.line * 2);
 
     // Calculate how many lines can fit in the viewport
     this.linesPerPage = Math.floor(viewportHeight / this.layout.spacing.line);
@@ -884,7 +910,7 @@ export class ArchiveScreen extends BaseScreen {
     );
 
     for (const line of visibleLines) {
-      this.drawText(line, this.layout.padding.left, y, {
+      this.drawText(line, sidePadding, y, {
         color: this.layout.colors.foreground,
         glow: true,
       });
@@ -896,7 +922,7 @@ export class ArchiveScreen extends BaseScreen {
       this.renderScrollIndicators();
     }
 
-    // Update footer - position it at the absolute bottom
+    // Update footer
     const footerY =
       this.canvas.height / window.devicePixelRatio -
       (this.layout.padding.bottom + this.layout.spacing.line);
@@ -1056,40 +1082,39 @@ export class ArchiveScreen extends BaseScreen {
   }
 
   private renderEffects() {
-    // Render scan lines
-    this.ctx.globalAlpha = 0.1;
-    this.ctx.drawImage(
-      this.noiseCanvas,
-      0,
-      this.scanLineOffset,
-      this.canvas.width,
-      this.canvas.height
-    );
+    // Apply CRT effect
+    const { crt } = this.layout.effects;
+    const width = this.canvas.width / window.devicePixelRatio;
+    const height = this.canvas.height / window.devicePixelRatio;
 
-    // Render CRT screen curve effect
-    this.ctx.globalAlpha = 0.1;
+    // Apply vignette
     const gradient = this.ctx.createRadialGradient(
-      this.canvas.width / 2,
-      this.canvas.height / 2,
+      width / 2,
+      height / 2,
       0,
-      this.canvas.width / 2,
-      this.canvas.height / 2,
-      this.canvas.width
+      width / 2,
+      height / 2,
+      Math.max(width, height) / 1.5
     );
-    gradient.addColorStop(0, "rgba(92, 255, 250, 0.1)");
-    gradient.addColorStop(1, "rgba(92, 255, 250, 0)");
+    gradient.addColorStop(0, "rgba(0,0,0,0)");
+    gradient.addColorStop(1, `rgba(0,0,0,${crt.vignetteStrength})`);
     this.ctx.fillStyle = gradient;
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.fillRect(0, 0, width, height);
 
-    // Render glitch lines
-    this.ctx.globalAlpha = 0.3;
-    this.ctx.fillStyle = this.layout.colors.foreground;
-    for (const line of this.glitchLines) {
-      this.ctx.fillRect(0, line.y, line.width, 1);
+    // Apply scanlines
+    const { scanlines } = this.layout.effects;
+    this.ctx.fillStyle = `rgba(0,0,0,${scanlines.opacity})`;
+    this.scanLineOffset =
+      (this.scanLineOffset + scanlines.speed) % scanlines.spacing;
+
+    for (let y = this.scanLineOffset; y < height; y += scanlines.spacing) {
+      this.ctx.fillRect(0, y, width, scanlines.thickness);
     }
 
-    // Reset alpha
-    this.ctx.globalAlpha = 1;
+    // Add subtle noise
+    this.ctx.globalAlpha = 0.02;
+    this.ctx.drawImage(this.noiseCanvas, 0, 0, width, height);
+    this.ctx.globalAlpha = 1.0;
   }
 
   private animate = (timestamp: number = 0) => {
