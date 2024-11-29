@@ -109,7 +109,12 @@ ESTABLISHING CONNECTION...`.trim();
 
     // Clear any existing game messages when starting fresh
     if (!context.getGameMessages().length) {
-      context.setGameMessages([]);
+      context.setGameMessages([
+        {
+          role: "assistant",
+          content: this.introText,
+        },
+      ]);
     }
 
     // Print intro text

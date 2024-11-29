@@ -8,9 +8,6 @@ import { EventEmitter } from "events";
 import { toolEvents } from "./tools/registry";
 import { FaceRenderer } from "./effects/face";
 import { ScreenManager } from "./ScreenManager";
-import { commandsMiddleware } from "./middleware/commands";
-import { overrideMiddleware } from "./middleware/override";
-import { systemCommandsMiddleware } from "./middleware/system";
 import { generateOneOffResponse } from "../ai/prompts";
 
 export const TERMINAL_COLORS = {
@@ -239,29 +236,8 @@ export class Terminal extends EventEmitter {
 
     this.faceRenderer = new FaceRenderer(faceCanvas);
 
-    // Register system middlewares with priorities
-    this.use({
-      type: "system",
-      priority: 1000,
-      middleware: systemCommandsMiddleware,
-    });
-
-    this.use({
-      type: "system",
-      priority: 900,
-      middleware: overrideMiddleware,
-    });
-
-    this.use({
-      type: "system",
-      priority: 800,
-      middleware: commandsMiddleware,
-    });
-
     // Initialize cursor position
     this.cursorPosition = 0;
-
-    this.registerDefaultCommands();
 
     // Add screen transition event listener
     this.on("screen:transition", (event) => {
@@ -323,14 +299,23 @@ export class Terminal extends EventEmitter {
 
   public async print(text: string, options: PrintOptions = {}): Promise<void> {
     return new Promise((resolve) => {
-      const segments = text.split("\n");
+      // Split into paragraphs (double newlines)
+      const paragraphs = text.split(/\n\s*\n/);
 
-      const wrappedLines = segments.flatMap((segment) =>
-        segment ? this.wrapText(segment) : [""]
-      );
+      // Process each paragraph with proper spacing
+      const processedText = paragraphs
+        .map((paragraph) => {
+          // Wrap the paragraph text
+          const segments = paragraph.split("\n");
+          const wrappedLines = segments.flatMap((segment) =>
+            segment ? this.wrapText(segment) : [""]
+          );
+          return wrappedLines.join("\n");
+        })
+        .join("\n\n"); // Add double newline between paragraphs
 
       this.printQueue.push({
-        text: wrappedLines.join("\n"),
+        text: processedText,
         options: {
           ...options,
           speed: options.speed || "normal",
@@ -341,78 +326,52 @@ export class Terminal extends EventEmitter {
       if (!this.isPrinting) {
         this.processNextPrint();
       }
-
-      this.scrollToLatest();
     });
   }
 
-  private async processNextPrint() {
+  private async processNextPrint(): Promise<void> {
     if (this.printQueue.length === 0) {
       this.isPrinting = false;
       return;
     }
 
     this.isPrinting = true;
-    const { text, options, resolve } = this.printQueue[0];
+    const { text, options, resolve } = this.printQueue.shift()!;
+    const lines = text.split("\n");
     const speed = this.typingSpeeds[options.speed || "normal"];
+    const color = options.color || this.options.foregroundColor;
     const lineHeight = this.options.fontSize * 1.5;
 
-    this.isAtBottom = this.checkIfAtBottom();
+    const isAtBottom = this.checkIfAtBottom();
 
-    if (speed === 0) {
-      const lines = text.split("\n");
-      for (const line of lines) {
-        if (!(await this.handleToolCommand(line))) {
-          this.buffer.push({
-            text: line,
-            color: options.color || this.options.foregroundColor,
-            effect: options.effect || "none",
-          });
-          this.currentPrintY += lineHeight;
-          if (this.isAtBottom) {
-            this.scrollToLatest();
-          }
-        }
+    for (const line of lines) {
+      // Add the line to buffer
+      this.buffer.push({
+        text: line,
+        color,
+        effect: options.effect,
+      });
+
+      // Update cursor position
+      this.currentPrintY += lineHeight;
+
+      // Check if we need to scroll
+      if (isAtBottom) {
+        const maxScroll = Math.max(
+          0,
+          this.currentPrintY - this.getHeight() + this.options.fontSize * 2
+        );
+        this.scrollOffset = maxScroll;
       }
+
+      // Render after each line
       this.render();
-    } else {
-      const lines = text.split("\n");
-      for (const line of lines) {
-        if (line === "") {
-          this.buffer.push({
-            text: "",
-            color: options.color || this.options.foregroundColor,
-            effect: options.effect || "none",
-          });
-          this.currentPrintY += lineHeight;
-          if (this.isAtBottom) {
-            this.scrollToLatest();
-          }
-          continue;
-        }
 
-        if (!(await this.handleToolCommand(line))) {
-          const bufferLine = {
-            text: "",
-            color: options.color || this.options.foregroundColor,
-            effect: options.effect || "none",
-          };
-          this.buffer.push(bufferLine);
-
-          for (let i = 0; i < line.length; i++) {
-            bufferLine.text += line[i];
-            if (this.isAtBottom) {
-              this.scrollToLatest();
-            }
-            this.render();
-            await this.wait(speed);
-          }
-          this.currentPrintY += lineHeight;
-        }
+      if (speed > 0) {
+        await new Promise((r) => setTimeout(r, speed));
       }
     }
 
-    this.printQueue.shift();
     resolve();
     this.processNextPrint();
   }
@@ -873,28 +832,20 @@ export class Terminal extends EventEmitter {
   }
 
   private wrapText(text: string): string[] {
-    const maxChars = this.getMaxCharsPerLine();
+    const maxWidth = this.getWidth() - this.layout.sidePadding * 2;
     const words = text.split(" ");
     const lines: string[] = [];
     let currentLine = "";
 
     for (const word of words) {
-      if (word.length > maxChars) {
-        if (currentLine) {
-          lines.push(currentLine);
-          currentLine = "";
-        }
-        for (let i = 0; i < word.length; i += maxChars) {
-          lines.push(word.slice(i, i + maxChars));
-        }
-        continue;
-      }
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const metrics = this.ctx.measureText(testLine);
 
-      if (currentLine.length + word.length + 1 <= maxChars) {
-        currentLine += (currentLine ? " " : "") + word;
-      } else {
+      if (metrics.width > maxWidth && currentLine) {
         lines.push(currentLine);
         currentLine = word;
+      } else {
+        currentLine = testLine;
       }
     }
 
@@ -1363,35 +1314,5 @@ export class Terminal extends EventEmitter {
       return commands.filter((cmd) => cmd.type === type && !cmd.hidden);
     }
     return commands.filter((cmd) => !cmd.hidden);
-  }
-
-  // Helper to register default system commands
-  private registerDefaultCommands() {
-    Terminal.registerCommands([
-      {
-        name: "!help",
-        type: "system",
-        description: "Show available commands",
-        handler: async (ctx) => {
-          await this.showHelp();
-        },
-      },
-      {
-        name: "!clear",
-        type: "system",
-        description: "Clear terminal display",
-        handler: async (ctx) => {
-          await this.clear();
-        },
-      },
-      {
-        name: "!main",
-        type: "system",
-        description: "Return to main screen",
-        handler: async (ctx) => {
-          await ctx.terminal.emit("screen:transition", { to: "main" });
-        },
-      },
-    ]);
   }
 }

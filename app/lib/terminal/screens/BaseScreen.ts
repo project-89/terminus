@@ -57,6 +57,18 @@ export abstract class BaseScreen {
       },
       centered: context.dimensions?.centered ?? true,
     };
+
+    // Register command handler middleware by default
+    this.registerMiddleware(async (ctx, next) => {
+      // Check for registered commands first
+      const command = this.commandRegistry.getCommand(ctx.command);
+      if (command) {
+        ctx.handled = true;
+        await command.handler(ctx);
+        return;
+      }
+      await next();
+    });
   }
 
   registerCommands(commands: CommandConfig[]) {

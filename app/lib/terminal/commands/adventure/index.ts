@@ -42,23 +42,37 @@ async function loadGame(ctx: any, name: string) {
     return;
   }
 
+  // Clear terminal first
+  await ctx.terminal.clear();
+
   const context = TerminalContext.getInstance();
   context.setGameMessages(save.messages);
 
   await ctx.terminal.print(
-    `Loaded save "${name}" from ${new Date(save.timestamp).toLocaleString()}`,
+    `Loading save "${name}" from ${new Date(
+      save.timestamp
+    ).toLocaleString()}...`,
     {
-      color: TERMINAL_COLORS.success,
+      color: TERMINAL_COLORS.system,
       speed: "fast",
     }
   );
 
-  if (save.messages.length > 0) {
-    const lastMessage = save.messages[save.messages.length - 1];
-    await ctx.terminal.print(lastMessage.content, {
-      color: TERMINAL_COLORS.primary,
-      speed: "fast",
-    });
+  // Replay all messages in the conversation
+  for (const message of save.messages) {
+    if (message.role === "user") {
+      await ctx.terminal.print(`> ${message.content}`, {
+        color: TERMINAL_COLORS.secondary,
+        speed: "instant",
+      });
+    } else {
+      await ctx.terminal.print(message.content, {
+        color: TERMINAL_COLORS.primary,
+        speed: "instant",
+      });
+    }
+    // Add a small spacing between messages
+    await ctx.terminal.print("", { speed: "instant" });
   }
 
   analytics.trackGameLoad(name);
