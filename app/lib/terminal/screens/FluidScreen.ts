@@ -65,6 +65,11 @@ export class FluidScreen extends BaseScreen {
       route: "archive",
       description: "Browse recovered data fragments and logs",
     },
+    {
+      text: "CLASSIC TERMINAL",
+      route: "classic",
+      description: "Access the original terminal interface",
+    },
   ];
 
   private selectedMenuItem: number = 0;
@@ -376,28 +381,17 @@ export class FluidScreen extends BaseScreen {
 
     const selectedItem = this.menuItems[this.selectedMenuItem];
 
+    if (selectedItem.route === "classic") {
+      // Open classic terminal in new tab
+      window.open("https://terminal-classic.netlify.app/", "_blank");
+      this.isTransitioning = false;
+      return;
+    }
+
     try {
-      // Track menu selection
-      analytics.trackGameAction("menu_select", {
-        item: selectedItem.route,
-      });
-
-      // Stop fluid effect before transition
-      this.fluidEffect.stop();
-
-      // Clear all canvases
-      await this.cleanup();
-
-      await this.transition(selectedItem.route, {
-        type: "fade",
-        duration: 1000,
-      });
+      await this.transition(selectedItem.route);
     } catch (error) {
-      console.error("Error during screen transition:", error);
-      analytics.trackGameAction("error", {
-        error_type: "screen_transition_error",
-        route: selectedItem.route,
-      });
+      console.error("Error during transition:", error);
     } finally {
       this.isTransitioning = false;
     }

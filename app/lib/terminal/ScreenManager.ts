@@ -40,17 +40,13 @@ export class ScreenManager {
   }
 
   public async navigate(screenName: string, options?: any): Promise<void> {
-    console.log(`Navigating to screen: ${screenName}`);
-
     try {
       // Clean up current screen if it exists
       if (this.terminal.context?.currentScreen) {
-        console.log("Cleaning up current screen");
         await this.terminal.context.currentScreen.cleanup();
       }
 
       // Clear terminal and wait for it to complete
-      console.log("Clearing terminal");
       await this.terminal.clear();
       await new Promise((resolve) => setTimeout(resolve, 100)); // Increased delay for stability
 
@@ -66,7 +62,6 @@ export class ScreenManager {
         options,
       };
 
-      console.log("Creating new screen instance");
       const newScreen = new ScreenClass(screenContext);
 
       // Update terminal context with new screen
@@ -75,7 +70,6 @@ export class ScreenManager {
       }
 
       // Render new screen
-      console.log("Rendering new screen");
       if (newScreen.beforeRender) {
         await newScreen.beforeRender();
       }
@@ -83,8 +77,6 @@ export class ScreenManager {
       if (newScreen.afterRender) {
         await newScreen.afterRender();
       }
-
-      console.log(`Successfully navigated to ${screenName}`);
     } catch (error) {
       console.error(`Error navigating to screen ${screenName}:`, error);
       throw error;
