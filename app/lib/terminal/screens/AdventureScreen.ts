@@ -1,17 +1,14 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
 import { TERMINAL_COLORS } from "../Terminal";
-import type { TerminalContext } from "../Terminal";
-import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
+import type { TerminalContext } from "../types/index";
 import { TerminalContext as GameContext } from "../TerminalContext";
-import {
-  generateCLIResponse,
-  generateOneOffResponse,
-} from "@/app/lib/ai/prompts";
-import { WalletService } from "../../wallet/WalletService";
-import { adventureMiddleware } from "../middleware/adventure";
-import { overrideMiddleware } from "../middleware/override";
+import { toolEvents } from "../tools/registry";
 import { systemCommandsMiddleware } from "../middleware/system";
+import { overrideMiddleware } from "../middleware/override";
+import { adventureMiddleware } from "../middleware/adventure";
 import { adventureCommands } from "../commands/adventure";
+import { WalletService } from "../../wallet/WalletService";
+import { generateCLIResponse, generateOneOffResponse } from "../../ai/prompts";
 
 export class AdventureScreen extends BaseScreen {
   private introText = `
@@ -94,6 +91,71 @@ ESTABLISHING CONNECTION...`.trim();
     }
   }
 
+  private triggerMatrixRain() {
+    toolEvents.emit("tool:matrix_rain", {
+      duration: 5000, // 5 seconds
+      intensity: 0.8, // High intensity
+    });
+  }
+
+  private triggerGlitch() {
+    toolEvents.emit("tool:glitch_screen", {
+      duration: 3000, // 3 seconds
+      intensity: 0.7, // Medium-high intensity
+    });
+  }
+
+  public async processCommand(command: string): Promise<void> {
+    const context = GameContext.getInstance();
+
+    // Store user command
+    context.addGameMessage({
+      role: "user",
+      content: command,
+    });
+
+    // Handle special commands
+    if (command.toLowerCase() === "matrix") {
+      this.triggerMatrixRain();
+      return;
+    }
+
+    if (command.toLowerCase() === "glitch") {
+      this.triggerGlitch();
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/adventure", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: context.getGameMessages(),
+        }),
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error("Failed to get adventure response");
+      }
+
+      // Process the response and store it
+      const content = await this.terminal.processAIStream(response.body);
+      if (content) {
+        context.addGameMessage({
+          role: "assistant",
+          content: content,
+        });
+      }
+    } catch (error) {
+      console.error("Error processing command:", error);
+      await this.terminal.print("Error processing command. Please try again.", {
+        color: TERMINAL_COLORS.error,
+      });
+    }
+  }
+
   async render(): Promise<void> {
     console.log("AdventureScreen render called");
 
@@ -166,7 +228,7 @@ ESTABLISHING CONNECTION...`.trim();
     } else {
       // Regular new user flow
       await generateOneOffResponse(
-        "Before the game starts, print out a short introduction to the Project and its purpose, and a message to someone on how to play the text adventure, but DO NOT use weird characters like [object].  Commands are listed with CAPS. You don't need to explain everything, just the basics as a list.  Enough to get them started. Interject a couple commands which are ontological and hyperstitial in nature. Make this casual. Do not simulate the text adventure until you receive the first command after this.",
+        "Before the game starts, print out a short introduction about the Project and its purpose, and on how to play the text adventure, but DO NOT use weird characters like [object].  Commands are listed with CAPS. You don't need to explain everything.  Show commands as a list with a short description of the command.  Enough to get them started. Interject a couple commands which are ontological and hyperstitial in nature. Do not simulate the text adventure until you receive the first command after this.",
         this.terminal,
         {
           addSpacing: false,

@@ -30,13 +30,13 @@ export function TerminalCanvas() {
       fontSize: 16,
       fontFamily: "Berkeley Mono",
       backgroundColor: "#090812",
-      foregroundColor: "#5cfffa",
-      cursorColor: "#5cfffa",
+      foregroundColor: "#2fb7c3",
+      cursorColor: "#2fb7c3",
       blinkRate: 500,
       effects: {
         glow: {
           blur: 16,
-          color: "#5cfffa",
+          color: "#2fb7c3",
           strength: 2.0,
           passes: 2,
         },
@@ -148,17 +148,17 @@ export function TerminalCanvas() {
   }, []); // Only run once on mount
 
   return (
-    <div
-      ref={containerRef}
-      className="fixed inset-0 w-full h-full bg-black overflow-hidden"
-    >
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
-        style={{
-          imageRendering: "pixelated",
-        }}
-      />
+    <div className="fixed inset-0 bg-[#090812] overflow-hidden">
+      <div
+        ref={containerRef}
+        className="relative w-full h-full flex items-center justify-center"
+      >
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full"
+          style={{ background: "#090812" }}
+        />
+      </div>
     </div>
   );
 }
