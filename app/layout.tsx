@@ -25,6 +25,17 @@ export const metadata: Metadata = {
     "experimental",
   ],
 
+  // Icons and Favicon configuration
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.ico", sizes: "32x32" },
+      { url: "/favicon.ico", sizes: "16x16" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: "/favicon.ico",
+  },
+
   // Open Graph Basic
   openGraph: {
     title: "P89 Agent Terminal [RESTRICTED ACCESS]",

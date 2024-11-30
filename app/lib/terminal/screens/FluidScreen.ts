@@ -70,6 +70,11 @@ export class FluidScreen extends BaseScreen {
       route: "classic",
       description: "Access the original terminal interface",
     },
+    {
+      text: "MEMETIC TOKEN",
+      route: "token",
+      description: "Access the Project 89 memetic token interface",
+    },
   ];
 
   private selectedMenuItem: number = 0;
@@ -384,6 +389,13 @@ export class FluidScreen extends BaseScreen {
     if (selectedItem.route === "classic") {
       // Open classic terminal in new tab
       window.open("https://terminal-classic.netlify.app/", "_blank");
+      this.isTransitioning = false;
+      return;
+    }
+
+    if (selectedItem.route === "token") {
+      // Open token interface in new tab
+      window.open("https://token.project89.org", "_blank");
       this.isTransitioning = false;
       return;
     }
