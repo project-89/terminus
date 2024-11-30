@@ -124,11 +124,46 @@ export class InputHandler {
   };
 
   private moveCursor(delta: number) {
-    const newPosition = this.cursorPosition + delta;
-    if (newPosition >= 0 && newPosition <= this.inputBuffer.length) {
-      this.cursorPosition = newPosition;
-      this.terminal.render();
+    const inputText = `> ${this.inputBuffer}`;
+    const wrappedLines = this.terminal.renderer.wrapText(inputText);
+    const maxCharsPerLine = this.terminal.renderer.getMaxCharsPerLine();
+
+    // Calculate current line and column
+    let currentPos = 0;
+    let currentLine = 0;
+    let currentCol = 0;
+
+    for (const line of wrappedLines) {
+      const lineLength = line.length;
+      if (currentPos + lineLength > this.cursorPosition) {
+        currentCol = this.cursorPosition - currentPos;
+        break;
+      }
+      currentPos += lineLength;
+      currentLine++;
     }
+
+    // Handle left movement
+    if (delta < 0 && this.cursorPosition > 0) {
+      if (currentCol > 0) {
+        this.cursorPosition--;
+      } else if (currentLine > 0) {
+        // Move to end of previous line
+        const prevLine = wrappedLines[currentLine - 1];
+        this.cursorPosition = currentPos - prevLine.length;
+      }
+    }
+    // Handle right movement
+    else if (delta > 0 && this.cursorPosition < this.inputBuffer.length) {
+      if (currentCol < wrappedLines[currentLine]?.length - 1) {
+        this.cursorPosition++;
+      } else if (currentLine < wrappedLines.length - 1) {
+        // Move to start of next line
+        this.cursorPosition = currentPos + wrappedLines[currentLine].length;
+      }
+    }
+
+    this.terminal.render();
   }
 
   private handleHistoryNavigation(direction: "up" | "down") {
