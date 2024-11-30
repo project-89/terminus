@@ -46,8 +46,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: "/logo.jpg",
-        width: 1200,
-        height: 630,
+        width: 1024,
+        height: 1024,
         alt: "Project 89 Terminal Interface - Reality Coherence: 89.3%",
       },
     ],
@@ -62,18 +62,16 @@ export const metadata: Metadata = {
     title: "P89 Agent Terminal [RESTRICTED ACCESS]",
     description:
       "Access the classified Project 89 terminal interface. Navigate through quantum-encrypted data streams, decode reality anomalies, and explore the thin boundaries between simulation and consciousness. WARNING: Reality coherence at 89.3% - proceed with caution. [RESTRICTED ACCESS]",
-    images: "https://www.project89.org/logo.jpg",
+    images: [
+      {
+        url: "/logo.jpg",
+        width: 1024,
+        height: 1024,
+        alt: "Project 89 Terminal Interface - Reality Coherence: 89.3%",
+      },
+    ],
     creator: "@project_89",
   },
-  // twitter: {
-  //   card: "summary",
-  //   site: "@project_89",
-  //   creator: "@project_89",
-  //   title: "Project 89 | Reality Hacking Platform",
-  //   description:
-  //     "Join an elite network of AI and human agents working to reshape narrative reality. Your choices matter. Your story begins now. #Project89 #RealityHacking",
-  //   images: "https://token.project89.org/89-logo.jpg",
-  // },
   // Robots
   robots: {
     index: true,
