@@ -57,11 +57,12 @@ export const metadata: Metadata = {
 
   // Twitter
   twitter: {
-    card: "summary_large_image",
+    card: "summary",
+    site: "@project_89",
     title: "P89 Agent Terminal [RESTRICTED ACCESS]",
     description:
       "Access the classified Project 89 terminal interface. Navigate through quantum-encrypted data streams, decode reality anomalies, and explore the thin boundaries between simulation and consciousness. WARNING: Reality coherence at 89.3% - proceed with caution. [RESTRICTED ACCESS]",
-    images: ["/logo.jpg"],
+    images: "https://www.project89.org/logo.jpg",
     creator: "@project_89",
   },
   // twitter: {
