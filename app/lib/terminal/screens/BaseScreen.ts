@@ -155,8 +155,12 @@ export abstract class BaseScreen {
     url.searchParams.set("screen", to);
     window.history.pushState({}, "", url.toString());
 
-    // Emit event for screen transition
-    await this.context.terminal.emit("screen:transition", { to, options });
+    // Use screenManager to handle the actual navigation
+    if (this.context.terminal.screenManager) {
+      await this.context.terminal.screenManager.navigate(to, options);
+    } else {
+      console.error("Screen manager not initialized");
+    }
   }
 
   protected setTimeout(callback: () => void, delay: number): NodeJS.Timeout {

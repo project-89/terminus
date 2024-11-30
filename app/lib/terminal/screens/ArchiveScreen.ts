@@ -202,6 +202,16 @@ export class ArchiveScreen extends BaseScreen {
       return;
     }
 
+    // Add escape key handling for root directory
+    if (e.key === "Escape") {
+      // Check if we're at root level (no items have parents)
+      const isAtRoot = this.items.every((item) => !item.parent);
+      if (isAtRoot) {
+        await this.transition("home");
+        return;
+      }
+    }
+
     // Existing directory navigation controls
     if (e.key === "ArrowUp") {
       e.preventDefault();
@@ -250,17 +260,11 @@ export class ArchiveScreen extends BaseScreen {
     this.canvas.style.height = "100%";
     this.canvas.style.zIndex = "20";
 
-    // Add CRT overlay elements
-    const crtOverlay = document.createElement("div");
-    crtOverlay.className =
-      "pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-black/10";
-    this.canvas.parentElement?.appendChild(crtOverlay);
+    // Get parent element before appending canvas
+    const parent = this.terminal.canvas.parentElement!;
+    parent.appendChild(this.canvas);
 
-    const scanlineOverlay = document.createElement("div");
-    scanlineOverlay.className =
-      "pointer-events-none absolute inset-0 bg-[url('/scanline.png')] opacity-5";
-    this.canvas.parentElement?.appendChild(scanlineOverlay);
-
+    // Setup canvas context and other initializations
     this.ctx = this.canvas.getContext("2d")!;
     this.setupCanvas();
 
@@ -276,6 +280,9 @@ export class ArchiveScreen extends BaseScreen {
 
     // Start the animation loop
     this.animate();
+
+    // Add keyboard event listener
+    window.addEventListener("keydown", this.handleKeyDown);
   }
 
   private setupCanvas() {
@@ -522,9 +529,11 @@ export class ArchiveScreen extends BaseScreen {
   }
 
   async render(): Promise<void> {
-    this.terminal.canvas.style.display = "none"; // Hide the terminal
+    // Hide terminal canvas since we're using our own
+    this.terminal.canvas.style.display = "none";
+
+    // Fetch and display initial items
     await this.fetchAndDisplayItems();
-    this.addEventListeners();
   }
 
   private async fetchAndDisplayItems() {
@@ -992,15 +1001,7 @@ export class ArchiveScreen extends BaseScreen {
   }
 
   async cleanup(): Promise<void> {
-    if (this.pdfDocument) {
-      try {
-        await this.pdfDocument.destroy();
-      } catch (e) {
-        console.error("Error destroying PDF document:", e);
-      }
-      this.pdfDocument = null;
-    }
-
+    // Remove event listeners
     window.removeEventListener("keydown", this.handleKeyDown);
     this.canvas.removeEventListener("wheel", this.handleWheel);
 
@@ -1011,12 +1012,16 @@ export class ArchiveScreen extends BaseScreen {
       overlays.forEach((overlay) => overlay.remove());
     }
 
+    // Clear any timeouts
     if (this.glitchTimeout) {
       clearTimeout(this.glitchTimeout);
     }
 
+    // Remove canvases
     this.canvas.remove();
     this.noiseCanvas.remove();
+
+    // Show terminal canvas again
     this.terminal.canvas.style.display = "block";
     await this.terminal.clear();
   }

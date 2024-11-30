@@ -43,9 +43,16 @@ export class ScreenManager {
     console.log(`Navigating to screen: ${screenName}`);
 
     try {
+      // Clean up current screen if it exists
+      if (this.terminal.context?.currentScreen) {
+        console.log("Cleaning up current screen");
+        await this.terminal.context.currentScreen.cleanup();
+      }
+
       // Clear terminal and wait for it to complete
+      console.log("Clearing terminal");
       await this.terminal.clear();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 100)); // Increased delay for stability
 
       // Get screen class
       const ScreenClass = this.screens.get(screenName);
@@ -59,6 +66,7 @@ export class ScreenManager {
         options,
       };
 
+      console.log("Creating new screen instance");
       const newScreen = new ScreenClass(screenContext);
 
       // Update terminal context with new screen
@@ -66,10 +74,8 @@ export class ScreenManager {
         this.terminal.context.currentScreen = newScreen;
       }
 
-      // Ensure terminal is clear before rendering new screen
-      await this.terminal.clear();
-
       // Render new screen
+      console.log("Rendering new screen");
       if (newScreen.beforeRender) {
         await newScreen.beforeRender();
       }
