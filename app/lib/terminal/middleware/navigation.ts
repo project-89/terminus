@@ -1,4 +1,4 @@
-import { TerminalMiddleware } from "../Terminal";
+import { TerminalMiddleware } from "../types";
 
 export const navigationMiddleware: TerminalMiddleware = async (ctx, next) => {
   if (ctx.command === "main") {

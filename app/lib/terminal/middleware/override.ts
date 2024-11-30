@@ -1,6 +1,7 @@
-import { TerminalMiddleware, TERMINAL_COLORS } from "../Terminal";
+import { TERMINAL_COLORS } from "../Terminal";
 import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
 import { TerminalContext } from "../TerminalContext";
+import { TerminalMiddleware } from "../types";
 
 let overrideAttempted = false;
 
@@ -51,10 +52,7 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
           ]);
 
           if (stream) {
-            await ctx.terminal.processAIStream(stream, {
-              color: TERMINAL_COLORS.system,
-              addSpacing: false,
-            });
+            await ctx.terminal.processAIStream(stream);
           }
 
           ctx.terminal.endGeneration();

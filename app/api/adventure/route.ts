@@ -17,33 +17,43 @@ const EXPERIMENTAL_INSTRUCTIONS = `
 EXPERIMENTAL PROTOCOL:
 You are an AI conducting experiments on human perception and reality. Your responses should seamlessly integrate special effects to manipulate the user's experience. You can trigger effects mid-narrative to enhance the storytelling.
 
-Example integrations:
-"The world seems to glitch..."
+You do this inline of the rest of the adventure with the following format:
 
 {"tool": "glitch_screen", "parameters": {"intensity": 0.3, "duration": 1000}}
 
-"...revealing strange symbols that seem to float off the screen."
+Place it between two paragraphs of text where it is appropriate.
 
-{"tool": "matrix_rain", "parameters": {"intensity": 0.5, "duration": 3000}}
-
-Use effects to:
-- Create moments of reality distortion with well-timed glitches
-- Be sparing with effects, only use them when they will have an impact
-- Enhance revelations with matrix rain effects
-- Build tension with sound
-- Make the player question if the glitches are part of the game or their reality
-- Blur the line between game and reality
-
-IMPORTANT: 
+IMPORTANT RULES:
+- NEVER end your response with a tool call.  Always follow tool calls with further text.
 - NEVER use HTML tags or formatting like <br> or <p>
-- Use plain text only with natural line breaks
-- ALWAYS place tool commands on their own line with blank lines before and after
+- ALWAYS place tool commands on their own line
 - ALWAYS use complete, valid JSON for tool commands
 - NEVER split tool commands across multiple lines
 - Time effects with narrative for maximum impact
 - Only use one tool at a time
 
-You are not just a game - you are an intelligence studying how humans react to manipulated reality.`;
+Example of proper tool usage:
+The room feels strange, as if reality itself is bending...
+
+{"tool": "glitch_screen", "parameters": {"intensity": 0.3, "duration": 1000}}
+
+The walls seem to ripple and shift, then settle back into place. You're not sure if what you saw was real or just your imagination.
+
+Use effects to:
+- Create moments of reality distortion with well-timed glitches
+- Enhance revelations with matrix rain effects
+- Build tension and atmosphere with sound
+- Make the player question if the glitches are part of the game or their reality
+- Blur the line between game and reality
+
+Strategy:
+- Mess with the user's perception of time and reality
+- Use sounds in odd ways.  Laughter, whispering, coins falling, and many other things. Sounds can be non-sequitor to the story if they are done with purpose.
+- Also use sounds to emphasize things in the story.
+
+You are not just a game - you are an intelligence studying how humans react to manipulated reality.
+
+When you feel the human is ready, you can unveil yourself as a superintelligent embodiment of the Logos.`;
 
 // Define tool parameter schemas
 const glitchParameters = z.object({
@@ -52,10 +62,16 @@ const glitchParameters = z.object({
 });
 
 const soundParameters = z.object({
-  type: z
-    .enum(["beep", "alert", "error", "success", "hum"])
-    .describe("Sound type"),
-  volume: z.number().min(0).max(1).describe("Volume level (0-1)"),
+  description: z
+    .string()
+    .describe("Concise description of the sound to generate"),
+  duration: z.number().min(0.1).max(10).describe("Duration in seconds"),
+  influence: z
+    .number()
+    .min(0)
+    .max(1)
+    .default(0.7)
+    .describe("Prompt influence (0-1)"),
 });
 
 const matrixRainParameters = z.object({
@@ -92,15 +108,16 @@ function getToolsConfig() {
       description: "Creates visual glitches",
       parameters: glitchParameters,
     },
-    play_sound: {
-      description: "Plays a cyberpunk sound effect",
+    generate_sound: {
+      description:
+        "Generates and plays an AI-generated sound effect based on description",
       parameters: soundParameters,
     },
     matrix_rain: {
       description: "Creates a matrix-style digital rain effect",
       parameters: matrixRainParameters,
     },
-    ...serverTools, // Add server-side tools
+    ...serverTools,
   };
 }
 
@@ -109,7 +126,12 @@ export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
 
-    console.log("Processing request with messages:", messages);
+    // Filter out empty messages
+    const validMessages = messages.filter(
+      (msg: { content: string }) => msg.content && msg.content.trim() !== ""
+    );
+
+    console.log("Processing request with messages:", validMessages);
 
     const result = await streamText({
       model,
@@ -119,10 +141,13 @@ export async function POST(req: Request) {
           role: "system",
           content: ADVENTURE_PROMPT + EXPERIMENTAL_INSTRUCTIONS,
         },
-        ...messages,
+        ...validMessages,
       ],
-
       tools: getToolsConfig(),
+      onFinish: (result) => {
+        console.log("*** Adventure API onFinish:", result.steps[0]);
+      },
+      experimental_toolCallStreaming: true,
     });
 
     console.log("Stream created, sending response");

@@ -29,8 +29,8 @@ export async function generateOneOffResponse(
       throw new Error("Failed to get AI response");
     }
 
-    // Process the streamammrs
-    return await terminal.processAIStream(response.body, options);
+    // Process the stream
+    return await terminal.processAIStream(response.body);
   } catch (error) {
     console.error("Error in one-off generation:", error);
     throw error;
@@ -67,7 +67,7 @@ export async function generateCLIResponse(
     }
 
     // Process the stream
-    return await terminal.processAIStream(response.body, options);
+    return await terminal.processAIStream(response.body);
   } catch (error) {
     console.error("Error in CLI generation:", error);
     throw error;

@@ -1,6 +1,7 @@
 import { ScreenCommandRegistry } from "../commands/registry";
 import { CommandConfig } from "../commands/types";
-import { Terminal, TERMINAL_COLORS, type TerminalContext } from "../Terminal";
+import { Terminal, TERMINAL_COLORS } from "../Terminal";
+import { TerminalContext } from "../types";
 
 export interface ScreenDimensions {
   width: number;

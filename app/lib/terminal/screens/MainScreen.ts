@@ -1,6 +1,7 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
-import { TERMINAL_COLORS, type TerminalContext } from "../Terminal";
+import { TERMINAL_COLORS } from "../Terminal";
 import { ScreenCommandRegistry } from "../commands/registry";
+import { TerminalContext } from "../types";
 
 export class MainScreen extends BaseScreen {
   constructor(context: ScreenContext) {

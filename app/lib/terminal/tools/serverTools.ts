@@ -30,25 +30,4 @@ export const serverTools = {
       };
     },
   },
-
-  generate_sound: {
-    name: "generate_sound",
-    description: "Generates a cyberpunk sound effect",
-    parameters: z.object({
-      type: z.enum(["ambient", "effect", "music"]).describe("Sound type"),
-      duration: z.number().describe("Duration in seconds"),
-    }),
-    execute: async (params: {
-      type: string;
-      duration: number;
-    }): Promise<ServerToolResult> => {
-      // Sound generation logic here
-      // For now, return placeholder
-      return {
-        type: "sound",
-        url: "/sounds/placeholder.mp3",
-        metadata: { type: params.type, duration: params.duration },
-      };
-    },
-  },
 };

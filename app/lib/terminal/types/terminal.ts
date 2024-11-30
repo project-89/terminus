@@ -1,10 +1,5 @@
 import { Terminal } from "../Terminal";
 
-export * from "./options";
-export * from "./terminal";
-export * from "./filesystem";
-export * from "./effects";
-
 export type TerminalContext = {
   command: string;
   args: string[];

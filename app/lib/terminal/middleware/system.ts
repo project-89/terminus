@@ -1,7 +1,8 @@
-import { TerminalMiddleware, TERMINAL_COLORS } from "../Terminal";
+import { TERMINAL_COLORS } from "../Terminal";
 import { WalletService } from "@/app/lib/wallet/WalletService";
 import { TerminalContext } from "../TerminalContext";
 import { generateCLIResponse } from "@/app/lib/ai/prompts";
+import { TerminalMiddleware } from "../types";
 
 // Define known system commands
 const SYSTEM_COMMANDS = new Set(["help", "connect", "disconnect", "identify"]);

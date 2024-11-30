@@ -1,9 +1,10 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
-import { TERMINAL_COLORS, type TerminalContext } from "../Terminal";
+import { TERMINAL_COLORS } from "../Terminal";
 import { FluidAscii } from "../effects/fluidAscii";
 import { analytics } from "../../analytics";
 import { AdventureScreen } from "./AdventureScreen";
 import { ArchiveScreen } from "./ArchiveScreen";
+import { TerminalContext } from "../types";
 
 interface MenuItem {
   text: string;

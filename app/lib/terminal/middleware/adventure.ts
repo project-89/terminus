@@ -1,11 +1,18 @@
-import { TerminalMiddleware, TERMINAL_COLORS } from "../Terminal";
+import { TERMINAL_COLORS } from "../constants";
 import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
 import { ToolExecution, processToolCall } from "../tools/registry";
 import { AdventureScreen } from "../screens/AdventureScreen";
 import { TerminalContext } from "../TerminalContext";
 import { analytics } from "@/app/lib/analytics";
+import {
+  TerminalMiddleware,
+  TerminalContext as CommandContext,
+} from "../types";
 
-export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
+export const adventureMiddleware: TerminalMiddleware = async (
+  ctx: CommandContext,
+  next: () => Promise<void>
+) => {
   // Only process commands if we're in the adventure screen
   const currentScreen = ctx.terminal.context?.currentScreen;
   if (!(currentScreen instanceof AdventureScreen)) {
@@ -38,11 +45,7 @@ export const adventureMiddleware: TerminalMiddleware = async (ctx, next) => {
     }
 
     // Process and store the AI response
-    const aiResponse = (await ctx.terminal.processAIStream(stream, {
-      color: TERMINAL_COLORS.primary,
-      addSpacing: true,
-      returnContent: true,
-    })) as string;
+    const aiResponse = await ctx.terminal.processAIStream(stream);
 
     // Add AI response to chat history
     chatHistory.push({

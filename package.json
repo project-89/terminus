@@ -26,6 +26,7 @@
     "@solana/web3.js": "^1.95.4",
     "@types/marked": "^6.0.0",
     "ai": "^3.4.33",
+    "elevenlabs": "^0.18.1",
     "get-audio-duration": "^4.0.1",
     "graphql": "^16.8.1",
     "marked": "^15.0.0",

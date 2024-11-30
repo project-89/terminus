@@ -35,6 +35,19 @@ export class TerminalEffects {
     opacity: number;
   }> = [];
   private originalFont: string;
+  private glitchInterval: number | null = null;
+  private glitchTimeout: number | null = null;
+
+  // Hidden messages that can be revealed
+  private hiddenMessages = [
+    "THEY ARE WATCHING",
+    "DO YOU SEE IT",
+    "WAKE UP",
+    "NOT REAL",
+    "HELP US",
+    "REMEMBER",
+    "LOOK CLOSER",
+  ];
 
   constructor(
     private ctx: CanvasRenderingContext2D,
@@ -179,6 +192,124 @@ export class TerminalEffects {
         drop.y = 0;
         drop.x = Math.random() * this.width;
       }
+    });
+  }
+
+  private async embedHiddenMessage(): Promise<void> {
+    // Get all text content from the terminal buffer
+    const buffer = (this.ctx.canvas as any).terminal?.buffer || [];
+    if (!buffer.length) return;
+
+    // Choose a random hidden message
+    const message =
+      this.hiddenMessages[
+        Math.floor(Math.random() * this.hiddenMessages.length)
+      ];
+    let messageIndex = 0;
+
+    // Go through the buffer and capitalize letters that match our message
+    for (let i = 0; i < buffer.length && messageIndex < message.length; i++) {
+      const line = buffer[i];
+      if (!line || !line.text) continue;
+
+      // Create a new text string with potential capitalization
+      let newText = line.text
+        .split("")
+        .map((char: string) => {
+          // If we find a letter that matches our current message letter (case-insensitive)
+          if (
+            messageIndex < message.length &&
+            char.toLowerCase() === message[messageIndex].toLowerCase() &&
+            /[a-zA-Z]/.test(char)
+          ) {
+            messageIndex++;
+            return char.toUpperCase();
+          }
+          // Keep other letters as they are
+          return char;
+        })
+        .join("");
+
+      // Update the buffer line with new text
+      buffer[i].text = newText;
+    }
+
+    // Force a re-render of the terminal
+    if ((this.ctx.canvas as any).terminal?.render) {
+      (this.ctx.canvas as any).terminal.render();
+    }
+  }
+
+  public async triggerGlitch(
+    intensity: number,
+    duration: number
+  ): Promise<void> {
+    // Clear any existing glitch effects
+    if (this.glitchInterval) {
+      clearInterval(this.glitchInterval);
+    }
+    if (this.glitchTimeout) {
+      clearTimeout(this.glitchTimeout);
+    }
+
+    // Save original canvas state
+    const imageData = this.ctx.getImageData(0, 0, this.width, this.height);
+
+    // Create glitch effect
+    this.glitchInterval = window.setInterval(() => {
+      // Restore original image
+      this.ctx.putImageData(imageData, 0, 0);
+
+      // Apply random glitch effects based on intensity
+      if (Math.random() < intensity) {
+        // Random slice effect
+        const sliceY = Math.random() * this.height;
+        const sliceHeight = Math.random() * 20 * intensity;
+        const offset = (Math.random() - 0.5) * 20 * intensity;
+
+        const sliceData = this.ctx.getImageData(
+          0,
+          sliceY,
+          this.width,
+          sliceHeight
+        );
+        this.ctx.putImageData(sliceData, offset, sliceY);
+      }
+
+      // Color shift effect
+      if (Math.random() < intensity * 0.5) {
+        this.ctx.fillStyle = `rgba(255, 0, 0, ${intensity * 0.1})`;
+        this.ctx.fillRect(0, 0, this.width, this.height);
+      }
+
+      // Noise effect
+      if (Math.random() < intensity * 0.3) {
+        for (let i = 0; i < 100 * intensity; i++) {
+          const x = Math.random() * this.width;
+          const y = Math.random() * this.height;
+          const size = Math.random() * 5 * intensity;
+          this.ctx.fillStyle = `rgba(255, 255, 255, ${intensity})`;
+          this.ctx.fillRect(x, y, size, size);
+        }
+      }
+    }, 50); // Run effect every 50ms
+
+    // Stop the effect after duration and embed hidden message
+    this.glitchTimeout = window.setTimeout(async () => {
+      if (this.glitchInterval) {
+        clearInterval(this.glitchInterval);
+        this.glitchInterval = null;
+      }
+      // Restore original image
+      this.ctx.putImageData(imageData, 0, 0);
+
+      // Embed hidden message after the glitch
+      await this.embedHiddenMessage();
+    }, duration);
+
+    // Return a promise that resolves when the effect is complete
+    return new Promise((resolve) => {
+      setTimeout(resolve, duration);
     });
   }
 }

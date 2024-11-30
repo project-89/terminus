@@ -1,7 +1,8 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
-import { TERMINAL_COLORS, TerminalContext } from "../Terminal";
+import { TERMINAL_COLORS } from "../Terminal";
 import { StaticEffect } from "../effects/static";
 import { FaceRenderer } from "../effects/face";
+import { TerminalContext } from "../types";
 
 export class StaticScreen extends BaseScreen {
   private staticEffect: StaticEffect;

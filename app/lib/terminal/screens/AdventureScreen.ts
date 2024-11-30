@@ -177,6 +177,14 @@ ESTABLISHING CONNECTION...`.trim();
           content: this.introText,
         },
       ]);
+    } else {
+      // Filter out empty messages
+      const validMessages = context
+        .getGameMessages()
+        .filter((msg) => msg.content && msg.content.trim() !== "");
+      if (validMessages.length !== context.getGameMessages().length) {
+        context.setGameMessages(validMessages);
+      }
     }
 
     // Print intro text

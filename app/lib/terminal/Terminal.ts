@@ -6,6 +6,7 @@ import { toolEvents } from "./tools/registry";
 import { InputHandler } from "./components/InputHandler";
 import { Renderer } from "./components/Renderer";
 import { CommandHandler } from "./components/CommandHandler";
+import { ToolHandler } from "./components/ToolHandler";
 import { TerminalOptions, PrintOptions } from "./types/options";
 import { DEFAULT_OPTIONS, TERMINAL_COLORS } from "./constants";
 
@@ -15,13 +16,13 @@ export class Terminal extends EventEmitter {
   public effects!: TerminalEffects;
   public options: TerminalOptions;
   public colors: typeof TERMINAL_COLORS;
-  public screenManager: ScreenManager;
+  public screenManager!: ScreenManager;
   public context: Record<string, any> = {};
   public cursorVisible: boolean = true;
   public isGenerating: boolean = false;
   public matrixRainEnabled: boolean = false;
   public scrollOffset: number = 0;
-  public thinkingChars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  public thinkingChars = ["⠋", "⠙", "⠹", "", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   public thinkingAnimationFrame: number = 0;
 
   public buffer: Array<{
@@ -50,9 +51,10 @@ export class Terminal extends EventEmitter {
     slow: 25,
   };
 
-  public inputHandler: InputHandler;
-  public renderer: Renderer;
-  public commandHandler: CommandHandler;
+  public inputHandler!: InputHandler;
+  public renderer!: Renderer;
+  public commandHandler!: CommandHandler;
+  public toolHandler!: ToolHandler;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -66,33 +68,31 @@ export class Terminal extends EventEmitter {
     };
     this.colors = this.options.colors || TERMINAL_COLORS;
 
-    // Initialize components
-    this.renderer = new Renderer(this, canvas, this.options);
-    this.inputHandler = new InputHandler(this);
-    this.commandHandler = new CommandHandler(this);
+    this.initialize();
+  }
 
-    // Initialize effects with the renderer's context
+  private initialize() {
+    this.renderer = new Renderer(this, this.canvas, this.options);
     this.effects = new TerminalEffects(
       this.renderer.ctx,
       this.options.width,
       this.options.height,
       this.options.effects
     );
-
-    // Initialize screen manager
+    this.inputHandler = new InputHandler(this);
+    this.commandHandler = new CommandHandler(this);
+    this.toolHandler = new ToolHandler(this);
     this.screenManager = new ScreenManager(this);
 
-    // Initialize cursor blink
-    this.startCursorBlink();
-
-    // Start render loop
     this.startRenderLoop();
-
-    // Initialize tool handlers
-    this.registerToolHandlers();
+    this.startCursorBlink();
   }
 
   private startCursorBlink() {
+    if (this.blinkInterval) {
+      clearInterval(this.blinkInterval);
+    }
+
     this.blinkInterval = setInterval(() => {
       this.cursorVisible = !this.cursorVisible;
       this.render();
@@ -148,8 +148,18 @@ export class Terminal extends EventEmitter {
     }
 
     this.currentPrintY += lines.length * (this.options.fontSize * 1.5);
+
+    // Check if content exceeds visible area
+    const lineHeight = this.options.fontSize * 1.5;
+    const totalContentHeight = this.currentPrintY + lineHeight;
+    const visibleHeight = this.getHeight();
+
+    // If content exceeds visible area or we're at bottom, scroll
+    if (totalContentHeight > visibleHeight || this.isAtBottom) {
+      this.scrollToLatest();
+    }
+
     this.render();
-    this.scrollToLatest();
   }
 
   private async processNextPrint(): Promise<void> {
@@ -165,7 +175,7 @@ export class Terminal extends EventEmitter {
     const color = options.color || this.options.foregroundColor;
     const lineHeight = this.options.fontSize * 1.5;
 
-    const isAtBottom = this.checkIfAtBottom();
+    const wasAtBottom = this.isAtBottom;
 
     for (const line of lines) {
       this.buffer.push({
@@ -176,12 +186,15 @@ export class Terminal extends EventEmitter {
 
       this.currentPrintY += lineHeight;
 
-      if (isAtBottom) {
-        const maxScroll = Math.max(
-          0,
-          this.currentPrintY - this.getHeight() + this.options.fontSize * 2
-        );
+      // Check if content exceeds visible area
+      const totalContentHeight = this.currentPrintY + lineHeight;
+      const visibleHeight = this.getHeight();
+
+      // If content exceeds visible area or we were at bottom, scroll
+      if (totalContentHeight > visibleHeight || wasAtBottom) {
+        const maxScroll = Math.max(0, totalContentHeight - visibleHeight);
         this.scrollOffset = maxScroll;
+        this.isAtBottom = true;
       }
 
       this.render();
@@ -205,6 +218,7 @@ export class Terminal extends EventEmitter {
     if (this.thinkingInterval) clearInterval(this.thinkingInterval);
     if (this.loadingMessageInterval) clearInterval(this.loadingMessageInterval);
     this.inputHandler.destroy();
+    this.toolHandler.destroy();
   }
 
   public resize(width: number, height: number) {
@@ -226,7 +240,16 @@ export class Terminal extends EventEmitter {
     const lineHeight = this.options.fontSize * 1.5;
     const inputText = `> ${this.inputHandler.getInputBuffer()}`;
     const wrappedLines = this.renderer.wrapText(inputText);
-    return this.currentPrintY + (wrappedLines.length - 1) * lineHeight;
+    const inputHeight = wrappedLines.length * lineHeight;
+
+    // If input would go off screen, adjust scroll to keep it visible
+    const bottomY = this.currentPrintY + inputHeight;
+    const visibleHeight = this.getHeight();
+    if (bottomY - this.scrollOffset > visibleHeight) {
+      this.scrollOffset = Math.max(0, bottomY - visibleHeight + lineHeight);
+    }
+
+    return this.currentPrintY;
   }
 
   public clear() {
@@ -249,7 +272,8 @@ export class Terminal extends EventEmitter {
     const visibleHeight = this.getHeight();
     const maxScroll = Math.max(0, totalContentHeight - visibleHeight);
 
-    return Math.abs(this.scrollOffset - maxScroll) <= lineHeight;
+    // Consider "at bottom" only when very close to the bottom
+    return Math.abs(this.scrollOffset - maxScroll) <= lineHeight / 2;
   }
 
   public startGeneration() {
@@ -289,80 +313,33 @@ export class Terminal extends EventEmitter {
     const totalContentHeight = this.currentPrintY + lineHeight;
     const visibleHeight = this.getHeight();
 
-    if (this.isGenerating || this.isAtBottom) {
-      this.scrollOffset = Math.max(
-        0,
-        totalContentHeight - visibleHeight + lineHeight * 2
-      );
+    // Calculate input height
+    const inputText = `> ${this.inputHandler.getInputBuffer()}`;
+    const wrappedLines = this.renderer.wrapText(inputText);
+    const inputHeight = wrappedLines.length * lineHeight;
+
+    // Calculate max scroll position that keeps input visible
+    const maxScroll = Math.max(
+      0,
+      totalContentHeight + inputHeight - visibleHeight
+    );
+
+    // Always scroll to bottom when generating
+    if (this.isGenerating) {
+      this.scrollOffset = maxScroll;
+      this.isAtBottom = true;
+      this.render();
+      return;
+    }
+
+    // If we were at the bottom before new content was added, stay at the bottom
+    if (this.isAtBottom) {
+      this.scrollOffset = maxScroll;
       this.render();
     }
   }
 
-  private registerToolHandlers() {
-    // Remove existing listeners by replacing them
-    toolEvents.off("tool:glitch_screen", this.handleGlitchScreen);
-    toolEvents.off("tool:matrix_rain", this.handleMatrixRain);
-    toolEvents.off("tool:play_sound", this.handlePlaySound);
-
-    // Add new listeners
-    toolEvents.on("tool:glitch_screen", this.handleGlitchScreen);
-    toolEvents.on("tool:matrix_rain", this.handleMatrixRain);
-    toolEvents.on("tool:play_sound", this.handlePlaySound);
-  }
-
-  private handleGlitchScreen = async (params: {
-    intensity: number;
-    duration: number;
-  }) => {
-    console.log("Glitch screen effect triggered", params);
-    const originalBuffer = [...this.buffer];
-    const glitchDuration = Math.min(params.duration, 5000);
-    let glitchInterval: NodeJS.Timeout;
-
-    const glitch = () => {
-      if (Math.random() < params.intensity) {
-        this.buffer = originalBuffer.map((line) => ({
-          ...line,
-          text: this.corruptText(line.text, params.intensity),
-        }));
-        this.render();
-      }
-    };
-
-    // Run glitch effect more frequently for better visual effect
-    glitchInterval = setInterval(glitch, 50);
-    glitch(); // Run once immediately
-
-    setTimeout(() => {
-      clearInterval(glitchInterval);
-      this.buffer = originalBuffer;
-      this.render();
-    }, glitchDuration);
-  };
-
-  private handleMatrixRain = async (params: {
-    duration: number;
-    intensity: number;
-  }) => {
-    console.log("Matrix rain effect triggered", params);
-    this.matrixRainEnabled = true;
-    this.effects.startMatrixRain(params.intensity);
-
-    setTimeout(() => {
-      this.matrixRainEnabled = false;
-      this.effects.stopMatrixRain();
-      this.render();
-    }, params.duration);
-  };
-
-  private handlePlaySound = async (params: {
-    type: string;
-    volume: number;
-  }) => {
-    console.log("Play sound triggered", params);
-  };
-
-  private corruptText(text: string, intensity: number): string {
+  public corruptText(text: string, intensity: number): string {
     return text
       .split("")
       .map((char) => {
@@ -429,12 +406,60 @@ export class Terminal extends EventEmitter {
 
   public async processAIStream(stream: ReadableStream): Promise<string> {
     try {
+      // Start loading animation
+      this.startGeneration();
+
       const reader = stream.getReader();
       let buffer = "";
+      let fullContent = "";
       let inCodeBlock = false;
       let codeBlockContent = "";
-      let consecutiveNewlines = 0;
-      let fullContent = "";
+      let isFirstLine = true;
+      let justExecutedTool = false;
+
+      const processLine = async (line: string) => {
+        // Skip empty lines at the start
+        if (isFirstLine && !line.trim()) {
+          isFirstLine = false;
+          return;
+        }
+        isFirstLine = false;
+
+        // Skip empty lines after tool execution
+        if (justExecutedTool && !line.trim()) {
+          return;
+        }
+
+        // Handle inline JSON
+        if (line.startsWith("{") && line.endsWith("}")) {
+          try {
+            const json = JSON.parse(line);
+            if (json.tool && json.parameters) {
+              await toolEvents.emit(`tool:${json.tool}`, json.parameters);
+              justExecutedTool = true;
+              return;
+            }
+          } catch {
+            // If it's not valid JSON, treat it as regular text
+          }
+        }
+
+        // Reset tool execution flag when we get a non-empty line
+        if (line.trim()) {
+          justExecutedTool = false;
+        }
+
+        // Skip empty lines
+        if (!line) {
+          await this.print("", { speed: "instant" });
+          fullContent += "\n";
+          return;
+        }
+
+        // Print regular text
+        await this.print(line, { speed: "normal" });
+        fullContent += line + "\n";
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -443,83 +468,63 @@ export class Terminal extends EventEmitter {
         const chunk = new TextDecoder().decode(value);
         buffer += chunk;
 
-        // Process line by line
+        // Process complete lines
         while (buffer.includes("\n")) {
           const newlineIndex = buffer.indexOf("\n");
-          const line = buffer.slice(0, newlineIndex);
+          const line = buffer.slice(0, newlineIndex).trim();
           buffer = buffer.slice(newlineIndex + 1);
 
-          // Check for code block markers
-          if (line.trim() === "```json") {
+          // Handle code blocks
+          if (line === "```json" || line === "```tool") {
             inCodeBlock = true;
             continue;
           }
-          if (line.trim() === "```" && inCodeBlock) {
+          if (line === "```" && inCodeBlock) {
             inCodeBlock = false;
-            // Process the collected code block content
             try {
               const json = JSON.parse(codeBlockContent);
               if (json.tool && json.parameters) {
-                console.log(
-                  `Emitting tool event from code block: tool:${json.tool}`,
-                  json.parameters
-                );
-                toolEvents.emit(`tool:${json.tool}`, json.parameters);
+                await toolEvents.emit(`tool:${json.tool}`, json.parameters);
               }
             } catch (e) {
-              console.error("Failed to parse code block JSON:", e);
+              console.warn("Failed to parse code block JSON:", e);
             }
             codeBlockContent = "";
             continue;
           }
-
-          // Collect content inside code block
           if (inCodeBlock) {
             codeBlockContent += line + "\n";
             continue;
           }
 
-          // Process regular lines for raw JSON
-          if (line.trim().startsWith("{")) {
-            try {
-              const json = JSON.parse(line);
-              if (json.tool && json.parameters) {
-                console.log(
-                  `Emitting tool event from raw JSON: tool:${json.tool}`,
-                  json.parameters
-                );
-                toolEvents.emit(`tool:${json.tool}`, json.parameters);
-                consecutiveNewlines = 0;
-                continue;
-              }
-            } catch (e) {
-              // Not valid JSON, treat as regular text
-            }
-          }
-
-          // Handle newlines and text printing
-          if (line.trim()) {
-            await this.print(line, { speed: "normal" });
-            fullContent += line + "\n";
-            consecutiveNewlines = 0;
-          } else {
-            consecutiveNewlines++;
-            if (consecutiveNewlines === 1) {
-              await this.print("", { speed: "instant" });
-              fullContent += "\n";
-            }
-          }
+          // Process regular line
+          await processLine(line);
         }
       }
 
       // Process any remaining buffer
-      if (buffer.trim()) {
-        await this.print(buffer, { speed: "normal" });
-        fullContent += buffer;
+      const remainingLine = buffer.trim();
+      if (remainingLine && !inCodeBlock) {
+        await processLine(remainingLine);
       }
 
-      return fullContent.trim();
+      // Clean up newlines:
+      // 1. Replace more than 2 consecutive newlines with 2 (preserve paragraph spacing)
+      // 2. Clean up around any remaining tool commands
+      // 3. Ensure clean ending
+      const cleanContent = fullContent
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/\n+({[^}]+})\n+/g, "$1\n")
+        .replace(/\n+$/, "\n")
+        .trim();
+
+      // End loading animation
+      this.endGeneration();
+
+      return cleanContent;
     } catch (error) {
+      // Make sure to end loading animation even on error
+      this.endGeneration();
       console.error("Error processing AI stream:", error);
       throw error;
     }
@@ -541,16 +546,32 @@ export class Terminal extends EventEmitter {
     const lineHeight = this.options.fontSize * 1.5;
     const totalContentHeight = this.currentPrintY + lineHeight;
     const visibleHeight = this.getHeight();
-    const maxScroll = Math.max(0, totalContentHeight - visibleHeight / 2);
 
-    const newScrollOffset = Math.max(
+    // Calculate input height
+    const inputText = `> ${this.inputHandler.getInputBuffer()}`;
+    const wrappedLines = this.renderer.wrapText(inputText);
+    const inputHeight = wrappedLines.length * lineHeight;
+
+    // Calculate the maximum scroll position
+    const maxScroll = Math.max(
       0,
-      Math.min(maxScroll, this.scrollOffset + delta * 0.5)
+      totalContentHeight + inputHeight - visibleHeight
     );
 
-    this.scrollOffset = newScrollOffset;
-    this.isAtBottom = this.checkIfAtBottom();
-    this.render();
+    // Normalize the scroll speed (adjust the divisor to control sensitivity)
+    const normalizedDelta = delta / 3;
+
+    // Apply scroll with boundaries
+    const newScrollOffset = Math.max(
+      0,
+      Math.min(maxScroll, this.scrollOffset + normalizedDelta)
+    );
+
+    if (this.scrollOffset !== newScrollOffset) {
+      this.scrollOffset = newScrollOffset;
+      this.isAtBottom = this.checkIfAtBottom();
+      this.render();
+    }
   }
 
   public setCursorOptions(options: Partial<typeof this.options.cursor>) {
