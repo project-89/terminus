@@ -149,13 +149,8 @@ export class Terminal extends EventEmitter {
 
     this.currentPrintY += lines.length * (this.options.fontSize * 1.5);
 
-    // Check if content exceeds visible area
-    const lineHeight = this.options.fontSize * 1.5;
-    const totalContentHeight = this.currentPrintY + lineHeight;
-    const visibleHeight = this.getHeight();
-
-    // If content exceeds visible area or we're at bottom, scroll
-    if (totalContentHeight > visibleHeight || this.isAtBottom) {
+    // Only auto-scroll if we're at the bottom
+    if (this.isAtBottom) {
       this.scrollToLatest();
     }
 
@@ -175,8 +170,6 @@ export class Terminal extends EventEmitter {
     const color = options.color || this.options.foregroundColor;
     const lineHeight = this.options.fontSize * 1.5;
 
-    const wasAtBottom = this.isAtBottom;
-
     for (const line of lines) {
       this.buffer.push({
         text: line,
@@ -186,15 +179,12 @@ export class Terminal extends EventEmitter {
 
       this.currentPrintY += lineHeight;
 
-      // Check if content exceeds visible area
-      const totalContentHeight = this.currentPrintY + lineHeight;
-      const visibleHeight = this.getHeight();
-
-      // If content exceeds visible area or we were at bottom, scroll
-      if (totalContentHeight > visibleHeight || wasAtBottom) {
+      // Only auto-scroll if we're currently at the bottom
+      if (this.checkIfAtBottom()) {
+        const totalContentHeight = this.currentPrintY + lineHeight;
+        const visibleHeight = this.getHeight();
         const maxScroll = Math.max(0, totalContentHeight - visibleHeight);
         this.scrollOffset = maxScroll;
-        this.isAtBottom = true;
       }
 
       this.render();
@@ -242,13 +232,7 @@ export class Terminal extends EventEmitter {
     const wrappedLines = this.renderer.wrapText(inputText);
     const inputHeight = wrappedLines.length * lineHeight;
 
-    // If input would go off screen, adjust scroll to keep it visible
-    const bottomY = this.currentPrintY + inputHeight;
-    const visibleHeight = this.getHeight();
-    if (bottomY - this.scrollOffset > visibleHeight) {
-      this.scrollOffset = Math.max(0, bottomY - visibleHeight + lineHeight);
-    }
-
+    // Return current Y position without modifying scroll
     return this.currentPrintY;
   }
 
@@ -268,12 +252,20 @@ export class Terminal extends EventEmitter {
 
   private checkIfAtBottom(): boolean {
     const lineHeight = this.options.fontSize * 1.5;
-    const totalContentHeight = this.currentPrintY + lineHeight;
-    const visibleHeight = this.getHeight();
-    const maxScroll = Math.max(0, totalContentHeight - visibleHeight);
+    const totalBufferHeight = this.currentPrintY;
+    const inputText = `> ${this.inputHandler.getInputBuffer()}`;
+    const wrappedInputLines = this.renderer.wrapText(inputText);
+    const inputHeight = wrappedInputLines.length * lineHeight;
+    const totalContentHeight = totalBufferHeight + inputHeight;
 
-    // Consider "at bottom" only when very close to the bottom
-    return Math.abs(this.scrollOffset - maxScroll) <= lineHeight / 2;
+    const visibleHeight = this.getHeight();
+    const maxScroll = Math.max(
+      0,
+      totalContentHeight - visibleHeight + lineHeight
+    );
+
+    // More precise bottom check
+    return this.scrollOffset >= maxScroll - lineHeight / 2;
   }
 
   public startGeneration() {
@@ -291,7 +283,10 @@ export class Terminal extends EventEmitter {
       this.render();
     }, 80);
 
-    this.scrollToLatest();
+    // Only scroll if we're already at bottom
+    if (this.isAtBottom) {
+      this.scrollToLatest();
+    }
   }
 
   public endGeneration() {
@@ -305,34 +300,30 @@ export class Terminal extends EventEmitter {
     this.thinkingAnimationFrame = 0;
     this.cursorVisible = true;
     this.render();
-    this.scrollToLatest();
+
+    // Only scroll if we're already at bottom
+    if (this.isAtBottom) {
+      this.scrollToLatest();
+    }
   }
 
   public scrollToLatest() {
     const lineHeight = this.options.fontSize * 1.5;
-    const totalContentHeight = this.currentPrintY + lineHeight;
-    const visibleHeight = this.getHeight();
 
-    // Calculate input height
+    // Calculate total content height
+    const totalBufferHeight = this.currentPrintY;
     const inputText = `> ${this.inputHandler.getInputBuffer()}`;
-    const wrappedLines = this.renderer.wrapText(inputText);
-    const inputHeight = wrappedLines.length * lineHeight;
+    const wrappedInputLines = this.renderer.wrapText(inputText);
+    const inputHeight = wrappedInputLines.length * lineHeight;
+    const totalContentHeight = totalBufferHeight + inputHeight;
 
-    // Calculate max scroll position that keeps input visible
+    const visibleHeight = this.getHeight();
     const maxScroll = Math.max(
       0,
-      totalContentHeight + inputHeight - visibleHeight
+      totalContentHeight - visibleHeight + lineHeight
     );
 
-    // Always scroll to bottom when generating
-    if (this.isGenerating) {
-      this.scrollOffset = maxScroll;
-      this.isAtBottom = true;
-      this.render();
-      return;
-    }
-
-    // If we were at the bottom before new content was added, stay at the bottom
+    // Only scroll if we're at the bottom
     if (this.isAtBottom) {
       this.scrollOffset = maxScroll;
       this.render();
@@ -340,17 +331,16 @@ export class Terminal extends EventEmitter {
   }
 
   public corruptText(text: string, intensity: number): string {
+    const glitchChars =
+      "!@#$%^&*()_+-=[]{}|;:,.<>?`~¡™£¢∞§¶•ªº–≠œ∑´®†¥¨≈æ…÷≥≤µ∂ƒ©∆";
     return text
       .split("")
       .map((char) => {
-        if (char === " " || char === "\n" || char === ">") {
-          return char;
-        }
-        if (Math.random() < intensity * 0.3) {
-          const charCode = 33 + Math.floor(Math.random() * 94);
-          return String.fromCharCode(charCode);
-        }
-        return char;
+        if (char === "\n" || char === "\r") return char; // Preserve newlines
+        if (char.trim() === "") return char; // Preserve spaces and tabs
+        return Math.random() < intensity
+          ? glitchChars[Math.floor(Math.random() * glitchChars.length)]
+          : char;
       })
       .join("");
   }
@@ -456,7 +446,7 @@ export class Terminal extends EventEmitter {
           return;
         }
 
-        // Print regular text
+        // Print regular text without forcing scroll
         await this.print(line, { speed: "normal" });
         fullContent += line + "\n";
       };
@@ -508,22 +498,18 @@ export class Terminal extends EventEmitter {
         await processLine(remainingLine);
       }
 
-      // Clean up newlines:
-      // 1. Replace more than 2 consecutive newlines with 2 (preserve paragraph spacing)
-      // 2. Clean up around any remaining tool commands
-      // 3. Ensure clean ending
+      // Clean up content
       const cleanContent = fullContent
         .replace(/\n{3,}/g, "\n\n")
         .replace(/\n+({[^}]+})\n+/g, "$1\n")
         .replace(/\n+$/, "\n")
         .trim();
 
-      // End loading animation
+      // End generation without forcing scroll
       this.endGeneration();
 
       return cleanContent;
     } catch (error) {
-      // Make sure to end loading animation even on error
       this.endGeneration();
       console.error("Error processing AI stream:", error);
       throw error;
@@ -544,32 +530,31 @@ export class Terminal extends EventEmitter {
 
   public scroll(delta: number) {
     const lineHeight = this.options.fontSize * 1.5;
-    const totalContentHeight = this.currentPrintY + lineHeight;
-    const visibleHeight = this.getHeight();
 
-    // Calculate input height
+    // Calculate total content height including input
+    const totalBufferHeight = this.currentPrintY;
     const inputText = `> ${this.inputHandler.getInputBuffer()}`;
-    const wrappedLines = this.renderer.wrapText(inputText);
-    const inputHeight = wrappedLines.length * lineHeight;
+    const wrappedInputLines = this.renderer.wrapText(inputText);
+    const inputHeight = wrappedInputLines.length * lineHeight;
+    const totalContentHeight = totalBufferHeight + inputHeight;
 
-    // Calculate the maximum scroll position
+    const visibleHeight = this.getHeight();
     const maxScroll = Math.max(
       0,
-      totalContentHeight + inputHeight - visibleHeight
+      totalContentHeight - visibleHeight + lineHeight
     );
 
-    // Normalize the scroll speed (adjust the divisor to control sensitivity)
-    const normalizedDelta = delta / 3;
-
-    // Apply scroll with boundaries
+    // Calculate new scroll position
+    const scrollAmount = Math.sign(delta) * lineHeight;
     const newScrollOffset = Math.max(
       0,
-      Math.min(maxScroll, this.scrollOffset + normalizedDelta)
+      Math.min(maxScroll, this.scrollOffset + scrollAmount)
     );
 
     if (this.scrollOffset !== newScrollOffset) {
       this.scrollOffset = newScrollOffset;
-      this.isAtBottom = this.checkIfAtBottom();
+      // Update isAtBottom only when actually at bottom
+      this.isAtBottom = newScrollOffset >= maxScroll - lineHeight / 2;
       this.render();
     }
   }

@@ -102,7 +102,12 @@ export class Renderer {
   }
 
   public renderInput(timestamp: number) {
-    const cursorY = this.terminal.getCursorY() - this.terminal.scrollOffset;
+    const lineHeight = this.options.fontSize * 1.5;
+
+    // Adjust cursorY to account for scrollOffset
+    const cursorY =
+      this.terminal.getCursorY() - this.terminal.scrollOffset + lineHeight / 2;
+
     if (cursorY > 0 && cursorY < this.terminal.getHeight()) {
       const cursorStartX = this.getCursorStartX();
       const inputText = `> ${this.terminal.inputHandler.getInputBuffer()}`;

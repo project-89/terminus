@@ -143,8 +143,17 @@ export function TerminalCanvas() {
       terminalRef.current.scroll(e.deltaY);
     }
 
-    window.addEventListener("wheel", handleWheel, { passive: false });
-    return () => window.removeEventListener("wheel", handleWheel);
+    // Attach event listener to the canvas element
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.addEventListener("wheel", handleWheel, { passive: false });
+    }
+
+    return () => {
+      if (canvas) {
+        canvas.removeEventListener("wheel", handleWheel);
+      }
+    };
   }, []); // Only run once on mount
 
   return (

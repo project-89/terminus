@@ -100,7 +100,10 @@ export class ToolHandler {
           if (Math.random() < params.intensity) {
             this.terminal.buffer = originalBuffer.map((line) => ({
               ...line,
-              text: this.terminal.corruptText(line.text, params.intensity),
+              text: this.terminal.corruptText(
+                line.text,
+                Math.min(params.intensity * 0.5, 0.7)
+              ),
             }));
             this.terminal.render();
           }
