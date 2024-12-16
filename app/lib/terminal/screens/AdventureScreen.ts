@@ -18,6 +18,8 @@ ESTABLISHING CONNECTION...`.trim();
   private touchStartY: number | null = null;
   private touchMoveThreshold = 50; // Minimum pixels to trigger scroll
   private isScrolling = false;
+  private isKeyboardVisible: boolean = false;
+  private readonly MOBILE_BOTTOM_PADDING = 80; // Extra padding for mobile browsers
 
   constructor(context: ScreenContext) {
     super(context);
@@ -58,6 +60,29 @@ ESTABLISHING CONNECTION...`.trim();
 
     // Add touch event handling setup
     this.setupTouchHandling();
+
+    // Add input focus handlers
+    this.terminal.canvas.addEventListener("click", () => {
+      if (this.terminal.getCommandAccess()) {
+        // Show virtual keyboard on mobile
+        if (this.isMobile()) {
+          const input = document.createElement("input");
+          input.style.position = "fixed";
+          input.style.bottom = "0";
+          input.style.left = "0";
+          input.style.opacity = "0";
+          input.style.width = "1px";
+          input.style.height = "1px";
+          document.body.appendChild(input);
+          input.focus();
+          input.addEventListener("blur", () => {
+            input.remove();
+            this.handleInputBlur();
+          });
+          input.addEventListener("focus", this.handleInputFocus);
+        }
+      }
+    });
   }
 
   private setupTouchHandling() {
@@ -233,10 +258,11 @@ ESTABLISHING CONNECTION...`.trim();
   }
 
   async render(): Promise<void> {
-    // Set cursor options with very minimal mobile padding
+    // Set cursor options with mobile-aware padding and bottom spacing
     this.terminal.setCursorOptions({
       centered: false,
-      leftPadding: this.isMobile() ? 0 : 10, // Remove padding completely on mobile
+      leftPadding: this.isMobile() ? 0 : 10,
+      bottomPadding: this.isMobile() ? this.MOBILE_BOTTOM_PADDING : 0,
     });
 
     // Force redraw for mobile
@@ -336,9 +362,43 @@ ESTABLISHING CONNECTION...`.trim();
     this.terminal.canvas.removeEventListener("touchmove", this.handleTouchMove);
     this.terminal.canvas.removeEventListener("touchend", this.handleTouchEnd);
 
+    // Remove any lingering input elements
+    const hiddenInputs = document.querySelectorAll(
+      'input[style*="opacity: 0"]'
+    );
+    hiddenInputs.forEach((input) => input.remove());
+
     // Existing cleanup code
     await super.cleanup();
     this.terminal.setCommandAccess(false);
     await this.terminal.clear();
   }
+
+  private handleInputFocus = () => {
+    if (this.isMobile()) {
+      this.isKeyboardVisible = true;
+      // Scroll the view up when keyboard appears
+      window.scrollTo(0, 0);
+      document.body.scrollTop = 0;
+
+      // Add extra bottom padding when keyboard is visible
+      this.terminal.setCursorOptions({
+        centered: false,
+        leftPadding: 0,
+        bottomPadding: this.MOBILE_BOTTOM_PADDING * 2, // Double padding when keyboard is visible
+      });
+    }
+  };
+
+  private handleInputBlur = () => {
+    if (this.isMobile()) {
+      this.isKeyboardVisible = false;
+      // Reset padding when keyboard hides
+      this.terminal.setCursorOptions({
+        centered: false,
+        leftPadding: 0,
+        bottomPadding: this.MOBILE_BOTTOM_PADDING,
+      });
+    }
+  };
 }
