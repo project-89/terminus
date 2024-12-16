@@ -83,6 +83,9 @@ ESTABLISHING CONNECTION...`.trim();
         }
       }
     });
+
+    // Add window resize event listener
+    window.addEventListener("resize", this.handleWindowResize);
   }
 
   private setupTouchHandling() {
@@ -262,7 +265,7 @@ ESTABLISHING CONNECTION...`.trim();
     this.terminal.setCursorOptions({
       centered: false,
       leftPadding: this.isMobile() ? 0 : 10,
-      bottomPadding: this.isMobile() ? this.MOBILE_BOTTOM_PADDING : 0,
+      fixedOffset: this.MOBILE_BOTTOM_PADDING * 2,
     });
 
     // Force redraw for mobile
@@ -382,34 +385,24 @@ ESTABLISHING CONNECTION...`.trim();
     await super.cleanup();
     this.terminal.setCommandAccess(false);
     await this.terminal.clear();
+
+    // Remove window resize event listener
+    window.removeEventListener("resize", this.handleWindowResize);
   }
 
   private handleInputFocus = () => {
     if (this.isMobile()) {
       this.isKeyboardVisible = true;
 
-      // Get the terminal container
-      const container = this.terminal.canvas.parentElement;
-      if (container) {
-        // Add a class to handle keyboard visibility
-        container.classList.add("keyboard-visible");
+      // Adjust container height
+      this.adjustContainerHeight();
 
-        // Apply viewport adjustments
-        container.style.position = "fixed";
-        container.style.top = "0";
-        container.style.height = "50vh"; // Reduce height to half viewport
-        container.style.transform = "translateY(0)"; // Ensure it's at the top
-
-        // Force scroll to top
-        window.scrollTo(0, 0);
-
-        // Add extra bottom padding when keyboard is visible
-        this.terminal.setCursorOptions({
-          centered: false,
-          leftPadding: 0,
-          bottomPadding: this.MOBILE_BOTTOM_PADDING * 2,
-        });
-      }
+      // Add extra bottom padding when keyboard is visible
+      this.terminal.setCursorOptions({
+        centered: false,
+        leftPadding: 0,
+        fixedOffset: this.MOBILE_BOTTOM_PADDING * 2,
+      });
     }
   };
 
@@ -417,25 +410,39 @@ ESTABLISHING CONNECTION...`.trim();
     if (this.isMobile()) {
       this.isKeyboardVisible = false;
 
-      // Get the terminal container
+      // Reset container height to full
       const container = this.terminal.canvas.parentElement;
       if (container) {
-        // Remove keyboard visibility class
-        container.classList.remove("keyboard-visible");
-
-        // Reset viewport adjustments
-        container.style.position = "";
-        container.style.top = "";
-        container.style.height = "100%";
-        container.style.transform = "";
-
-        // Reset padding
-        this.terminal.setCursorOptions({
-          centered: false,
-          leftPadding: 0,
-          bottomPadding: this.MOBILE_BOTTOM_PADDING,
-        });
+        container.style.height = "100vh";
+        const rect = container.getBoundingClientRect();
+        // Adjust the terminal canvas size
+        this.terminal.resize(rect.width, rect.height);
       }
+
+      // Reset padding
+      this.terminal.setCursorOptions({
+        centered: false,
+        leftPadding: 0,
+        fixedOffset: this.MOBILE_BOTTOM_PADDING,
+      });
     }
   };
+
+  private handleWindowResize = () => {
+    if (this.isMobile() && this.isKeyboardVisible) {
+      // Adjust the container height when the keyboard appears
+      this.adjustContainerHeight();
+    }
+  };
+
+  private adjustContainerHeight() {
+    const container = this.terminal.canvas.parentElement;
+    if (container) {
+      // Set the container height to the viewport height
+      container.style.height = `${window.innerHeight}px`;
+      const rect = container.getBoundingClientRect();
+      // Adjust the terminal canvas size
+      this.terminal.resize(rect.width, rect.height);
+    }
+  }
 }

@@ -61,6 +61,8 @@ export class Terminal extends EventEmitter {
   private _scrollPosition: number = 0;
   private _contentHeight: number = 0;
 
+  private commandAccess: boolean = false;
+
   constructor(
     canvas: HTMLCanvasElement,
     options: Partial<TerminalOptions> = {}
@@ -528,12 +530,12 @@ export class Terminal extends EventEmitter {
     }
   }
 
-  public setCommandAccess(enabled: boolean) {
-    this.hasFullAccess = enabled;
+  public setCommandAccess(value: boolean): void {
+    this.commandAccess = value;
   }
 
-  public hasCommandAccess(): boolean {
-    return this.hasFullAccess;
+  public getCommandAccess(): boolean {
+    return this.commandAccess;
   }
 
   public handleInput(char: string, event?: KeyboardEvent) {
