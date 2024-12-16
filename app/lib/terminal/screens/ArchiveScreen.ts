@@ -70,13 +70,26 @@ export class ArchiveScreen extends BaseScreen {
  █████╗  █████╗      █████╗ ██████╗  ██████╗██╗  ██╗██╗██╗   ██╗███████╗
 ██╔══██╗██╔══██╗    ██╔══██╗██╔══██╗██╔════╝██║  ██║██║██║   ██║██╔════╝
 ╚█████╔╝╚██████║    ███████║██████╔╝██║     ███████║██║██║   ██║█████╗  
-██╔══██╗ ╚═══██║    ██╔══██║██╔══██╗██║     ██╔══██║██║╚██╗ ██╔╝██╔══╝  
+██╔══██╗ ╚═══██║    ██╔══██║██╔══██╗██║     █��╔══██║██║╚██╗ ██╔╝██╔══╝  
 ╚█████╔╝ █████╔╝    ██║  ██║██║  ██║╚██████╗██║  ██║██║ ╚████╔╝ ███████╗
  ╚════╝  ╚════╝     ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝  ╚══════╝
 [RESTRICTED ACCESS] [REALITY COHERENCE: 89.3%] [SIMULATION ANOMALIES DETECTED]
 ///////////////////////////////////////////////////////////////////////////////
 >> AUTHORIZED PERSONNEL ONLY << ONEIROCOM SECURITY MONITORING ACTIVE << BEWARE //
 ███████████████████████████████████████████████████████████████████████████████████`.trim();
+
+  private mobileHeader = `
+████████████████████████████████
+
+ █████╗ ██████╗  ██████╗██╗  ██╗
+██╔══██╗██╔══██╗██╔════╝██║  ██║
+███████║██████╔╝██║     ███████║
+██╔══██║█��╔══██╗██║     ██╔══██║
+██║  ██║██║  ██║╚██████╗██║  ██║
+╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝
+[RESTRICTED ACCESS]
+>> AUTHORIZED ONLY <<
+████████████████████████████████`.trim();
 
   // Add new properties for file viewing
   private isViewingFile: boolean = false;
@@ -123,6 +136,10 @@ export class ArchiveScreen extends BaseScreen {
   private pdfDocument: any = null;
 
   private pdfLib: any = null;
+
+  private touchStartY: number | null = null;
+  private touchMoveThreshold = 50;
+  private isScrolling = false;
 
   private handleKeyDown = async (e: KeyboardEvent) => {
     if (this.isPasswordPrompt) {
@@ -283,6 +300,9 @@ export class ArchiveScreen extends BaseScreen {
 
     // Add keyboard event listener
     window.addEventListener("keydown", this.handleKeyDown);
+
+    // Add touch event handling
+    this.setupTouchHandling();
   }
 
   private setupCanvas() {
@@ -301,8 +321,9 @@ export class ArchiveScreen extends BaseScreen {
     // Scale context for retina displays
     this.ctx.scale(dpr, dpr);
 
-    // Set base font properties
-    this.ctx.font = `${this.layout.sizes.text}px "${this.layout.fontFamily}"`;
+    // Adjust font size for mobile
+    const fontSize = this.isMobile() ? 14 : this.layout.sizes.text;
+    this.ctx.font = `${fontSize}px "${this.layout.fontFamily}"`;
     this.ctx.textBaseline = "top";
 
     parent.appendChild(this.canvas);
@@ -402,16 +423,21 @@ export class ArchiveScreen extends BaseScreen {
     this.ctx.font = `bold ${this.layout.sizes.header}px "${this.layout.fontFamily}"`;
     this.ctx.fillStyle = this.layout.colors.foreground;
 
-    const headerLines = this.header.split("\n");
+    // Use mobile or desktop header based on screen size
+    const headerText = this.isMobile() ? this.mobileHeader : this.header;
+    const headerLines = headerText.split("\n");
+
     for (const line of headerLines) {
       this.drawText(line, 0, y, {
         color: this.layout.colors.foreground,
-        size: this.layout.sizes.header,
+        size: this.isMobile() ? 14 : this.layout.sizes.header,
         align: "center",
         weight: "bold",
         glow: true,
       });
-      y += this.layout.spacing.line;
+      y += this.isMobile()
+        ? this.layout.spacing.line * 0.8
+        : this.layout.spacing.line;
     }
     y += this.layout.spacing.line; // Add extra space after header
 
@@ -434,50 +460,49 @@ export class ArchiveScreen extends BaseScreen {
     );
     y += this.layout.spacing.line;
 
+    // Adjust padding and spacing for mobile
+    const isMobile = this.isMobile();
+    const sidePadding = isMobile ? 5 : this.layout.padding.left;
+    const itemSpacing = isMobile ? 30 : this.layout.spacing.item;
+    const fontSize = isMobile ? 14 : this.layout.sizes.text;
+
     // Render items
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
       const isSelected = i === this.selectedIndex;
-      const indent = this.layout.padding.left + item.level * 20;
+      const indent = sidePadding + item.level * (isMobile ? 10 : 20);
 
       // Selection highlight
       if (isSelected) {
         this.ctx.fillStyle = this.layout.colors.selectedBackground;
         this.ctx.fillRect(
-          this.layout.padding.left - 10,
+          sidePadding - 5,
           y - 4,
-          this.canvas.width -
-            (this.layout.padding.left + this.layout.padding.right) +
-            20,
-          this.layout.spacing.line
+          this.canvas.width - sidePadding * 2,
+          itemSpacing
         );
 
         // Selection marker
         this.ctx.fillStyle = this.layout.colors.foreground;
-        this.ctx.fillRect(
-          this.layout.padding.left - 10,
-          y - 4,
-          4,
-          this.layout.spacing.line
-        );
+        this.ctx.fillRect(sidePadding - 5, y - 4, 2, itemSpacing);
       }
 
       // Set font and color for items
-      this.ctx.font = `${this.layout.sizes.text}px "${this.layout.fontFamily}"`;
+      this.ctx.font = `${fontSize}px "${this.layout.fontFamily}"`;
       this.ctx.fillStyle = isSelected
         ? this.layout.colors.highlight
         : item.isDirectory
         ? this.layout.colors.folder
         : this.layout.colors.file;
 
-      // Draw item text
+      // Draw item text with smaller icons for mobile
       const itemText = item.isDirectory
         ? `${item.expanded ? "▼" : "▶"} ${item.name}/`
         : `${this.getFileIcon(item.name)} ${item.name}`;
       this.ctx.fillText(itemText, indent, y);
 
-      // Display file type for selected items
-      if (isSelected && !item.isDirectory) {
+      // Only show file type on desktop
+      if (isSelected && !item.isDirectory && !isMobile) {
         const textWidth = this.ctx.measureText(itemText).width;
         this.ctx.fillStyle = this.layout.colors.dim;
         this.ctx.font = `${this.layout.sizes.small}px "${this.layout.fontFamily}"`;
@@ -489,22 +514,26 @@ export class ArchiveScreen extends BaseScreen {
         );
       }
 
-      y += this.layout.spacing.line;
+      y += itemSpacing;
     }
 
-    // Status bar
+    // Adjust status bar for mobile
     const statusY =
       this.canvas.height / window.devicePixelRatio -
       (this.layout.padding.bottom + this.layout.spacing.line);
+
     this.ctx.fillStyle = this.layout.colors.dim;
     this.ctx.fillRect(0, statusY - 4, this.canvas.width, 1);
 
-    this.ctx.font = `${this.layout.sizes.small}px "${this.layout.fontFamily}"`;
-    this.ctx.fillText(
-      "↑/↓: Navigate   ←/→: Expand/Collapse   Enter: Open   Esc: Back",
-      this.layout.padding.left,
-      statusY + 12
-    );
+    // Simplified controls text for mobile
+    const controlsText = isMobile
+      ? "↑↓: Nav   ←→: Expand   ⏎: Open   ⬅: Back"
+      : "↑/↓: Navigate   ←/→: Expand/Collapse   Enter: Open   Esc: Back";
+
+    this.ctx.font = `${isMobile ? 12 : this.layout.sizes.small}px "${
+      this.layout.fontFamily
+    }"`;
+    this.ctx.fillText(controlsText, sidePadding, statusY + 12);
 
     // Add effects on top
     this.renderEffects();
@@ -1001,6 +1030,7 @@ export class ArchiveScreen extends BaseScreen {
   }
 
   async cleanup(): Promise<void> {
+    await super.cleanup();
     // Remove event listeners
     window.removeEventListener("keydown", this.handleKeyDown);
     this.canvas.removeEventListener("wheel", this.handleWheel);
@@ -1024,6 +1054,11 @@ export class ArchiveScreen extends BaseScreen {
     // Show terminal canvas again
     this.terminal.canvas.style.display = "block";
     await this.terminal.clear();
+
+    // Remove touch event listeners
+    this.canvas.removeEventListener("touchstart", this.handleTouchStart);
+    this.canvas.removeEventListener("touchmove", this.handleTouchMove);
+    this.canvas.removeEventListener("touchend", this.handleTouchEnd);
   }
 
   // Add loading animation method
@@ -1233,7 +1268,7 @@ export class ArchiveScreen extends BaseScreen {
     const centerY = this.canvas.height / window.devicePixelRatio / 2;
 
     // Draw ASCII art border
-    this.drawText("╔════════════════════════════════════╗", 0, centerY - 100, {
+    this.drawText("╔══════════════════════════════╗", 0, centerY - 100, {
       color: this.layout.colors.foreground,
       align: "center",
       glow: true,
@@ -1274,7 +1309,7 @@ export class ArchiveScreen extends BaseScreen {
     }
 
     // Draw bottom border
-    this.drawText("╚════════════════════════════════════╝", 0, centerY + 100, {
+    this.drawText("╚══════════════════════════════╝", 0, centerY + 100, {
       color: this.layout.colors.foreground,
       align: "center",
       glow: true,
@@ -1321,4 +1356,195 @@ export class ArchiveScreen extends BaseScreen {
       console.error("Failed to initialize PDF.js:", error);
     }
   }
+
+  // Add isMobile helper method
+  private isMobile(): boolean {
+    return window.innerWidth < 480;
+  }
+
+  private setupTouchHandling() {
+    // Ensure parent can receive touch events
+    const parent = this.terminal.canvas.parentElement;
+    if (parent) {
+      parent.style.touchAction = "none";
+      parent.style.pointerEvents = "auto";
+    }
+
+    // Add touch event listeners
+    this.canvas.addEventListener("touchstart", this.handleTouchStart, {
+      passive: false,
+    });
+    this.canvas.addEventListener("touchmove", this.handleTouchMove, {
+      passive: false,
+    });
+    this.canvas.addEventListener("touchend", this.handleTouchEnd, {
+      passive: true,
+    });
+  }
+
+  private handleTouchStart = (e: TouchEvent) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    this.touchStartY = touch.clientY;
+    this.isScrolling = false;
+
+    // Calculate which item was touched
+    if (!this.isViewingFile) {
+      const rect = this.canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+
+      // Adjust touch position for device pixel ratio and canvas scaling
+      const y = (touch.clientY - rect.top) * dpr;
+
+      // Calculate header height including all components
+      const headerLines = this.header.split("\n").length;
+      const headerHeight =
+        (this.layout.padding.top + // Initial padding
+          headerLines * this.layout.spacing.line + // ASCII header height
+          this.layout.spacing.line + // Extra space after ASCII
+          this.layout.spacing.line + // Path display line
+          this.layout.spacing.line + // Separator line
+          this.layout.spacing.line / 2) * // Half line adjustment
+        dpr;
+
+      // Calculate item spacing with proper scaling
+      const isMobile = this.isMobile();
+      const itemSpacing = (isMobile ? 30 : this.layout.spacing.item) * dpr;
+
+      // Calculate touched index with offset adjustment
+      const touchedIndex = Math.floor(
+        (y - headerHeight + itemSpacing / 2) / itemSpacing
+      );
+
+      // Debug logging
+      console.log({
+        y,
+        headerHeight,
+        adjustedY: y - headerHeight,
+        itemSpacing,
+        touchedIndex,
+        dpr,
+        totalItems: this.items.length,
+        headerLines: headerLines,
+      });
+
+      // Update selection if valid index
+      if (touchedIndex >= 0 && touchedIndex < this.items.length) {
+        this.selectedIndex = touchedIndex;
+        this.renderItems();
+      }
+    }
+  };
+
+  private handleTouchMove = (e: TouchEvent) => {
+    e.preventDefault();
+    if (!this.touchStartY) return;
+
+    const touch = e.touches[0];
+    const deltaY = this.touchStartY - touch.clientY;
+
+    if (Math.abs(deltaY) > this.touchMoveThreshold) {
+      this.isScrolling = true;
+      if (this.isViewingFile) {
+        // Handle file content scrolling
+        const scrollAmount = Math.sign(deltaY);
+        this.scrollOffset = Math.max(
+          0,
+          Math.min(this.maxScrollOffset, this.scrollOffset + scrollAmount * 3) // Increased scroll speed
+        );
+        this.renderFileContent();
+      } else {
+        // Handle item list scrolling
+        const scrollAmount = Math.sign(deltaY);
+        this.selectedIndex = Math.max(
+          0,
+          Math.min(this.items.length - 1, this.selectedIndex + scrollAmount)
+        );
+        this.renderItems();
+      }
+    }
+  };
+
+  private handleTouchEnd = (e: TouchEvent) => {
+    if (!this.isScrolling) {
+      // Get touch position
+      const touch = e.changedTouches[0];
+      const rect = this.canvas.getBoundingClientRect();
+      const y = touch.clientY - rect.top;
+
+      // Check if touch is in the bottom status bar area
+      const statusY =
+        this.canvas.height / window.devicePixelRatio -
+        (this.layout.padding.bottom + this.layout.spacing.line);
+
+      if (y > statusY) {
+        // Handle back button touch
+        if (this.isViewingFile) {
+          this.isViewingFile = false;
+          this.scrollOffset = 0;
+          this.displayItems();
+        } else {
+          // Check if we're at root level
+          const isAtRoot = this.items.every((item) => !item.parent);
+          if (isAtRoot) {
+            this.transition("home");
+          } else {
+            // Go back to parent directory
+            const currentItem = this.items[this.selectedIndex];
+            if (currentItem.parent) {
+              const parentIndex = this.items.indexOf(currentItem.parent);
+              if (parentIndex !== -1) {
+                this.selectedIndex = parentIndex;
+                currentItem.parent.expanded = false;
+                this.removeChildren(parentIndex);
+                this.displayItems();
+              }
+            }
+          }
+        }
+        return;
+      }
+
+      // Only proceed with item selection if we have a valid selected index
+      if (this.selectedIndex >= 0 && this.selectedIndex < this.items.length) {
+        if (this.isPasswordPrompt) {
+          // Close password prompt on tap
+          this.isPasswordPrompt = false;
+          this.currentPassword = "";
+          this.displayItems();
+        } else if (this.isViewingFile) {
+          // Close the file view
+          this.isViewingFile = false;
+          this.scrollOffset = 0;
+          this.displayItems();
+        } else {
+          // Get the selected item
+          const selectedItem = this.items[this.selectedIndex];
+
+          // Check if this is a protected path before expanding
+          if (
+            selectedItem.isDirectory &&
+            !selectedItem.expanded &&
+            this.protectedPaths.has(selectedItem.name) &&
+            this.isLocked
+          ) {
+            this.isPasswordPrompt = true;
+            this.currentPassword = "";
+            this.renderPasswordPrompt();
+          } else if (selectedItem.isDirectory && selectedItem.expanded) {
+            // If it's an expanded directory, collapse it
+            selectedItem.expanded = false;
+            this.removeChildren(this.selectedIndex);
+            this.displayItems();
+          } else {
+            // Otherwise handle normal selection/expansion
+            this.selectItem();
+          }
+        }
+      }
+    }
+
+    this.touchStartY = null;
+    this.isScrolling = false;
+  };
 }

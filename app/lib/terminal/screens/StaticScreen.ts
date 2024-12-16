@@ -94,6 +94,7 @@ export class StaticScreen extends BaseScreen {
   }
 
   async cleanup(): Promise<void> {
+    await super.cleanup();
     console.log("Cleaning up static screen");
     this.staticEffect.stop();
     this.faceRenderer.cleanup();

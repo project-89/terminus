@@ -94,6 +94,10 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <head>
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+        />
         <link
           rel="preload"
           href="/BerkeleyMono-Regular.woff"
@@ -101,6 +105,48 @@ export default async function RootLayout({
           type="font/woff"
           crossOrigin="anonymous"
         />
+        <style>
+          {`
+            /* Base responsive styles */
+            :root {
+              --font-size-mobile: 12px;
+              --font-size-tablet: 14px;
+              --font-size-desktop: 16px;
+              --padding-mobile: 10px;
+              --padding-tablet: 15px;
+              --padding-desktop: 20px;
+            }
+
+            @media (max-width: 480px) {
+              body {
+                font-size: var(--font-size-mobile);
+                padding: var(--padding-mobile);
+              }
+            }
+
+            @media (min-width: 481px) and (max-width: 768px) {
+              body {
+                font-size: var(--font-size-tablet);
+                padding: var(--padding-tablet);
+              }
+            }
+
+            @media (min-width: 769px) {
+              body {
+                font-size: var(--font-size-desktop);
+                padding: var(--padding-desktop);
+              }
+            }
+
+            /* Prevent text selection on touch devices */
+            @media (hover: none) {
+              * {
+                user-select: none;
+                -webkit-user-select: none;
+              }
+            }
+          `}
+        </style>
       </head>
       <body>{children}</body>
     </html>

@@ -20,6 +20,7 @@ export class WelcomeScreen extends BaseScreen {
   }
 
   async cleanup(): Promise<void> {
+    await super.cleanup();
     await this.terminal.clear();
   }
 }

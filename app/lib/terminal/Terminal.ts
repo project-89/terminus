@@ -12,10 +12,12 @@ import { DEFAULT_OPTIONS, TERMINAL_COLORS } from "./constants";
 
 export { TERMINAL_COLORS };
 export class Terminal extends EventEmitter {
-  public canvas: HTMLCanvasElement;
+  private static instance: Terminal | null = null;
+
+  public canvas!: HTMLCanvasElement;
   public effects!: TerminalEffects;
-  public options: TerminalOptions;
-  public colors: typeof TERMINAL_COLORS;
+  public options!: TerminalOptions;
+  public colors!: typeof TERMINAL_COLORS;
   public screenManager!: ScreenManager;
   public context: Record<string, any> = {};
   public cursorVisible: boolean = true;
@@ -56,17 +58,27 @@ export class Terminal extends EventEmitter {
   public commandHandler!: CommandHandler;
   public toolHandler!: ToolHandler;
 
+  private _scrollPosition: number = 0;
+  private _contentHeight: number = 0;
+
   constructor(
     canvas: HTMLCanvasElement,
     options: Partial<TerminalOptions> = {}
   ) {
     super();
+
+    if (Terminal.instance) {
+      return Terminal.instance;
+    }
+
     this.canvas = canvas;
     this.options = {
       ...DEFAULT_OPTIONS,
       ...options,
     };
     this.colors = this.options.colors || TERMINAL_COLORS;
+
+    Terminal.instance = this;
 
     this.initialize();
   }
@@ -528,8 +540,9 @@ export class Terminal extends EventEmitter {
     return this.inputHandler.handleInput(char, event);
   }
 
-  public scroll(delta: number) {
+  public scroll(direction: number) {
     const lineHeight = this.options.fontSize * 1.5;
+    const scrollAmount = direction * lineHeight;
 
     // Calculate total content height including input
     const totalBufferHeight = this.currentPrintY;
@@ -544,19 +557,38 @@ export class Terminal extends EventEmitter {
       totalContentHeight - visibleHeight + lineHeight
     );
 
-    // Calculate new scroll position
-    const scrollAmount = Math.sign(delta) * lineHeight;
-    const newScrollOffset = Math.max(
+    // Update scroll position
+    this.scrollOffset = Math.max(
       0,
       Math.min(maxScroll, this.scrollOffset + scrollAmount)
     );
 
-    if (this.scrollOffset !== newScrollOffset) {
-      this.scrollOffset = newScrollOffset;
-      // Update isAtBottom only when actually at bottom
-      this.isAtBottom = newScrollOffset >= maxScroll - lineHeight / 2;
-      this.render();
-    }
+    // Update bottom state
+    this.isAtBottom = this.scrollOffset >= maxScroll - lineHeight / 2;
+
+    this.render();
+  }
+
+  private getScrollPosition(): number {
+    // Return current scroll position
+    return this._scrollPosition || 0;
+  }
+
+  private setScrollPosition(position: number) {
+    // Set new scroll position with bounds checking
+    const maxScroll = this.getMaxScroll();
+    this._scrollPosition = Math.max(0, Math.min(position, maxScroll));
+  }
+
+  private getMaxScroll(): number {
+    // Calculate maximum possible scroll based on content height
+    return Math.max(0, this.getContentHeight() - this.canvas.height);
+  }
+
+  private getContentHeight(): number {
+    // Calculate total height of terminal content
+    // Implementation depends on how you store/track content
+    return this._contentHeight || this.canvas.height;
   }
 
   public setCursorOptions(options: Partial<typeof this.options.cursor>) {
@@ -565,5 +597,13 @@ export class Terminal extends EventEmitter {
       ...options,
     };
     this.render();
+  }
+
+  public static getInstance(): Terminal | null {
+    return Terminal.instance;
+  }
+
+  public focus(): void {
+    this.inputHandler.focus();
   }
 }

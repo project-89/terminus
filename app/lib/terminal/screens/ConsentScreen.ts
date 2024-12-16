@@ -102,6 +102,7 @@ export class ConsentScreen extends BaseScreen {
   }
 
   async cleanup(): Promise<void> {
+    await super.cleanup();
     await this.terminal.clear();
   }
 }

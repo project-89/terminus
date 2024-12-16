@@ -43,25 +43,14 @@ export abstract class BaseScreen {
     this.terminal = context.terminal;
     this.commandRegistry = new ScreenCommandRegistry();
 
-    // Get terminal dimensions or use defaults
-    const terminalWidth = this.terminal.getWidth?.() || window.innerWidth;
-    const terminalHeight = this.terminal.getHeight?.() || window.innerHeight;
+    // Get terminal dimensions with responsive handling
+    this.dimensions = this.getResponsiveDimensions();
 
-    this.dimensions = {
-      width: terminalWidth,
-      height: terminalHeight,
-      padding: {
-        top: context.dimensions?.padding?.top ?? 2,
-        right: context.dimensions?.padding?.right ?? 4,
-        bottom: context.dimensions?.padding?.bottom ?? 2,
-        left: context.dimensions?.padding?.left ?? 4,
-      },
-      centered: context.dimensions?.centered ?? true,
-    };
+    // Add resize listener for responsive updates
+    window.addEventListener("resize", this.handleResize);
 
     // Register command handler middleware by default
     this.registerMiddleware(async (ctx, next) => {
-      // Check for registered commands first
       const command = this.commandRegistry.getCommand(ctx.command);
       if (command) {
         ctx.handled = true;
@@ -70,6 +59,55 @@ export abstract class BaseScreen {
       }
       await next();
     });
+  }
+
+  // Add responsive dimension calculation
+  protected getResponsiveDimensions(): ScreenDimensions {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    // Calculate padding based on screen size
+    const padding = {
+      top: this.getResponsivePadding(),
+      right: this.getResponsivePadding(),
+      bottom: this.getResponsivePadding(),
+      left: this.getResponsivePadding(),
+    };
+
+    return {
+      width,
+      height,
+      padding,
+      centered: true,
+    };
+  }
+
+  // Add responsive padding calculation
+  protected getResponsivePadding(): number {
+    const width = window.innerWidth;
+    if (width < 480) return 10; // mobile
+    if (width < 768) return 15; // tablet
+    return 20; // desktop
+  }
+
+  // Add responsive font size calculation
+  protected getResponsiveFontSize(): number {
+    const width = window.innerWidth;
+    if (width < 480) return 12; // mobile
+    if (width < 768) return 14; // tablet
+    return 16; // desktop
+  }
+
+  // Add resize handler
+  protected handleResize = () => {
+    this.dimensions = this.getResponsiveDimensions();
+    // Trigger re-render if needed
+    this.render();
+  };
+
+  // Clean up event listeners in cleanup method
+  async cleanup(): Promise<void> {
+    window.removeEventListener("resize", this.handleResize);
   }
 
   registerCommands(commands: CommandConfig[]) {
@@ -197,8 +235,8 @@ export abstract class BaseScreen {
     await executeNext();
   }
 
+  // Abstract methods
   abstract render(): Promise<void>;
-  abstract cleanup(): Promise<void>;
 
   // Optional lifecycle methods
   async beforeRender(): Promise<void> {}

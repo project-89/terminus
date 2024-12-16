@@ -42,7 +42,7 @@ export class RetroMediaScreen extends BaseScreen {
       color: "rgba(92, 255, 250, 0.6)",
       blur: "10px",
       offset: "0px",
-    }
+    },
   };
 
   constructor(context: { terminal: Terminal }) {
@@ -73,9 +73,13 @@ export class RetroMediaScreen extends BaseScreen {
       this.tracks = await response.json();
 
       // Add metadata load handler
-      this.audioElement.addEventListener('loadedmetadata', () => {
-        if (this.currentTrackIndex >= 0 && this.currentTrackIndex < this.tracks.length) {
-          this.tracks[this.currentTrackIndex].duration = this.audioElement.duration;
+      this.audioElement.addEventListener("loadedmetadata", () => {
+        if (
+          this.currentTrackIndex >= 0 &&
+          this.currentTrackIndex < this.tracks.length
+        ) {
+          this.tracks[this.currentTrackIndex].duration =
+            this.audioElement.duration;
           this.renderPlaylist(); // Re-render to show updated duration
         }
       });
@@ -89,9 +93,17 @@ export class RetroMediaScreen extends BaseScreen {
     text: string,
     x: number,
     y: number,
-    options: { color?: string; align?: "left" | "center" | "right"; glow?: boolean } = {}
+    options: {
+      color?: string;
+      align?: "left" | "center" | "right";
+      glow?: boolean;
+    } = {}
   ) {
-    const { color = this.layout.colors.text, align = "left", glow = true } = options;
+    const {
+      color = this.layout.colors.text,
+      align = "left",
+      glow = true,
+    } = options;
 
     this.ctx.save();
     if (glow) {
@@ -102,13 +114,13 @@ export class RetroMediaScreen extends BaseScreen {
     }
 
     this.ctx.fillStyle = color;
-    
+
     if (align === "center") {
       const width = this.ctx.measureText(text).width;
       x = (this.canvas.width / window.devicePixelRatio - width) / 2;
     } else if (align === "right") {
       const width = this.ctx.measureText(text).width;
-      x = (this.canvas.width / window.devicePixelRatio - width - 20);
+      x = this.canvas.width / window.devicePixelRatio - width - 20;
     }
 
     this.ctx.fillText(text, x, y);
@@ -137,12 +149,13 @@ export class RetroMediaScreen extends BaseScreen {
     gradient.addColorStop(1, "rgba(92, 255, 250, 0.1)");
 
     for (let i = 0; i < barCount; i++) {
-      const height = (this.visualizerData[i] / 255) * this.layout.visualizer.height;
-      
+      const height =
+        (this.visualizerData[i] / 255) * this.layout.visualizer.height;
+
       // Add glow effect
       this.ctx.shadowColor = this.layout.colors.visualizer;
       this.ctx.shadowBlur = 15;
-      
+
       // Draw bar
       this.ctx.fillStyle = gradient;
       this.ctx.fillRect(
@@ -161,7 +174,9 @@ export class RetroMediaScreen extends BaseScreen {
     if (!isFinite(seconds) || seconds < 0) return "00:00";
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    return `${minutes.toString().padStart(2, "0")}:${remainingSeconds
+      .toString()
+      .padStart(2, "0")}`;
   }
 
   private renderPlaylist() {
@@ -215,7 +230,8 @@ export class RetroMediaScreen extends BaseScreen {
 
     // Progress bar fill
     if (this.audioElement.duration) {
-      const progress = this.audioElement.currentTime / this.audioElement.duration;
+      const progress =
+        this.audioElement.currentTime / this.audioElement.duration;
       this.ctx.fillStyle = this.layout.colors.text;
       this.ctx.fillRect(20, y, (this.canvas.width - 40) * progress, 4);
     }
@@ -230,7 +246,11 @@ export class RetroMediaScreen extends BaseScreen {
     // Controls
     const controls = "⏮   ⏸/▶   ⏭";
     const controlsWidth = this.ctx.measureText(controls).width;
-    this.ctx.fillText(controls, (this.canvas.width - controlsWidth) / 2, y + 20);
+    this.ctx.fillText(
+      controls,
+      (this.canvas.width - controlsWidth) / 2,
+      y + 20
+    );
   }
 
   private animate = () => {
@@ -282,24 +302,26 @@ export class RetroMediaScreen extends BaseScreen {
   async render(): Promise<void> {
     // Hide terminal canvas
     this.terminal.canvas.style.display = "none";
-    
+
     // Clear any existing canvas
     const parent = this.terminal.canvas.parentElement!;
     const existingCanvas = parent.querySelector("canvas:not(.terminal-canvas)");
     if (existingCanvas) {
       existingCanvas.remove();
     }
-    
+
     // Add our canvas to DOM
     parent.appendChild(this.canvas);
-    
+
     // Add CRT overlay elements
     const crtOverlay = document.createElement("div");
-    crtOverlay.className = "pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-black/10";
+    crtOverlay.className =
+      "pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-black/10";
     parent.appendChild(crtOverlay);
 
     const scanlineOverlay = document.createElement("div");
-    scanlineOverlay.className = "pointer-events-none absolute inset-0 bg-[url('/scanline.png')] opacity-5";
+    scanlineOverlay.className =
+      "pointer-events-none absolute inset-0 bg-[url('/scanline.png')] opacity-5";
     parent.appendChild(scanlineOverlay);
 
     // Initial clear of canvas
@@ -310,7 +332,7 @@ export class RetroMediaScreen extends BaseScreen {
     this.drawText("QUANTUM AUDIO INTERFACE", 0, 30, {
       color: this.layout.colors.text,
       align: "center",
-      glow: true
+      glow: true,
     });
 
     // Start animation
@@ -318,20 +340,21 @@ export class RetroMediaScreen extends BaseScreen {
   }
 
   async cleanup(): Promise<void> {
+    await super.cleanup();
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
     }
     this.audioElement.pause();
     this.audioContext.close();
     window.removeEventListener("keydown", this.handleKeyDown);
-    
+
     // Remove CRT overlays
     const parent = this.canvas.parentElement;
     if (parent) {
-      const overlays = parent.querySelectorAll('.pointer-events-none');
-      overlays.forEach(overlay => overlay.remove());
+      const overlays = parent.querySelectorAll(".pointer-events-none");
+      overlays.forEach((overlay) => overlay.remove());
     }
-    
+
     this.canvas.remove();
     this.terminal.canvas.style.display = "block";
   }
@@ -388,7 +411,7 @@ export class RetroMediaScreen extends BaseScreen {
     console.log({
       canvasWidth: this.canvas.width,
       canvasHeight: this.canvas.height,
-      isVisible: this.canvas.style.display !== 'none',
+      isVisible: this.canvas.style.display !== "none",
       parent: this.canvas.parentElement,
       context: !!this.ctx,
     });

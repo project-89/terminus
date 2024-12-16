@@ -14,78 +14,81 @@ export function TerminalCanvas() {
 
   // Initialize terminal once
   useEffect(() => {
-    if (!canvasRef.current || terminalRef.current || !containerRef.current)
-      return;
+    if (!canvasRef.current || !containerRef.current) return;
 
-    // Clear game state on fresh load
-    const context = TerminalContext.getInstance();
-    context.clearState();
+    // Get existing terminal instance or create new one
+    let terminal = Terminal.getInstance();
+    if (!terminal) {
+      const container = containerRef.current;
+      const rect = container.getBoundingClientRect();
 
-    const container = containerRef.current;
-    const rect = container.getBoundingClientRect();
-
-    const terminal = new Terminal(canvasRef.current, {
-      width: rect.width,
-      height: rect.height,
-      fontSize: 16,
-      fontFamily: "Berkeley Mono",
-      backgroundColor: "#090812",
-      foregroundColor: "#2fb7c3",
-      cursorColor: "#2fb7c3",
-      blinkRate: 500,
-      effects: {
-        glow: {
-          blur: 16,
-          color: "#2fb7c3",
-          strength: 2.0,
-          passes: 2,
+      terminal = new Terminal(canvasRef.current, {
+        width: rect.width,
+        height: rect.height,
+        fontSize: 16,
+        fontFamily: "Berkeley Mono",
+        backgroundColor: "#090812",
+        foregroundColor: "#2fb7c3",
+        cursorColor: "#2fb7c3",
+        blinkRate: 500,
+        effects: {
+          glow: {
+            blur: 16,
+            color: "#2fb7c3",
+            strength: 2.0,
+            passes: 2,
+          },
+          scanlines: {
+            spacing: 4,
+            opacity: 0.1,
+            speed: 0.005,
+            offset: 0,
+            thickness: 1,
+          },
+          crt: {
+            curvature: 0.15,
+            vignetteStrength: 0.25,
+            cornerBlur: 0.12,
+            scanlineGlow: 0.05,
+          },
         },
-        scanlines: {
-          spacing: 4,
-          opacity: 0.1,
-          speed: 0.005,
-          offset: 0,
-          thickness: 1,
+        cursor: {
+          centered: false,
+          leftPadding: 20,
+          mode: "dynamic",
         },
-        crt: {
-          curvature: 0.15,
-          vignetteStrength: 0.25,
-          cornerBlur: 0.12,
-          scanlineGlow: 0.05,
+        pixelation: {
+          enabled: true,
+          scale: 0.75,
         },
-      },
-      cursor: {
-        centered: false,
-        leftPadding: 20,
-        mode: "dynamic",
-      },
-      pixelation: {
-        enabled: true,
-        scale: 0.75,
-      },
-    });
+      });
 
-    // Initialize router and properly set it in terminal context
-    const router = new ScreenRouter(terminal);
-    terminal.context = {
-      router,
-      currentScreen: null, // Add this to track current screen
-    };
+      // Clear game state on fresh load
+      const context = TerminalContext.getInstance();
+      context.clearState();
+
+      // Initialize router and properly set it in terminal context
+      const router = new ScreenRouter(terminal);
+      terminal.context = {
+        router,
+        currentScreen: null,
+      };
+
+      // Show the initial screen based on URL query params
+      const params = new URLSearchParams(window.location.search);
+      const initialScreen = params.get("screen") || "home";
+
+      // Navigate and update current screen
+      router.navigate(initialScreen).catch(console.error);
+
+      // Track page view
+      analytics.trackGameAction("page_view", {
+        screen: initialScreen,
+      });
+    }
 
     // Store terminal reference
     terminalRef.current = terminal;
-
-    // Show the initial screen based on URL query params
-    const params = new URLSearchParams(window.location.search);
-    const initialScreen = params.get("screen") || "home";
-
-    // Navigate and update current screen
-    router.navigate(initialScreen).catch(console.error);
-
-    // Track page view
-    analytics.trackGameAction("page_view", {
-      screen: initialScreen,
-    });
 
     // Cleanup
     return () => {

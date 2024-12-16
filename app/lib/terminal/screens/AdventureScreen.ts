@@ -15,6 +15,10 @@ export class AdventureScreen extends BaseScreen {
 TERMINAL v0.1.2 - STANDARD TEXT INTERFACE
 ESTABLISHING CONNECTION...`.trim();
 
+  private touchStartY: number | null = null;
+  private touchMoveThreshold = 50; // Minimum pixels to trigger scroll
+  private isScrolling = false;
+
   constructor(context: ScreenContext) {
     super(context);
 
@@ -51,6 +55,78 @@ ESTABLISHING CONNECTION...`.trim();
         },
       },
     ]);
+
+    // Add touch event handling setup
+    this.setupTouchHandling();
+  }
+
+  private setupTouchHandling() {
+    // Ensure parent can receive touch events
+    const parent = this.terminal.canvas.parentElement;
+    if (parent) {
+      parent.style.touchAction = "none";
+      parent.style.pointerEvents = "auto";
+    }
+
+    // Add touch event listeners to terminal canvas
+    this.terminal.canvas.addEventListener("touchstart", this.handleTouchStart, {
+      passive: false,
+    });
+    this.terminal.canvas.addEventListener("touchmove", this.handleTouchMove, {
+      passive: false,
+    });
+    this.terminal.canvas.addEventListener("touchend", this.handleTouchEnd, {
+      passive: true,
+    });
+
+    // Debug - add visible touch area if mobile
+    if (this.isMobile()) {
+      const ctx = this.terminal.canvas.getContext("2d");
+      if (ctx) {
+        ctx.fillRect(0, 0, this.terminal.canvas.width, 30);
+        ctx.font = `${this.terminal.options.fontSize}px monospace`;
+        ctx.fillText("Touch area active", 10, 20);
+      }
+    }
+  }
+
+  private handleTouchStart = (e: TouchEvent) => {
+    e.preventDefault();
+
+    const touch = e.touches[0];
+    this.touchStartY = touch.clientY;
+    this.isScrolling = false;
+  };
+
+  private handleTouchMove = (e: TouchEvent) => {
+    e.preventDefault();
+
+    if (this.touchStartY === null) return;
+
+    const touch = e.touches[0];
+    const deltaY = this.touchStartY - touch.clientY;
+
+    // If movement exceeds threshold, start scrolling
+    if (Math.abs(deltaY) > this.touchMoveThreshold) {
+      this.isScrolling = true;
+      // Scroll the terminal content
+      this.terminal.scroll(deltaY > 0 ? 1 : -1);
+    }
+  };
+
+  private handleTouchEnd = (e: TouchEvent) => {
+    // If we weren't scrolling, treat as a tap/click
+    if (!this.isScrolling) {
+      // Handle tap event - maybe focus input or trigger command
+      this.terminal.focus();
+    }
+
+    this.touchStartY = null;
+    this.isScrolling = false;
+  };
+
+  private isMobile(): boolean {
+    return window.innerWidth < 480;
   }
 
   private async showHelp() {
@@ -157,13 +233,16 @@ ESTABLISHING CONNECTION...`.trim();
   }
 
   async render(): Promise<void> {
-    console.log("AdventureScreen render called");
-
-    // Set cursor options
+    // Set cursor options with very minimal mobile padding
     this.terminal.setCursorOptions({
       centered: false,
-      leftPadding: 10,
+      leftPadding: this.isMobile() ? 0 : 10, // Remove padding completely on mobile
     });
+
+    // Force redraw for mobile
+    if (this.isMobile()) {
+      await this.terminal.clear();
+    }
 
     // Get terminal context
     const context = GameContext.getInstance();
@@ -249,6 +328,16 @@ ESTABLISHING CONNECTION...`.trim();
   }
 
   async cleanup(): Promise<void> {
+    // Remove touch event listeners
+    this.terminal.canvas.removeEventListener(
+      "touchstart",
+      this.handleTouchStart
+    );
+    this.terminal.canvas.removeEventListener("touchmove", this.handleTouchMove);
+    this.terminal.canvas.removeEventListener("touchend", this.handleTouchEnd);
+
+    // Existing cleanup code
+    await super.cleanup();
     this.terminal.setCommandAccess(false);
     await this.terminal.clear();
   }

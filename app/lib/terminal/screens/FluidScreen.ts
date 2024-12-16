@@ -52,7 +52,15 @@ export class FluidScreen extends BaseScreen {
 ██████╔╝██████╔╝██║   ██║     ██║█████╗  ██║        ██║       ╚█████╔╝╚██████║
 ██╔═══╝ ██╔══██╗██║   ██║██   ██║██╔══╝  ██║        ██║       ██╔══██╗ ╚═══██║
 ██║     ██║  ██║╚██████╔╝╚█████╔╝███████╗╚██████╗   ██║       ╚█████╔╝ █████╔╝
-╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ╚══════╝ ╚═════╝   ╚═╝        ╚════╝  ╚════╝`;
+╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ╚══════╝ ╚═════╝   ╚═╝        ╚════╝  ╚════╝ `;
+
+  private mobileLogo = `
+██████╗  █████╗  █████╗ 
+██╔══██╗██╔══██╗██╔══██╗
+██████╔╝╚█████╔╝╚██████║
+██╔═══╝ ██╔══██╗ ╚═══██║
+██║     ╚█████╔╝ █████╔╝
+╚═╝      ╚════╝  ╚════╝ `;
 
   private menuItems: MenuItem[] = [
     {
@@ -145,8 +153,18 @@ export class FluidScreen extends BaseScreen {
   // Add an array to store interval references
   private messageIntervals: NodeJS.Timeout[] = [];
 
+  // Add property to store document touch handler reference
+  private documentTouchHandler = (e: TouchEvent) => {};
+
   constructor(context: ScreenContext) {
     super(context);
+
+    // Ensure parent can receive touch events
+    const parent = this.terminal.canvas.parentElement;
+    if (parent) {
+      parent.style.touchAction = "none";
+      parent.style.pointerEvents = "auto";
+    }
 
     // Create canvas for fluid effect
     const fluidCanvas = document.createElement("canvas");
@@ -161,7 +179,7 @@ export class FluidScreen extends BaseScreen {
 
     // Create canvas for logo
     this.logoCanvas = document.createElement("canvas");
-    this.logoCanvas.className = "absolute inset-0 pointer-events-none";
+    this.logoCanvas.className = "absolute inset-0"; // Remove pointer-events-none
     this.logoCanvas.style.position = "absolute";
     this.logoCanvas.style.top = "0";
     this.logoCanvas.style.left = "0";
@@ -211,6 +229,17 @@ export class FluidScreen extends BaseScreen {
     this.logoCanvas.height = rect.height;
     this.statusCanvas.width = rect.width;
     this.statusCanvas.height = rect.height;
+
+    // Make sure canvas can receive touch events
+    this.logoCanvas.style.touchAction = "none";
+    this.logoCanvas.style.pointerEvents = "auto";
+    this.logoCanvas.style.position = "absolute";
+    this.logoCanvas.style.zIndex = "999"; // Ensure it's on top
+
+    // Debug - add visible touch area
+    if (this.isMobile()) {
+      this.logoCanvas.style.border = "1px solid rgba(255,0,0,0.2)";
+    }
 
     this.logoCtx.font = "16px monospace";
     this.logoCtx.textBaseline = "top";
@@ -322,16 +351,89 @@ export class FluidScreen extends BaseScreen {
     window.addEventListener("keydown", this.handleKeyDown);
     this.logoCanvas.addEventListener("mousemove", this.handleMouseMove);
     this.logoCanvas.addEventListener("click", this.handleClick);
+
+    // Add touch events with logging
+    this.logoCanvas.addEventListener("touchstart", this.handleTouchStart, {
+      passive: false,
+    });
+    this.logoCanvas.addEventListener("touchmove", this.handleTouchMove, {
+      passive: false,
+    });
+    this.logoCanvas.addEventListener("touchend", this.handleTouchEnd, {
+      passive: true,
+    });
+
+    // Use the stored handler reference
+    document.addEventListener("touchstart", this.documentTouchHandler);
+  }
+
+  private handleTouchStart = (e: TouchEvent) => {
+    e.preventDefault(); // Prevent scrolling
+    if (!this.menuVisible) {
+      return;
+    }
+
+    const touch = e.touches[0];
+    const rect = this.logoCanvas.getBoundingClientRect();
+    const y = touch.clientY - rect.top;
+
+    // Calculate which menu item was touched
+    const menuStartY = this.getMenuStartY();
+    const menuItemHeight = this.isMobile() ? 60 : 40;
+    const itemIndex = Math.floor((y - menuStartY) / menuItemHeight);
+
+    if (itemIndex >= 0 && itemIndex < this.menuItems.length) {
+      this.selectedMenuItem = itemIndex;
+      this.renderMenu();
+    }
+  };
+
+  private handleTouchEnd = (e: TouchEvent) => {
+    // No preventDefault needed here
+    if (!this.menuVisible) return;
+
+    this.selectMenuItem().catch(console.error);
+  };
+
+  private handleTouchMove = (e: TouchEvent) => {
+    e.preventDefault();
+
+    if (!this.menuVisible) return;
+
+    const touch = e.touches[0];
+    const rect = this.logoCanvas.getBoundingClientRect();
+    const y = touch.clientY - rect.top;
+
+    const menuStartY = this.getMenuStartY();
+    const menuItemHeight = this.isMobile() ? 60 : 40;
+    const itemIndex = Math.floor((y - menuStartY) / menuItemHeight);
+
+    if (itemIndex >= 0 && itemIndex < this.menuItems.length) {
+      this.selectedMenuItem = itemIndex;
+      this.renderMenu();
+    }
+  };
+
+  private getMenuStartY(): number {
+    const logoLines = this.isMobile()
+      ? this.mobileLogo.trim().split("\n")
+      : this.logo.trim().split("\n");
+    const logoHeight = logoLines.length * 20;
+    return (
+      (this.logoCanvas.height - logoHeight) / 2 +
+      this.logoCanvas.height * 0.15 +
+      80
+    );
+  }
+
+  private isMobile(): boolean {
+    return window.innerWidth < 480;
   }
 
   private renderMenu() {
-    // Clear only the menu area, not the entire canvas
-    const logoLines = this.logo.trim().split("\n");
-    const logoHeight = logoLines.length * 20;
-    const menuStartY =
-      (this.logoCanvas.height - logoHeight) / 2 +
-      this.logoCanvas.height * 0.15 +
-      80; // Below logo
+    // Use the same menu start Y calculation as touch events
+    const menuStartY = this.getMenuStartY();
+    const menuItemHeight = this.isMobile() ? 60 : 40; // Increased touch target size on mobile
 
     // Clear only the menu area
     this.logoCtx.clearRect(
@@ -346,6 +448,7 @@ export class FluidScreen extends BaseScreen {
     // Render menu items
     this.menuItems.forEach((item, index) => {
       const isSelected = index === this.selectedMenuItem;
+      const itemY = menuStartY + index * menuItemHeight;
 
       // Style for selected item
       this.logoCtx.fillStyle = isSelected ? "#ffffff" : TERMINAL_COLORS.primary;
@@ -353,28 +456,20 @@ export class FluidScreen extends BaseScreen {
 
       // Draw selection indicator
       if (isSelected) {
-        this.logoCtx.fillText(
-          ">",
-          this.logoCanvas.width / 2 - 100,
-          menuStartY + index * 40
-        );
+        this.logoCtx.fillText(">", this.logoCanvas.width / 2 - 100, itemY);
       }
 
       // Draw menu item
-      this.logoCtx.fillText(
-        item.text,
-        this.logoCanvas.width / 2 - 80,
-        menuStartY + index * 40
-      );
+      this.logoCtx.fillText(item.text, this.logoCanvas.width / 2 - 80, itemY);
 
-      // Draw description
-      if (isSelected && item.description) {
+      // Draw description only if not mobile
+      if (isSelected && item.description && !this.isMobile()) {
         this.logoCtx.font = "12px monospace";
         this.logoCtx.fillStyle = "rgba(47, 183, 195, 0.7)";
         this.logoCtx.fillText(
           item.description,
           this.logoCanvas.width / 2 - 80,
-          menuStartY + index * 40 + 20
+          itemY + 20
         );
       }
     });
@@ -434,8 +529,9 @@ export class FluidScreen extends BaseScreen {
   }
 
   private renderLogo() {
-    const logoLines = this.logo.trim().split("\n");
-    const lineHeight = 20;
+    const logo = this.isMobile() ? this.mobileLogo : this.logo;
+    const logoLines = logo.trim().split("\n");
+    const lineHeight = this.isMobile() ? 16 : 20; // Smaller line height for mobile
 
     // Calculate centering with 15% upward shift
     const totalHeight = logoLines.length * lineHeight;
@@ -453,10 +549,18 @@ export class FluidScreen extends BaseScreen {
   }
 
   async cleanup(): Promise<void> {
+    await super.cleanup();
+
     // Remove event listeners
     window.removeEventListener("keydown", this.handleKeyDown);
     this.logoCanvas.removeEventListener("mousemove", this.handleMouseMove);
     this.logoCanvas.removeEventListener("click", this.handleClick);
+    this.logoCanvas.removeEventListener("touchstart", this.handleTouchStart);
+    this.logoCanvas.removeEventListener("touchmove", this.handleTouchMove);
+    this.logoCanvas.removeEventListener("touchend", this.handleTouchEnd);
+
+    // Remove document touch handler
+    document.removeEventListener("touchstart", this.documentTouchHandler);
 
     // Stop animations and effects
     this.fluidEffect.stop();
@@ -465,7 +569,7 @@ export class FluidScreen extends BaseScreen {
     this.messageIntervals.forEach(clearInterval);
     this.messageIntervals = [];
 
-    // Remove all canvases except the main terminal canvas
+    // Remove canvases
     const parent = this.terminal.canvas.parentElement;
     const canvases = parent?.querySelectorAll("canvas");
     canvases?.forEach((canvas) => {
