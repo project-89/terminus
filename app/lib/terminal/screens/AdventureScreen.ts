@@ -368,6 +368,16 @@ ESTABLISHING CONNECTION...`.trim();
     );
     hiddenInputs.forEach((input) => input.remove());
 
+    // Reset any keyboard adjustments
+    const container = this.terminal.canvas.parentElement;
+    if (container) {
+      container.classList.remove("keyboard-visible");
+      container.style.position = "";
+      container.style.top = "";
+      container.style.height = "100%";
+      container.style.transform = "";
+    }
+
     // Existing cleanup code
     await super.cleanup();
     this.terminal.setCommandAccess(false);
@@ -377,28 +387,55 @@ ESTABLISHING CONNECTION...`.trim();
   private handleInputFocus = () => {
     if (this.isMobile()) {
       this.isKeyboardVisible = true;
-      // Scroll the view up when keyboard appears
-      window.scrollTo(0, 0);
-      document.body.scrollTop = 0;
 
-      // Add extra bottom padding when keyboard is visible
-      this.terminal.setCursorOptions({
-        centered: false,
-        leftPadding: 0,
-        bottomPadding: this.MOBILE_BOTTOM_PADDING * 2, // Double padding when keyboard is visible
-      });
+      // Get the terminal container
+      const container = this.terminal.canvas.parentElement;
+      if (container) {
+        // Add a class to handle keyboard visibility
+        container.classList.add("keyboard-visible");
+
+        // Apply viewport adjustments
+        container.style.position = "fixed";
+        container.style.top = "0";
+        container.style.height = "50vh"; // Reduce height to half viewport
+        container.style.transform = "translateY(0)"; // Ensure it's at the top
+
+        // Force scroll to top
+        window.scrollTo(0, 0);
+
+        // Add extra bottom padding when keyboard is visible
+        this.terminal.setCursorOptions({
+          centered: false,
+          leftPadding: 0,
+          bottomPadding: this.MOBILE_BOTTOM_PADDING * 2,
+        });
+      }
     }
   };
 
   private handleInputBlur = () => {
     if (this.isMobile()) {
       this.isKeyboardVisible = false;
-      // Reset padding when keyboard hides
-      this.terminal.setCursorOptions({
-        centered: false,
-        leftPadding: 0,
-        bottomPadding: this.MOBILE_BOTTOM_PADDING,
-      });
+
+      // Get the terminal container
+      const container = this.terminal.canvas.parentElement;
+      if (container) {
+        // Remove keyboard visibility class
+        container.classList.remove("keyboard-visible");
+
+        // Reset viewport adjustments
+        container.style.position = "";
+        container.style.top = "";
+        container.style.height = "100%";
+        container.style.transform = "";
+
+        // Reset padding
+        this.terminal.setCursorOptions({
+          centered: false,
+          leftPadding: 0,
+          bottomPadding: this.MOBILE_BOTTOM_PADDING,
+        });
+      }
     }
   };
 }
