@@ -11,6 +11,11 @@ export function TerminalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const hiddenInputRef = useRef<HTMLInputElement | null>(null);
+
+  const isMobile = () => {
+    return typeof window !== "undefined" && window.innerWidth < 480;
+  };
 
   // Initialize terminal once
   useEffect(() => {
@@ -119,6 +124,11 @@ export function TerminalCanvas() {
   // Handle keyboard input
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // Skip if the event is from our hidden input
+      if (e.target instanceof HTMLInputElement) {
+        return;
+      }
+
       if (!terminalRef.current) return;
 
       if (
@@ -130,7 +140,18 @@ export function TerminalCanvas() {
         e.key.length === 1
       ) {
         e.preventDefault();
-        terminalRef.current.handleInput(e.key, e);
+        // Focus hidden input and simulate key press
+        if (hiddenInputRef.current) {
+          hiddenInputRef.current.focus();
+          terminalRef.current.handleInput(e.key, e);
+          // Update hidden input value
+          requestAnimationFrame(() => {
+            if (hiddenInputRef.current && terminalRef.current?.inputHandler) {
+              hiddenInputRef.current.value =
+                terminalRef.current.inputHandler.getInputBuffer();
+            }
+          });
+        }
       }
     }
 
@@ -159,16 +180,129 @@ export function TerminalCanvas() {
     };
   }, []); // Only run once on mount
 
+  // Add click to focus hidden input
+  function handleCanvasClick() {
+    if (hiddenInputRef.current && terminalRef.current?.getCommandAccess()) {
+      hiddenInputRef.current.focus();
+      if (isMobile()) {
+        hiddenInputRef.current.click();
+      }
+    }
+  }
+
+  // Add input keydown handler
+  function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    e.preventDefault();
+    if (!terminalRef.current) return;
+
+    // Handle special keys
+    if (e.key === "Enter") {
+      const input = e.currentTarget;
+      const command = input.value;
+      input.value = "";
+      terminalRef.current.processCommand(command);
+      terminalRef.current.scrollToLatest();
+      return;
+    }
+
+    // Handle arrow keys
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+      terminalRef.current.handleInput(e.key);
+      requestAnimationFrame(() => {
+        if (hiddenInputRef.current && terminalRef.current?.inputHandler) {
+          hiddenInputRef.current.value =
+            terminalRef.current.inputHandler.getInputBuffer();
+          // Set cursor position for left/right arrows
+          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            const pos = terminalRef.current.inputHandler.getCursorPosition();
+            hiddenInputRef.current.setSelectionRange(pos, pos);
+          }
+        }
+      });
+      return;
+    }
+
+    // Handle backspace
+    if (e.key === "Backspace") {
+      terminalRef.current.handleInput(e.key);
+      requestAnimationFrame(() => {
+        if (hiddenInputRef.current && terminalRef.current?.inputHandler) {
+          hiddenInputRef.current.value =
+            terminalRef.current.inputHandler.getInputBuffer();
+        }
+      });
+      return;
+    }
+
+    // Handle all other keyboard input through terminal
+    if (e.key.length === 1) {
+      terminalRef.current.handleInput(e.key);
+    }
+
+    // Sync hidden input with terminal's buffer
+    requestAnimationFrame(() => {
+      if (hiddenInputRef.current && terminalRef.current?.inputHandler) {
+        hiddenInputRef.current.value =
+          terminalRef.current.inputHandler.getInputBuffer();
+        terminalRef.current.scrollToLatest();
+      }
+    });
+  }
+
+  // Add focus management
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        hiddenInputRef.current?.blur();
+      } else if (terminalRef.current?.getCommandAccess()) {
+        hiddenInputRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   return (
     <div className="fixed inset-0 bg-[#090812] overflow-hidden">
       <div
         ref={containerRef}
+        onClick={handleCanvasClick}
         className="relative w-full h-full flex items-center justify-center"
       >
         <canvas
           ref={canvasRef}
           className="w-full h-full"
           style={{ background: "#090812" }}
+        />
+        <input
+          ref={hiddenInputRef}
+          type="text"
+          inputMode="text"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck="false"
+          enterKeyHint="send"
+          onKeyDown={handleInputKeyDown}
+          style={{
+            position: "fixed",
+            opacity: isMobile() ? 0.01 : 0,
+            width: isMobile() ? "100%" : "1px",
+            height: isMobile() ? "50px" : "1px",
+            pointerEvents: isMobile() ? "auto" : "none",
+            bottom: 0,
+            left: 0,
+            fontSize: "16px",
+            zIndex: 1000,
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            color: "transparent",
+            caretColor: "transparent",
+          }}
         />
       </div>
     </div>

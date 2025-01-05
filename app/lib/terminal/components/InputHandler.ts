@@ -2,11 +2,11 @@ import { Terminal } from "../Terminal";
 
 export class InputHandler {
   private hiddenTextarea!: HTMLTextAreaElement;
-  private inputBuffer: string = "";
-  private cursorPosition: number = 0;
-  private inputHistory: string[] = [];
+  private buffer: string = "";
+  private history: string[] = [];
   private historyIndex: number = -1;
   private tempInput: string = "";
+  private cursorPosition: number = 0;
 
   constructor(private terminal: Terminal) {
     this.initializeInput();
@@ -49,15 +49,31 @@ export class InputHandler {
       return;
     }
 
+    if (char === "ArrowLeft") {
+      if (this.cursorPosition > 0) {
+        this.cursorPosition--;
+        this.terminal.render();
+      }
+      return;
+    }
+
+    if (char === "ArrowRight") {
+      if (this.cursorPosition < this.buffer.length) {
+        this.cursorPosition++;
+        this.terminal.render();
+      }
+      return;
+    }
+
     if (
       char.length === 1 &&
       !event?.ctrlKey &&
       !event?.altKey &&
       !event?.metaKey
     ) {
-      const before = this.inputBuffer.slice(0, this.cursorPosition);
-      const after = this.inputBuffer.slice(this.cursorPosition);
-      this.inputBuffer = before + char + after;
+      const before = this.buffer.slice(0, this.cursorPosition);
+      const after = this.buffer.slice(this.cursorPosition);
+      this.buffer = before + char + after;
       this.cursorPosition++;
       this.terminal.render();
     }
@@ -97,7 +113,7 @@ export class InputHandler {
         break;
 
       case "End":
-        this.cursorPosition = this.inputBuffer.length;
+        this.cursorPosition = this.buffer.length;
         this.terminal.render();
         break;
 
@@ -124,7 +140,7 @@ export class InputHandler {
   };
 
   private moveCursor(delta: number) {
-    const inputText = `> ${this.inputBuffer}`;
+    const inputText = `> ${this.buffer}`;
     const wrappedLines = this.terminal.renderer.wrapText(inputText);
     const maxCharsPerLine = this.terminal.renderer.getMaxCharsPerLine();
 
@@ -154,7 +170,7 @@ export class InputHandler {
       }
     }
     // Handle right movement
-    else if (delta > 0 && this.cursorPosition < this.inputBuffer.length) {
+    else if (delta > 0 && this.cursorPosition < this.buffer.length) {
       if (currentCol < wrappedLines[currentLine]?.length - 1) {
         this.cursorPosition++;
       } else if (currentLine < wrappedLines.length - 1) {
@@ -167,68 +183,91 @@ export class InputHandler {
   }
 
   private handleHistoryNavigation(direction: "up" | "down") {
-    if (
-      direction === "up" &&
-      this.historyIndex < this.inputHistory.length - 1
-    ) {
+    if (direction === "up" && this.historyIndex < this.history.length - 1) {
       if (this.historyIndex === -1) {
-        this.tempInput = this.inputBuffer;
+        this.tempInput = this.buffer;
       }
       this.historyIndex++;
-      this.inputBuffer = this.inputHistory[this.historyIndex];
-      this.cursorPosition = this.inputBuffer.length;
+      this.buffer = this.history[this.historyIndex];
+      this.cursorPosition = this.buffer.length;
       this.terminal.render();
     } else if (direction === "down" && this.historyIndex >= 0) {
       this.historyIndex--;
-      this.inputBuffer =
+      this.buffer =
         this.historyIndex === -1
           ? this.tempInput
-          : this.inputHistory[this.historyIndex];
-      this.cursorPosition = this.inputBuffer.length;
+          : this.history[this.historyIndex];
+      this.cursorPosition = this.buffer.length;
       this.terminal.render();
     }
   }
 
   private handleBackspace() {
     if (this.cursorPosition > 0) {
-      const before = this.inputBuffer.slice(0, this.cursorPosition - 1);
-      const after = this.inputBuffer.slice(this.cursorPosition);
-      this.inputBuffer = before + after;
+      const before = this.buffer.slice(0, this.cursorPosition - 1);
+      const after = this.buffer.slice(this.cursorPosition);
+      this.buffer = before + after;
       this.cursorPosition--;
       this.terminal.render();
     }
   }
 
   private handleDelete() {
-    if (this.cursorPosition < this.inputBuffer.length) {
-      const before = this.inputBuffer.slice(0, this.cursorPosition);
-      const after = this.inputBuffer.slice(this.cursorPosition + 1);
-      this.inputBuffer = before + after;
+    if (this.cursorPosition < this.buffer.length) {
+      const before = this.buffer.slice(0, this.cursorPosition);
+      const after = this.buffer.slice(this.cursorPosition + 1);
+      this.buffer = before + after;
       this.terminal.render();
     }
   }
 
   private async handleEnter() {
-    const command = this.inputBuffer.trim();
+    const command = this.buffer.trim();
     if (command) {
-      this.inputBuffer = "";
+      this.buffer = "";
       this.cursorPosition = 0;
       this.terminal.render();
 
-      this.inputHistory.unshift(command);
-      this.historyIndex = -1;
-      this.tempInput = "";
+      this.addToHistory(command);
 
       await this.terminal.processCommand(command);
     }
   }
 
+  public getHistory(): string[] {
+    return this.history;
+  }
+
+  public getHistoryIndex(): number {
+    return this.historyIndex;
+  }
+
+  public setHistoryIndex(index: number): void {
+    this.historyIndex = index;
+  }
+
   public getInputBuffer(): string {
-    return this.inputBuffer;
+    return this.buffer;
+  }
+
+  public setBuffer(value: string): void {
+    this.buffer = value;
+    this.cursorPosition = value.length;
+  }
+
+  public addToHistory(command: string): void {
+    if (command.trim()) {
+      this.history.unshift(command);
+      this.historyIndex = -1;
+    }
   }
 
   public getCursorPosition(): number {
     return this.cursorPosition;
+  }
+
+  public setCursorPosition(position: number): void {
+    this.cursorPosition = Math.max(0, Math.min(position, this.buffer.length));
   }
 
   public destroy() {

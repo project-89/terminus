@@ -70,6 +70,13 @@ export class Terminal extends EventEmitter {
     super();
 
     if (Terminal.instance) {
+      Object.assign(Terminal.instance, {
+        canvas,
+        options: {
+          ...DEFAULT_OPTIONS,
+          ...options,
+        },
+      });
       return Terminal.instance;
     }
 
@@ -213,6 +220,7 @@ export class Terminal extends EventEmitter {
   }
 
   public async processCommand(command: string) {
+    if (!this.commandAccess) return;
     await this.commandHandler.processCommand(command);
   }
 
@@ -539,6 +547,57 @@ export class Terminal extends EventEmitter {
   }
 
   public handleInput(char: string, event?: KeyboardEvent) {
+    if (!this.commandAccess) return;
+
+    // Handle special keys
+    if (
+      char === "ArrowUp" ||
+      char === "ArrowDown" ||
+      char === "ArrowLeft" ||
+      char === "ArrowRight"
+    ) {
+      // Handle arrow keys
+      if (char === "ArrowLeft" || char === "ArrowRight") {
+        this.inputHandler.handleInput(char, event);
+        return;
+      }
+
+      // Handle command history
+      const history = this.inputHandler.getHistory();
+      const currentIndex = this.inputHandler.getHistoryIndex();
+
+      if (char === "ArrowUp" && currentIndex < history.length - 1) {
+        this.inputHandler.setHistoryIndex(currentIndex + 1);
+        this.inputHandler.setBuffer(history[currentIndex + 1]);
+      } else if (char === "ArrowDown" && currentIndex > -1) {
+        this.inputHandler.setHistoryIndex(currentIndex - 1);
+        this.inputHandler.setBuffer(
+          currentIndex - 1 >= 0 ? history[currentIndex - 1] : ""
+        );
+      }
+
+      this.render();
+      return;
+    }
+
+    // Handle backspace
+    if (char === "Backspace") {
+      const buffer = this.inputHandler.getInputBuffer();
+      if (buffer.length > 0) {
+        this.inputHandler.setBuffer(buffer.slice(0, -1));
+        this.render();
+      }
+      return;
+    }
+
+    // Handle regular input
+    if (char.length === 1) {
+      const buffer = this.inputHandler.getInputBuffer();
+      this.inputHandler.setBuffer(buffer + char);
+      this.render();
+      return;
+    }
+
     return this.inputHandler.handleInput(char, event);
   }
 
