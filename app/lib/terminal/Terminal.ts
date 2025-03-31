@@ -121,6 +121,10 @@ export class Terminal extends EventEmitter {
   }
 
   private startRenderLoop() {
+    if (this.animationFrame) {
+      cancelAnimationFrame(this.animationFrame);
+    }
+
     const animate = (timestamp: number) => {
       this.render(timestamp);
       this.animationFrame = requestAnimationFrame(animate);
@@ -129,6 +133,8 @@ export class Terminal extends EventEmitter {
   }
 
   public render(timestamp: number = 0) {
+    if (!this.canvas) return;
+
     // Clear the canvas
     this.renderer.ctx.fillStyle = this.options.backgroundColor;
     this.renderer.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -238,6 +244,13 @@ export class Terminal extends EventEmitter {
     this.options.height = height;
     this.effects.resize(width, height);
     this.renderer.resize(width, height);
+    // Force immediate render after resize
+    this.render();
+
+    // Ensure render loop continues
+    if (!this.animationFrame) {
+      this.startRenderLoop();
+    }
   }
 
   public getWidth(): number {
@@ -331,8 +344,6 @@ export class Terminal extends EventEmitter {
 
   public scrollToLatest() {
     const lineHeight = this.options.fontSize * 1.5;
-
-    // Calculate total content height
     const totalBufferHeight = this.currentPrintY;
     const inputText = `> ${this.inputHandler.getInputBuffer()}`;
     const wrappedInputLines = this.renderer.wrapText(inputText);
@@ -345,11 +356,12 @@ export class Terminal extends EventEmitter {
       totalContentHeight - visibleHeight + lineHeight
     );
 
-    // Only scroll if we're at the bottom
-    if (this.isAtBottom) {
-      this.scrollOffset = maxScroll;
-      this.render();
-    }
+    // Update scroll position to bottom
+    this.scrollOffset = maxScroll;
+    this.isAtBottom = true;
+
+    // Force immediate render
+    this.render();
   }
 
   public corruptText(text: string, intensity: number): string {

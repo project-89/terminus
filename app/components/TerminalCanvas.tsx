@@ -121,6 +121,36 @@ export function TerminalCanvas() {
     return () => window.removeEventListener("resize", handleResize);
   }, []); // Only run once on mount
 
+  // Add click to focus hidden input
+  function handleCanvasClick() {
+    if (hiddenInputRef.current && terminalRef.current?.getCommandAccess()) {
+      hiddenInputRef.current.focus();
+      // Only trigger click on mobile
+      if (isMobile()) {
+        hiddenInputRef.current.click();
+        setTimeout(() => {
+          terminalRef.current?.scrollToLatest();
+        }, 100);
+      }
+    }
+  }
+
+  // Add focus management
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        hiddenInputRef.current?.blur();
+      } else if (terminalRef.current?.getCommandAccess()) {
+        hiddenInputRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   // Handle keyboard input
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -140,14 +170,13 @@ export function TerminalCanvas() {
         e.key.length === 1
       ) {
         e.preventDefault();
-        // Focus hidden input and simulate key press
+        terminalRef.current.handleInput(e.key);
+
+        // Sync hidden input if it exists
         if (hiddenInputRef.current) {
-          hiddenInputRef.current.focus();
-          terminalRef.current.handleInput(e.key, e);
-          // Update hidden input value
           requestAnimationFrame(() => {
-            if (hiddenInputRef.current && terminalRef.current?.inputHandler) {
-              hiddenInputRef.current.value =
+            if (terminalRef.current?.inputHandler) {
+              hiddenInputRef.current!.value =
                 terminalRef.current.inputHandler.getInputBuffer();
             }
           });
@@ -181,14 +210,14 @@ export function TerminalCanvas() {
   }, []); // Only run once on mount
 
   // Add click to focus hidden input
-  function handleCanvasClick() {
-    if (hiddenInputRef.current && terminalRef.current?.getCommandAccess()) {
-      hiddenInputRef.current.focus();
-      if (isMobile()) {
-        hiddenInputRef.current.click();
-      }
-    }
-  }
+  // function handleCanvasClick() {
+  //   if (hiddenInputRef.current && terminalRef.current?.getCommandAccess()) {
+  //     hiddenInputRef.current.focus();
+  //     if (isMobile()) {
+  //       hiddenInputRef.current.click();
+  //     }
+  //   }
+  // }
 
   // Add input keydown handler
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
