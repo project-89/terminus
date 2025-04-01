@@ -71,6 +71,9 @@ importers:
       posthog-js:
         specifier: ^1.187.2
         version: 1.187.2
+      prisma:
+        specifier: ^5.10.2
+        version: 5.22.0
       react:
         specifier: ^18
         version: 18.3.1
@@ -102,9 +105,6 @@ importers:
       postcss:
         specifier: ^8
         version: 8.4.49
-      prisma:
-        specifier: ^5.10.2
-        version: 5.22.0
       tailwindcss:
         specifier: ^3.3.0
         version: 3.4.14

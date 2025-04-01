@@ -1,11 +1,20 @@
 [build]
-  command = "pnpm run build"
+  command = "node netlify-build.js"
   publish = ".next"
 
 # Define environment variables for the build
 [build.environment]
   NODE_VERSION = "18"
   PNPM_VERSION = "8.7.6"
+  NPM_FLAGS = "--no-optional"
+  NETLIFY_NEXT_SKIP_INSTALL = "1"
+  SKIP_PRISMA_VALIDATION = "true"
+
+# Force installation of dependencies
+[build.environment.NETLIFY_USE_YARN]
+  # This is a dummy variable to trigger installation of dependencies
+  # Netlify will use pnpm because PNPM_VERSION is set
+  enable = "true"
 
 # Netlify production deployment settings
 [context.production]
