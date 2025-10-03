@@ -40,10 +40,10 @@ export const metadata: Metadata = {
     siteName: "Project 89",
     images: [
       {
-        url: "/logo.jpg",
-        width: 1024,
-        height: 1024,
-        alt: "Project 89 - Coming Soon",
+        url: "/social-card.png",
+        width: 1200,
+        height: 630,
+        alt: "Project 89 - A quantum reality exploration",
       },
     ],
     locale: "en_US",
@@ -52,16 +52,16 @@ export const metadata: Metadata = {
 
   // Twitter
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     site: "@project_89",
     title: "Project 89 - Coming Soon",
     description: "Project 89 - A quantum reality exploration. Coming soon.",
     images: [
       {
-        url: "/logo.jpg",
-        width: 1024,
-        height: 1024,
-        alt: "Project 89 - Coming Soon",
+        url: "/social-card.png",
+        width: 1200,
+        height: 630,
+        alt: "Project 89 - A quantum reality exploration",
       },
     ],
     creator: "@project_89",
@@ -86,11 +86,11 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="overflow-hidden m-0 p-0">
+    <html lang="en" className="h-full">
       <head>
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
         />
         <link
           rel="preload"
@@ -100,7 +100,9 @@ export default async function RootLayout({
           crossOrigin="anonymous"
         />
       </head>
-      <body className="overflow-hidden m-0 p-0">{children}</body>
+      <body className="min-h-screen bg-[#090812]" style={{ margin: 0 }}>
+        {children}
+      </body>
     </html>
   );
 }

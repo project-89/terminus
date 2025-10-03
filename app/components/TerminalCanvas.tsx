@@ -12,6 +12,11 @@ export function TerminalCanvas() {
   const terminalRef = useRef<Terminal | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartTimeRef = useRef<number>(0);
+  const isScrollingRef = useRef<boolean>(false);
+  const baseBottomPaddingRef = useRef<number>(0);
 
   const isMobile = () => {
     return typeof window !== "undefined" && window.innerWidth < 480;
@@ -94,6 +99,12 @@ export function TerminalCanvas() {
 
     // Store terminal reference
     terminalRef.current = terminal;
+
+    // Establish a base bottom padding so the last line is always visible on mobile
+    const fontSize = terminal.options?.fontSize ?? 16;
+    const lineHeight = fontSize * 1.5;
+    baseBottomPaddingRef.current = isMobile() ? Math.round(lineHeight * 2) : 0;
+    terminal.setBottomPadding(baseBottomPaddingRef.current);
 
     // Cleanup
     return () => {
@@ -209,6 +220,72 @@ export function TerminalCanvas() {
     };
   }, []); // Only run once on mount
 
+  // Touch gestures: distinguish tap (focus input) vs drag (scroll)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      touchStartYRef.current = t.clientY;
+      touchStartXRef.current = t.clientX;
+      touchStartTimeRef.current = performance.now();
+      isScrollingRef.current = false;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!terminalRef.current) return;
+      if (touchStartYRef.current === null) return;
+      const t = e.touches[0];
+      const dy = touchStartYRef.current - t.clientY;
+      const dx = (touchStartXRef.current ?? t.clientX) - t.clientX;
+      const moved = Math.hypot(dx, dy);
+      const moveThreshold = 6;
+      if (moved > moveThreshold) {
+        isScrollingRef.current = true;
+      }
+      if (isScrollingRef.current) {
+        e.preventDefault();
+        terminalRef.current.scroll(dy);
+        touchStartYRef.current = t.clientY; // incremental scrolling
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const now = performance.now();
+      const duration = now - touchStartTimeRef.current;
+      const wasScroll = isScrollingRef.current;
+      touchStartYRef.current = null;
+      touchStartXRef.current = null;
+      isScrollingRef.current = false;
+
+      if (!wasScroll && duration < 220) {
+        // Treat as tap → focus input
+        if (hiddenInputRef.current && terminalRef.current?.getCommandAccess()) {
+          hiddenInputRef.current.focus();
+        }
+      }
+    };
+
+    container.addEventListener("touchstart", handleTouchStart, {
+      passive: true,
+    });
+    container.addEventListener("touchmove", handleTouchMove, {
+      passive: false,
+    });
+    container.addEventListener("touchend", handleTouchEnd, { passive: true });
+    container.addEventListener("touchcancel", handleTouchEnd, {
+      passive: true,
+    });
+
+    return () => {
+      container.removeEventListener("touchstart", handleTouchStart as any);
+      container.removeEventListener("touchmove", handleTouchMove as any);
+      container.removeEventListener("touchend", handleTouchEnd as any);
+      container.removeEventListener("touchcancel", handleTouchEnd as any);
+    };
+  }, []);
+
   // Add click to focus hidden input
   // function handleCanvasClick() {
   //   if (hiddenInputRef.current && terminalRef.current?.getCommandAccess()) {
@@ -230,6 +307,10 @@ export function TerminalCanvas() {
       const command = input.value;
       input.value = "";
       terminalRef.current.processCommand(command);
+      // Clear the terminal's input buffer so the prompt line resets
+      if (terminalRef.current.inputHandler) {
+        terminalRef.current.inputHandler.setBuffer("");
+      }
       terminalRef.current.scrollToLatest();
       return;
     }
@@ -294,17 +375,80 @@ export function TerminalCanvas() {
     };
   }, []);
 
+  // Keyboard-safe padding using visualViewport
+  useEffect(() => {
+    if (!window.visualViewport) return;
+
+    const updatePadding = () => {
+      if (!terminalRef.current) return;
+      const vv = window.visualViewport!;
+      const keyboardHeight = Math.max(
+        0,
+        window.innerHeight - vv.height - vv.offsetTop
+      );
+      const lineHeight = terminalRef.current.options?.fontSize
+        ? terminalRef.current.options.fontSize * 1.5
+        : 24;
+      const extra =
+        hiddenInputRef.current === document.activeElement ? lineHeight * 2 : 0;
+      terminalRef.current.setBottomPadding(
+        baseBottomPaddingRef.current + keyboardHeight + extra
+      );
+      if (hiddenInputRef.current === document.activeElement) {
+        terminalRef.current.scrollToLatest({ extraPadding: lineHeight * 1.5 });
+      }
+    };
+
+    window.visualViewport.addEventListener("resize", updatePadding);
+    window.visualViewport.addEventListener("scroll", updatePadding);
+    return () => {
+      window.visualViewport?.removeEventListener(
+        "resize",
+        updatePadding as any
+      );
+      window.visualViewport?.removeEventListener(
+        "scroll",
+        updatePadding as any
+      );
+    };
+  }, []);
+
   return (
-    <div className="fixed inset-0 bg-[#090812] overflow-hidden">
+    <div
+      className="fixed inset-0 bg-[#090812] overflow-hidden"
+      style={{ touchAction: "none" }}
+    >
       <div
         ref={containerRef}
         onClick={handleCanvasClick}
-        className="relative w-full h-full flex items-center justify-center"
+        className="relative w-full h-full"
+        style={{ height: "100vh" }}
       >
         <canvas
           ref={canvasRef}
-          className="w-full h-full"
-          style={{ background: "#090812" }}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            minHeight: "1px",
+            background: "#090812",
+          }}
+          width={(() => {
+            if (typeof window === "undefined") return undefined as any;
+            const dpr = window.devicePixelRatio || 1;
+            const el = containerRef.current;
+            const w = el ? el.clientWidth : undefined;
+            return w ? Math.max(1, Math.floor(w * dpr)) : undefined;
+          })()}
+          height={(() => {
+            if (typeof window === "undefined") return undefined as any;
+            const dpr = window.devicePixelRatio || 1;
+            const el = containerRef.current;
+            const h = el ? el.clientHeight : undefined;
+            return h ? Math.max(1, Math.floor(h * dpr)) : undefined;
+          })()}
         />
         <input
           ref={hiddenInputRef}
@@ -316,6 +460,33 @@ export function TerminalCanvas() {
           spellCheck="false"
           enterKeyHint="send"
           onKeyDown={handleInputKeyDown}
+          onFocus={() => {
+            if (!terminalRef.current) return;
+            const lineHeight = terminalRef.current.options?.fontSize
+              ? terminalRef.current.options.fontSize * 1.5
+              : 24;
+            const vv = window.visualViewport;
+            const keyboardHeight = vv
+              ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+              : 0;
+            terminalRef.current.setBottomPadding(
+              baseBottomPaddingRef.current + keyboardHeight + lineHeight * 2
+            );
+            // Ensure the input line is visible even as the keyboard animates
+            const settleFrames = 6;
+            let frame = 0;
+            const tick = () => {
+              terminalRef.current?.scrollToLatest({
+                extraPadding: lineHeight * 1.5,
+              });
+              frame++;
+              if (frame < settleFrames) requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          }}
+          onBlur={() => {
+            terminalRef.current?.setBottomPadding(baseBottomPaddingRef.current);
+          }}
           style={{
             position: "fixed",
             opacity: isMobile() ? 0.01 : 0,

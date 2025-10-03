@@ -50,7 +50,7 @@ export class Renderer {
 
   public render(timestamp: number = 0) {
     this.ctx.fillStyle = this.options.backgroundColor;
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.fillRect(0, 0, this.options.width, this.options.height);
 
     this.terminal.effects.applyCRTEffect();
 

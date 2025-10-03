@@ -1,6 +1,8 @@
 export class FluidAscii {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  private canvasWidth: number = 0; // CSS pixel width
+  private canvasHeight: number = 0; // CSS pixel height
   private grid: Array<{
     char: string;
     x: number;
@@ -144,8 +146,22 @@ export class FluidAscii {
   private setupCanvas() {
     const parent = this.canvas.parentElement!;
     const rect = parent.getBoundingClientRect();
-    this.canvas.width = rect.width;
-    this.canvas.height = rect.height;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Store CSS dimensions for rendering
+    this.canvasWidth = rect.width;
+    this.canvasHeight = rect.height;
+
+    // Set canvas internal dimensions accounting for device pixel ratio
+    this.canvas.width = rect.width * dpr;
+    this.canvas.height = rect.height * dpr;
+
+    // Set CSS display size
+    this.canvas.style.width = `${rect.width}px`;
+    this.canvas.style.height = `${rect.height}px`;
+
+    // Scale context for retina displays - after this, use CSS dimensions for drawing
+    this.ctx.scale(dpr, dpr);
 
     this.ctx.font = `${this.cellSize}px monospace`;
     this.ctx.textAlign = "center";
@@ -155,8 +171,8 @@ export class FluidAscii {
 
   private initGrid() {
     const padding = 400;
-    const cols = Math.ceil((this.canvas.width + padding * 2) / this.cellSize);
-    const rows = Math.ceil((this.canvas.height + padding * 2) / this.cellSize);
+    const cols = Math.ceil((this.canvasWidth + padding * 2) / this.cellSize);
+    const rows = Math.ceil((this.canvasHeight + padding * 2) / this.cellSize);
     const startX = -padding;
     const startY = -padding;
 
@@ -203,7 +219,10 @@ export class FluidAscii {
           char = messageChar.char;
         }
 
-        // Create grid point
+        // Create grid point (use stored CSS dimensions)
+        const centerX = this.canvasWidth / 2;
+        const centerY = this.canvasHeight / 2;
+
         this.grid.push({
           char,
           x: posX,
@@ -213,10 +232,7 @@ export class FluidAscii {
           offsetX: 0,
           offsetY: 0,
           orbit: 0,
-          angle: Math.atan2(
-            posY - this.canvas.height / 2,
-            posX - this.canvas.width / 2
-          ),
+          angle: Math.atan2(posY - centerY, posX - centerX),
           destination: "",
           vx: 0,
           vy: 0,
@@ -226,8 +242,7 @@ export class FluidAscii {
           activated: false,
           flowStrength: 0,
           radius: Math.sqrt(
-            Math.pow(posX - this.canvas.width / 2, 2) +
-              Math.pow(posY - this.canvas.height / 2, 2)
+            Math.pow(posX - centerX, 2) + Math.pow(posY - centerY, 2)
           ),
           z: 0,
         });
@@ -249,9 +264,9 @@ export class FluidAscii {
   private animate = () => {
     this.time += this.physics.timeStep;
 
-    // Clear canvas with a less aggressive clear
+    // Clear canvas with a less aggressive clear (use stored CSS dimensions)
     this.ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
 
     // Update tilt
     if (this.physics.tiltAngle < this.physics.maxTiltAngle) {
@@ -361,8 +376,9 @@ export class FluidAscii {
   }
 
   public async transformToSolarSystem() {
-    this.galaxy.centerX = this.canvas.width / 2;
-    this.galaxy.centerY = this.canvas.height / 2;
+    // Use stored CSS dimensions
+    this.galaxy.centerX = this.canvasWidth / 2;
+    this.galaxy.centerY = this.canvasHeight / 2;
 
     return new Promise<void>((resolve) => {
       const startTime = performance.now();

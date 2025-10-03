@@ -1,64 +1,67 @@
 import { Terminal } from "./Terminal";
-import { BaseScreen, ScreenContext } from "./screens/BaseScreen";
-import { FluidScreen } from "./screens/FluidScreen";
-import { AdventureScreen } from "./screens/AdventureScreen";
-import { ArchiveScreen } from "./screens/ArchiveScreen";
 
-interface Route {
-  screen: new (context: ScreenContext) => BaseScreen;
-}
+type NavigateOptions = Record<string, unknown>;
 
 export class ScreenRouter {
-  private static instance: ScreenRouter | null = null;
-  private isNavigating: boolean = false;
+  private isNavigating = false;
+  private teardownListener: (() => void) | null = null;
 
-  constructor(private terminal: Terminal) {
-    if (ScreenRouter.instance) {
-      return ScreenRouter.instance;
-    }
-    console.log("ScreenRouter initialized");
+  constructor(private readonly terminal: Terminal) {
     if (typeof window !== "undefined") {
-      window.addEventListener("popstate", this.handlePopState.bind(this));
+      const handler = this.handlePopState.bind(this);
+      window.addEventListener("popstate", handler);
+      this.teardownListener = () =>
+        window.removeEventListener("popstate", handler);
     }
-    ScreenRouter.instance = this;
   }
 
-  public static getInstance(): ScreenRouter | null {
-    return ScreenRouter.instance;
+  destroy() {
+    if (this.teardownListener) {
+      this.teardownListener();
+      this.teardownListener = null;
+    }
   }
 
-  private async handlePopState(event: PopStateEvent) {
-    console.log("PopState event triggered", { event });
+  private async handlePopState() {
+    if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const screen = params.get("screen") || "home";
     await this.navigate(screen);
   }
 
-  public async navigate(screenName: string, options: any = {}) {
-    console.log("Navigation requested", {
-      screenName,
-      isNavigating: this.isNavigating,
-    });
+  public async navigate(screenName: string, options: NavigateOptions = {}) {
     if (this.isNavigating) {
-      console.log("Navigation already in progress, skipping");
       return;
     }
     this.isNavigating = true;
 
     try {
-      // Update URL
-      const url = new URL(window.location.href);
-      const currentScreen = url.searchParams.get("screen");
-      console.log("Current screen from URL:", currentScreen);
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.set("screen", screenName);
+        window.history.pushState({}, "", url.toString());
+      }
 
-      url.searchParams.set("screen", screenName);
-      window.history.pushState({}, "", url.toString());
-
-      // Delegate to ScreenManager
       await this.terminal.screenManager.navigate(screenName, options);
     } finally {
       this.isNavigating = false;
-      console.log("Navigation completed");
     }
+  }
+
+  // Expose timers so screens can schedule work via router
+  public setTimeout(callback: () => void, delay: number): number {
+    return window.setTimeout(callback, delay) as unknown as number;
+  }
+
+  public clearTimeout(id: number) {
+    window.clearTimeout(id as unknown as number);
+  }
+
+  public setInterval(callback: () => void, delay: number): number {
+    return window.setInterval(callback, delay) as unknown as number;
+  }
+
+  public clearInterval(id: number) {
+    window.clearInterval(id as unknown as number);
   }
 }

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/eslintrc",
+  "extends": ["next", "next/core-web-vitals"],
+  "ignorePatterns": ["node_modules/", ".next/", "public/"],
+  "rules": {
+    "no-console": ["warn", { "allow": ["warn", "error"] }]
+  }
+}

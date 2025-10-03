@@ -26,6 +26,7 @@ export class Terminal extends EventEmitter {
   public scrollOffset: number = 0;
   public thinkingChars = ["⠋", "⠙", "⠹", "", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   public thinkingAnimationFrame: number = 0;
+  public bottomPadding: number = 0;
 
   public buffer: Array<{
     text: string;
@@ -105,6 +106,18 @@ export class Terminal extends EventEmitter {
     this.toolHandler = new ToolHandler(this);
     this.screenManager = new ScreenManager(this);
 
+    // Wire screen transition events
+    this.on(
+      "screen:transition",
+      async ({ to, options }: { to: string; options?: any }) => {
+        try {
+          await this.screenManager.navigate(to, options);
+        } catch (e) {
+          console.error("Screen transition failed", e);
+        }
+      }
+    );
+
     this.startRenderLoop();
     this.startCursorBlink();
   }
@@ -135,9 +148,9 @@ export class Terminal extends EventEmitter {
   public render(timestamp: number = 0) {
     if (!this.canvas) return;
 
-    // Clear the canvas
+    // Clear the canvas (use options width/height, not canvas dimensions)
     this.renderer.ctx.fillStyle = this.options.backgroundColor;
-    this.renderer.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.renderer.ctx.fillRect(0, 0, this.options.width, this.options.height);
 
     // Apply base effects
     this.effects.applyCRTEffect();
@@ -258,7 +271,13 @@ export class Terminal extends EventEmitter {
   }
 
   public getHeight(): number {
-    return this.options.height;
+    return Math.max(0, this.options.height - this.bottomPadding);
+  }
+
+  public setBottomPadding(padding: number) {
+    this.bottomPadding = Math.max(0, padding);
+    this.isAtBottom = this.checkIfAtBottom();
+    this.render();
   }
 
   public getCursorY(): number {
@@ -342,7 +361,8 @@ export class Terminal extends EventEmitter {
     }
   }
 
-  public scrollToLatest() {
+  public scrollToLatest(options: { extraPadding?: number } = {}) {
+    const extraPadding = options.extraPadding ?? 0;
     const lineHeight = this.options.fontSize * 1.5;
     const totalBufferHeight = this.currentPrintY;
     const inputText = `> ${this.inputHandler.getInputBuffer()}`;
@@ -357,8 +377,9 @@ export class Terminal extends EventEmitter {
     );
 
     // Update scroll position to bottom
-    this.scrollOffset = maxScroll;
-    this.isAtBottom = true;
+    const nextOffset = Math.max(0, maxScroll - extraPadding);
+    this.scrollOffset = nextOffset;
+    this.isAtBottom = nextOffset >= maxScroll - lineHeight / 2;
 
     // Force immediate render
     this.render();

@@ -18,6 +18,8 @@ export class FluidScreen extends BaseScreen {
   private logoCtx: CanvasRenderingContext2D;
   private statusCanvas: HTMLCanvasElement;
   private statusCtx: CanvasRenderingContext2D;
+  private canvasWidth: number = 0; // CSS pixel width
+  private canvasHeight: number = 0; // CSS pixel height
   private isTransitioning: boolean = false;
   private statusMessages = [
     "Reality Status: [SUPPRESSED]",
@@ -159,49 +161,62 @@ export class FluidScreen extends BaseScreen {
   constructor(context: ScreenContext) {
     super(context);
 
-    // Ensure parent can receive touch events
-    const parent = this.terminal.canvas.parentElement;
-    if (parent) {
-      parent.style.touchAction = "none";
-      parent.style.pointerEvents = "auto";
-    }
+    // Get parent and dimensions
+    const parent = this.terminal.canvas.parentElement!;
+    parent.style.touchAction = "none";
+    parent.style.pointerEvents = "auto";
+
+    const rect = parent.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    // Store CSS dimensions
+    this.canvasWidth = rect.width;
+    this.canvasHeight = rect.height;
 
     // Create canvas for fluid effect
     const fluidCanvas = document.createElement("canvas");
-    fluidCanvas.className = "absolute inset-0 pointer-events-none";
+    fluidCanvas.className = "pointer-events-none";
     fluidCanvas.style.position = "absolute";
     fluidCanvas.style.top = "0";
     fluidCanvas.style.left = "0";
-    fluidCanvas.style.width = "100%";
-    fluidCanvas.style.height = "100%";
+    fluidCanvas.style.width = `${rect.width}px`;
+    fluidCanvas.style.height = `${rect.height}px`;
+    fluidCanvas.style.pointerEvents = "none";
     fluidCanvas.style.zIndex = "10";
-    this.terminal.canvas.parentElement?.appendChild(fluidCanvas);
+    parent.appendChild(fluidCanvas);
 
     // Create canvas for logo
     this.logoCanvas = document.createElement("canvas");
-    this.logoCanvas.className = "absolute inset-0"; // Remove pointer-events-none
     this.logoCanvas.style.position = "absolute";
     this.logoCanvas.style.top = "0";
     this.logoCanvas.style.left = "0";
-    this.logoCanvas.style.width = "100%";
-    this.logoCanvas.style.height = "100%";
+    this.logoCanvas.style.width = `${rect.width}px`;
+    this.logoCanvas.style.height = `${rect.height}px`;
+    this.logoCanvas.style.pointerEvents = "auto";
     this.logoCanvas.style.zIndex = "20";
-    this.terminal.canvas.parentElement?.appendChild(this.logoCanvas);
+    parent.appendChild(this.logoCanvas);
 
     // Create canvas for status messages
     this.statusCanvas = document.createElement("canvas");
-    this.statusCanvas.className = "absolute inset-0 pointer-events-none";
+    this.statusCanvas.className = "pointer-events-none";
     this.statusCanvas.style.position = "absolute";
     this.statusCanvas.style.top = "0";
     this.statusCanvas.style.left = "0";
-    this.statusCanvas.style.width = "100%";
-    this.statusCanvas.style.height = "100%";
+    this.statusCanvas.style.width = `${rect.width}px`;
+    this.statusCanvas.style.height = `${rect.height}px`;
+    this.statusCanvas.style.pointerEvents = "none";
     this.statusCanvas.style.zIndex = "30";
-    this.terminal.canvas.parentElement?.appendChild(this.statusCanvas);
+    parent.appendChild(this.statusCanvas);
 
     this.logoCtx = this.logoCanvas.getContext("2d")!;
     this.statusCtx = this.statusCanvas.getContext("2d")!;
     this.setupCanvases();
+
+    // Ensure sizes are correct on next frame (in case initial rect was 0)
+    requestAnimationFrame(() => this.handleResize());
+
+    // Attach resize listener
+    window.addEventListener("resize", this.handleResize);
 
     this.fluidEffect = new FluidAscii(fluidCanvas);
     this.fluidEffect.updateConfig({
@@ -222,24 +237,21 @@ export class FluidScreen extends BaseScreen {
   }
 
   private setupCanvases() {
-    const parent = this.logoCanvas.parentElement!;
-    const rect = parent.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
 
-    this.logoCanvas.width = rect.width;
-    this.logoCanvas.height = rect.height;
-    this.statusCanvas.width = rect.width;
-    this.statusCanvas.height = rect.height;
+    // CSS dimensions already stored, now set internal dimensions
+    this.logoCanvas.width = this.canvasWidth * dpr;
+    this.logoCanvas.height = this.canvasHeight * dpr;
+    this.statusCanvas.width = this.canvasWidth * dpr;
+    this.statusCanvas.height = this.canvasHeight * dpr;
+
+    // Scale context to match DPR - after this, use CSS pixel dimensions for all drawing
+    this.logoCtx.scale(dpr, dpr);
+    this.statusCtx.scale(dpr, dpr);
 
     // Make sure canvas can receive touch events
     this.logoCanvas.style.touchAction = "none";
     this.logoCanvas.style.pointerEvents = "auto";
-    this.logoCanvas.style.position = "absolute";
-    this.logoCanvas.style.zIndex = "999"; // Ensure it's on top
-
-    // Debug - add visible touch area
-    if (this.isMobile()) {
-      this.logoCanvas.style.border = "1px solid rgba(255,0,0,0.2)";
-    }
 
     this.logoCtx.font = "16px monospace";
     this.logoCtx.textBaseline = "top";
@@ -249,6 +261,31 @@ export class FluidScreen extends BaseScreen {
     this.statusCtx.textBaseline = "top";
     this.statusCtx.fillStyle = TERMINAL_COLORS.primary;
   }
+
+  // Recompute sizes when container changes
+  protected handleResize = () => {
+    const parent = this.terminal.canvas.parentElement;
+    if (!parent) return;
+
+    const rect = parent.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    this.canvasWidth = rect.width;
+    this.canvasHeight = rect.height;
+
+    // Update CSS sizes
+    this.logoCanvas.style.width = `${rect.width}px`;
+    this.logoCanvas.style.height = `${rect.height}px`;
+    this.statusCanvas.style.width = `${rect.width}px`;
+    this.statusCanvas.style.height = `${rect.height}px`;
+
+    // Update internal sizes
+    this.setupCanvases();
+
+    // Redraw
+    this.renderLogo();
+    this.renderStatus();
+  };
 
   private startMessageCycles() {
     // Cycle status messages
@@ -283,28 +320,24 @@ export class FluidScreen extends BaseScreen {
   }
 
   private renderStatus() {
-    this.statusCtx.clearRect(
-      0,
-      0,
-      this.statusCanvas.width,
-      this.statusCanvas.height
-    );
+    this.statusCtx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
 
-    // Draw prompt and status at bottom
+    // Draw prompt and status at bottom (use stored CSS dimensions)
     const bottomPadding = 40;
+
     this.statusCtx.fillStyle = TERMINAL_COLORS.primary;
     this.statusCtx.globalAlpha = 0.8;
     this.statusCtx.fillText(
       `> ${this.statusMessages[this.currentStatusIndex]}`,
       20,
-      this.statusCanvas.height - bottomPadding
+      this.canvasHeight - bottomPadding
     );
 
     // Draw statistics in top-right corner
     this.statusCtx.globalAlpha = 0.6;
     this.statusCtx.fillText(
       this.statistics[this.currentStatIndex],
-      this.statusCanvas.width - 300,
+      this.canvasWidth - 300,
       20
     );
   }
@@ -317,11 +350,8 @@ export class FluidScreen extends BaseScreen {
     const watermark = this.watermarks[this.currentWatermarkIndex];
     const metrics = this.statusCtx.measureText(watermark);
 
-    // Draw watermark at a slight angle
-    this.statusCtx.translate(
-      this.statusCanvas.width / 2,
-      this.statusCanvas.height / 2
-    );
+    // Draw watermark at a slight angle (use stored CSS dimensions)
+    this.statusCtx.translate(this.canvasWidth / 2, this.canvasHeight / 2);
     this.statusCtx.rotate(-0.2);
     this.statusCtx.fillText(watermark, -metrics.width / 2, 0);
     this.statusCtx.restore();
@@ -419,11 +449,7 @@ export class FluidScreen extends BaseScreen {
       ? this.mobileLogo.trim().split("\n")
       : this.logo.trim().split("\n");
     const logoHeight = logoLines.length * 20;
-    return (
-      (this.logoCanvas.height - logoHeight) / 2 +
-      this.logoCanvas.height * 0.15 +
-      80
-    );
+    return (this.canvasHeight - logoHeight) / 2 + this.canvasHeight * 0.15 + 80;
   }
 
   private isMobile(): boolean {
@@ -435,12 +461,12 @@ export class FluidScreen extends BaseScreen {
     const menuStartY = this.getMenuStartY();
     const menuItemHeight = this.isMobile() ? 60 : 40; // Increased touch target size on mobile
 
-    // Clear only the menu area
+    // Clear only the menu area (use stored CSS dimensions)
     this.logoCtx.clearRect(
       0,
       menuStartY - 20, // Clear a bit above menu start
-      this.logoCanvas.width,
-      this.logoCanvas.height - menuStartY // Clear to bottom
+      this.canvasWidth,
+      this.canvasHeight - menuStartY // Clear to bottom
     );
 
     if (!this.menuVisible) return;
@@ -456,11 +482,11 @@ export class FluidScreen extends BaseScreen {
 
       // Draw selection indicator
       if (isSelected) {
-        this.logoCtx.fillText(">", this.logoCanvas.width / 2 - 100, itemY);
+        this.logoCtx.fillText(">", this.canvasWidth / 2 - 100, itemY);
       }
 
       // Draw menu item
-      this.logoCtx.fillText(item.text, this.logoCanvas.width / 2 - 80, itemY);
+      this.logoCtx.fillText(item.text, this.canvasWidth / 2 - 80, itemY);
 
       // Draw description only if not mobile
       if (isSelected && item.description && !this.isMobile()) {
@@ -468,7 +494,7 @@ export class FluidScreen extends BaseScreen {
         this.logoCtx.fillStyle = "rgba(47, 183, 195, 0.7)";
         this.logoCtx.fillText(
           item.description,
-          this.logoCanvas.width / 2 - 80,
+          this.canvasWidth / 2 - 80,
           itemY + 20
         );
       }
@@ -533,16 +559,15 @@ export class FluidScreen extends BaseScreen {
     const logoLines = logo.trim().split("\n");
     const lineHeight = this.isMobile() ? 16 : 20; // Smaller line height for mobile
 
-    // Calculate centering with 15% upward shift
+    // Calculate centering with 15% upward shift (use stored CSS dimensions)
     const totalHeight = logoLines.length * lineHeight;
     const startY =
-      (this.logoCanvas.height - totalHeight) / 2 -
-      this.logoCanvas.height * 0.15;
+      (this.canvasHeight - totalHeight) / 2 - this.canvasHeight * 0.15;
 
     // Render each line
     logoLines.forEach((line, index) => {
       const lineWidth = this.logoCtx.measureText(line).width;
-      const x = (this.logoCanvas.width - lineWidth) / 2;
+      const x = (this.canvasWidth - lineWidth) / 2;
       const y = startY + index * lineHeight;
       this.logoCtx.fillText(line, x, y);
     });

@@ -2,6 +2,9 @@ import { ScreenCommandRegistry } from "../commands/registry";
 import { CommandConfig } from "../commands/types";
 import { Terminal, TERMINAL_COLORS } from "../Terminal";
 import { TerminalContext } from "../types";
+import { overrideMiddleware } from "../middleware/override";
+import { systemCommandsMiddleware } from "../middleware/system";
+import { navigationMiddleware } from "../middleware/navigation";
 
 export interface ScreenDimensions {
   width: number;
@@ -48,6 +51,15 @@ export abstract class BaseScreen {
 
     // Add resize listener for responsive updates
     window.addEventListener("resize", this.handleResize);
+
+    // Global middlewares available on all screens (order matters)
+    this.registerMiddleware(async (ctx, next) => overrideMiddleware(ctx, next));
+    this.registerMiddleware(async (ctx, next) =>
+      systemCommandsMiddleware(ctx, next)
+    );
+    this.registerMiddleware(async (ctx, next) =>
+      navigationMiddleware(ctx, next)
+    );
 
     // Register command handler middleware by default
     this.registerMiddleware(async (ctx, next) => {

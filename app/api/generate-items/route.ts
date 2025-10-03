@@ -1,8 +1,8 @@
-import { google } from "@ai-sdk/google";
 import { generateText, tool } from "ai";
 import { z } from "zod";
 import { readdir } from "fs/promises";
 import { join } from "path";
+import { getModel } from "@/app/lib/ai/models";
 
 // Schema for directory items
 const DirectoryItemSchema = z.object({
@@ -19,6 +19,7 @@ const DirectoryListingSchema = z.object({
 
 export async function POST(req: Request) {
   const { path, context, parentContext } = await req.json();
+  const contentModel = getModel("content");
 
   try {
     // First check if this is a real path in public
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
     }
 
     const { toolCalls } = await generateText({
-      model: google("gemini-1.5-pro-latest", { structuredOutputs: true }),
+      model: contentModel,
       tools: {
         answer: tool({
           description: "Generate a directory listing of files and folders",

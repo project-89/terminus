@@ -49,6 +49,10 @@ export class MainScreen extends BaseScreen {
       leftPadding: 20,
     });
 
+    // Gate by access
+    const ctx = (this.context.terminal.context as any)?.terminalContext;
+    // Fallback: read from middleware global store if needed later
+
     // Show main banner with minimal top padding
     await this.printCentered(this.banner.split("\n"), { topPadding: 1 });
 

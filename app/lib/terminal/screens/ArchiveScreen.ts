@@ -9,6 +9,8 @@ export class ArchiveScreen extends BaseScreen {
   private isNavigating: boolean = false;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  private canvasWidth: number = 0; // CSS pixel width
+  private canvasHeight: number = 0; // CSS pixel height
 
   private layout = {
     padding: {
@@ -310,6 +312,10 @@ export class ArchiveScreen extends BaseScreen {
     const rect = parent.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
+    // Store CSS dimensions for use in rendering
+    this.canvasWidth = rect.width;
+    this.canvasHeight = rect.height;
+
     // Set actual canvas dimensions
     this.canvas.width = rect.width * dpr;
     this.canvas.height = rect.height * dpr;
@@ -391,9 +397,9 @@ export class ArchiveScreen extends BaseScreen {
       return;
     }
 
-    // Clear canvas
+    // Clear canvas (use stored CSS dimensions)
     this.ctx.fillStyle = this.layout.colors.background;
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
 
     // If loading, show simple loading message
     if (this.isLoading) {

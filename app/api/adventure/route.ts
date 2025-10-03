@@ -1,15 +1,10 @@
-import { google } from "@ai-sdk/google";
 import { StreamingTextResponse, streamText } from "ai";
 import { z } from "zod";
 import { serverTools } from "@/app/lib/terminal/tools/serverTools";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { loadPrompt } from "@/app/lib/prompts";
+import { getModel } from "@/app/lib/ai/models";
 
-// Load the adventure prompt
-const ADVENTURE_PROMPT = readFileSync(
-  join(process.cwd(), "app/lib/prompts/adventure.txt"),
-  "utf-8"
-);
+const ADVENTURE_PROMPT = loadPrompt("adventure");
 
 // Additional experimental instructions
 const EXPERIMENTAL_INSTRUCTIONS = `
@@ -69,27 +64,7 @@ const matrixRainParameters = z.object({
   intensity: z.number().min(0).max(1).describe("Effect intensity (0-1)"),
 });
 
-// Initialize the model
-const model = google("gemini-1.5-flash-latest", {
-  safetySettings: [
-    {
-      category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-      threshold: "BLOCK_NONE",
-    },
-    {
-      category: "HARM_CATEGORY_HATE_SPEECH",
-      threshold: "BLOCK_NONE",
-    },
-    {
-      category: "HARM_CATEGORY_HARASSMENT",
-      threshold: "BLOCK_NONE",
-    },
-    {
-      category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-      threshold: "BLOCK_NONE",
-    },
-  ],
-});
+const ADVENTURE_MODEL = getModel("adventure");
 
 // Function to generate tools configuration
 function getToolsConfig() {
@@ -116,6 +91,16 @@ export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
 
+    if (!Array.isArray(messages)) {
+      return new Response(
+        JSON.stringify({ error: "Request body must include a messages array" }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
     // Filter out empty messages
     const validMessages = messages.filter(
       (msg: { content: string }) => msg.content && msg.content.trim() !== ""
@@ -124,7 +109,7 @@ export async function POST(req: Request) {
     console.log("Processing request with messages:", validMessages);
 
     const result = await streamText({
-      model,
+      model: ADVENTURE_MODEL,
       temperature: 0.7,
       messages: [
         {

@@ -1,4 +1,4 @@
-import { VideoLanding } from "./components/VideoLanding";
+import { TerminalCanvas } from "./components/TerminalCanvas";
 
 export default function Home() {
   return (
@@ -7,11 +7,12 @@ export default function Home() {
         margin: 0,
         padding: 0,
         overflow: "hidden",
-        height: "100vh",
+        height: "100dvh",
         width: "100vw",
+        backgroundColor: "#090812",
       }}
     >
-      <VideoLanding />
+      <TerminalCanvas />
     </main>
   );
 }

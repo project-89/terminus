@@ -1,8 +1,8 @@
-import { google } from "@ai-sdk/google";
 import { generateText, tool } from "ai";
 import { z } from "zod";
 import { writeFile } from "fs/promises";
 import { join } from "path";
+import { getModel } from "@/app/lib/ai/models";
 
 // Schemas for content generation
 const OutlineSchema = z.object({
@@ -28,11 +28,12 @@ type ContentSection = z.infer<typeof ContentSectionSchema>;
 
 export async function POST(req: Request) {
   const { path, fileName, context, loreContext } = await req.json();
+  const contentModel = getModel("content");
 
   try {
     // Step 1: Generate outline using structured output
     const { toolCalls: outlineCalls } = await generateText({
-      model: google("gemini-1.5-pro-latest", { structuredOutputs: true }),
+      model: contentModel,
       tools: {
         answer: tool({
           description: "Create a detailed outline for the document",
@@ -64,7 +65,7 @@ The outline should:
     const contentResults: string[] = await Promise.all(
       outline.sections.map(async (section) => {
         const { toolCalls } = await generateText({
-          model: google("gemini-1.5-pro-latest", { structuredOutputs: true }),
+          model: contentModel,
           tools: {
             answer: tool({
               description: "Write content for a document section",

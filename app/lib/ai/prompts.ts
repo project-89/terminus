@@ -1,5 +1,3 @@
-import { google } from "@ai-sdk/google";
-import { streamText } from "ai";
 import { Terminal } from "../terminal/Terminal";
 
 export async function generateOneOffResponse(
