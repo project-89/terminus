@@ -49,6 +49,9 @@ export class MainScreen extends BaseScreen {
       leftPadding: 20,
     });
 
+    // Ensure command input is enabled on the dashboard
+    this.terminal.setCommandAccess(true);
+
     // Gate by access
     const ctx = (this.context.terminal.context as any)?.terminalContext;
     // Fallback: read from middleware global store if needed later
@@ -155,6 +158,27 @@ export class MainScreen extends BaseScreen {
         speed: "instant",
       }
     );
+
+    // Admin prototype hints
+    await this.terminal.print("", { speed: "instant" });
+    await this.terminal.print(
+      leftPadding +
+        "Try: 'glitch 0.6 1500', 'rain 3000 0.8', 'sound ethereal chime'",
+      {
+        color: TERMINAL_COLORS.secondary,
+        speed: "instant",
+      }
+    );
+    await this.terminal.print(
+      leftPadding + "Type 'help' or 'adventure' to return to the story.",
+      {
+        color: TERMINAL_COLORS.secondary,
+        speed: "instant",
+      }
+    );
+
+    // Make sure the input line is visible for immediate typing
+    this.terminal.scrollToLatest({ extraPadding: 16 });
   }
 
   async cleanup(): Promise<void> {

@@ -1,4 +1,9 @@
 import { Terminal } from "../terminal/Terminal";
+import { worldModel } from "./prompts/worldModel";
+import { experimenter } from "./prompts/experimenter";
+import { narrator } from "./prompts/narrator";
+import { progression } from "./prompts/progression";
+import { gatekeeper } from "./prompts/gatekeeper";
 
 export async function generateOneOffResponse(
   message: string,
@@ -16,9 +21,10 @@ export async function generateOneOffResponse(
       body: JSON.stringify({
         messages: [
           {
-            role: "user",
-            content: message,
+            role: "system",
+            content: `${worldModel}\n${narrator}\n${progression}\n${experimenter}\n${gatekeeper}`,
           },
+          { role: "user", content: message },
         ],
       }),
     });

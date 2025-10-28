@@ -73,6 +73,23 @@ export abstract class BaseScreen {
     });
   }
 
+  protected drawPanel(
+    ctx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; w: number; h: number },
+    title: string
+  ) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(47,183,195,0.35)";
+    ctx.lineWidth = 2;
+    ctx.fillStyle = "rgba(9,8,18,0.55)";
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.fillStyle = "#2fb7c3";
+    ctx.font = `14px ${this.terminal.options.fontFamily}`;
+    ctx.fillText(title, rect.x + 10, rect.y + 8);
+    ctx.restore();
+  }
+
   // Add responsive dimension calculation
   protected getResponsiveDimensions(): ScreenDimensions {
     const width = window.innerWidth;

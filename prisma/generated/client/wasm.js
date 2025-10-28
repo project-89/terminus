@@ -127,7 +127,7 @@ exports.Prisma.UserScalarFieldEnum = {
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
   email: 'email',
-  password: 'password',
+  handle: 'handle',
   role: 'role'
 };
 
@@ -139,6 +139,44 @@ exports.Prisma.SessionScalarFieldEnum = {
   token: 'token'
 };
 
+exports.Prisma.ThreadScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  archivedAt: 'archivedAt',
+  kind: 'kind',
+  userId: 'userId',
+  accessTier: 'accessTier'
+};
+
+exports.Prisma.MessageScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  role: 'role',
+  content: 'content',
+  threadId: 'threadId'
+};
+
+exports.Prisma.AgentNoteScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  userId: 'userId',
+  threadId: 'threadId',
+  key: 'key',
+  value: 'value'
+};
+
+exports.Prisma.MissionScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  completedAt: 'completedAt',
+  userId: 'userId',
+  title: 'title',
+  instructions: 'instructions',
+  status: 'status',
+  dueBy: 'dueBy',
+  reportUrl: 'reportUrl'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -148,14 +186,28 @@ exports.Prisma.QueryMode = {
   default: 'default',
   insensitive: 'insensitive'
 };
+
+exports.Prisma.NullsOrder = {
+  first: 'first',
+  last: 'last'
+};
 exports.Role = exports.$Enums.Role = {
   AGENT: 'AGENT',
   ADMIN: 'ADMIN'
 };
 
+exports.ThreadKind = exports.$Enums.ThreadKind = {
+  ADVENTURE: 'ADVENTURE',
+  OPS: 'OPS'
+};
+
 exports.Prisma.ModelName = {
   User: 'User',
-  Session: 'Session'
+  Session: 'Session',
+  Thread: 'Thread',
+  Message: 'Message',
+  AgentNote: 'AgentNote',
+  Mission: 'Mission'
 };
 
 /**

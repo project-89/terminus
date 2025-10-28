@@ -11,7 +11,7 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
     const terminalContext = TerminalContext.getInstance();
     const state = terminalContext.getState();
     if (state.hasFullAccess) {
-      await ctx.terminal.emit("screen:transition", { to: "main" });
+      await ctx.terminal.emit("screen:transition", { to: "dashboard" });
       ctx.handled = true;
       return;
     }

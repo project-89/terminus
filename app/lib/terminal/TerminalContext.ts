@@ -6,6 +6,7 @@ export interface TerminalState {
   lastSeen?: Date;
   gameMessages?: { role: string; content: string }[];
   accessTier?: number; // 0=normal,1=override,2=elevated
+  threadId?: string;
 }
 
 export class TerminalContext {
@@ -14,6 +15,7 @@ export class TerminalContext {
     hasFullAccess: false,
     walletConnected: false,
     accessTier: 0,
+    threadId: undefined,
   };
 
   private constructor() {
@@ -47,11 +49,35 @@ export class TerminalContext {
     }
   }
 
+  async ensureThread(handle: string = "anonymous"): Promise<string> {
+    if (this.state.threadId) return this.state.threadId;
+    try {
+      const res = await fetch("/api/thread", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle }),
+      });
+      if (!res.ok) {
+        throw new Error(`Thread create failed: ${res.status}`);
+      }
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+      const threadId = data.threadId as string;
+      if (!threadId) throw new Error("No threadId returned");
+      this.setState({ threadId });
+      return threadId;
+    } catch (e) {
+      console.error("Failed to create thread", e);
+      return "";
+    }
+  }
+
   clearState() {
     this.state = {
       hasFullAccess: false,
       walletConnected: false,
       accessTier: 0,
+      threadId: undefined,
     };
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("terminalState");
@@ -64,6 +90,18 @@ export class TerminalContext {
 
   setGameMessages(messages: { role: string; content: string }[]) {
     this.setState({ gameMessages: messages });
+    // Best-effort persist to server thread if available
+    const threadId = this.state.threadId;
+    if (threadId) {
+      fetch("/api/thread", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId,
+          messages: messages.slice(-5), // send recent window to reduce traffic
+        }),
+      }).catch(() => {});
+    }
   }
 
   addGameMessage(message: { role: string; content: string }) {

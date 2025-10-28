@@ -106,12 +106,17 @@ export class Terminal extends EventEmitter {
     this.toolHandler = new ToolHandler(this);
     this.screenManager = new ScreenManager(this);
 
-    // Wire screen transition events
+    // Wire screen transition events via router (so URL is updated)
     this.on(
       "screen:transition",
       async ({ to, options }: { to: string; options?: any }) => {
         try {
-          await this.screenManager.navigate(to, options);
+          const router = this.context?.router;
+          if (router && typeof router.navigate === "function") {
+            await router.navigate(to, options);
+          } else {
+            await this.screenManager.navigate(to, options);
+          }
         } catch (e) {
           console.error("Screen transition failed", e);
         }
@@ -459,8 +464,17 @@ export class Terminal extends EventEmitter {
       let fullContent = "";
       let inCodeBlock = false;
       let codeBlockContent = "";
+      let paragraphBuffer = "";
       let isFirstLine = true;
       let justExecutedTool = false;
+
+      const flushParagraph = async () => {
+        const text = paragraphBuffer.trim();
+        if (text) {
+          await this.print(text, { speed: "normal" });
+        }
+        paragraphBuffer = "";
+      };
 
       const processLine = async (line: string) => {
         // Skip empty lines at the start
@@ -494,16 +508,27 @@ export class Terminal extends EventEmitter {
           justExecutedTool = false;
         }
 
-        // Skip empty lines
+        // Sentence-aware buffering
         if (!line) {
+          // Blank line → flush paragraph and add spacer
+          await flushParagraph();
           await this.print("", { speed: "instant" });
           fullContent += "\n";
           return;
         }
 
-        // Print regular text without forcing scroll
-        await this.print(line, { speed: "normal" });
+        // Accumulate into paragraph buffer
+        const needsSpace = paragraphBuffer.length > 0 ? " " : "";
+        paragraphBuffer += needsSpace + line;
         fullContent += line + "\n";
+
+        // Heuristic: flush when line likely ends a sentence or buffer gets long
+        const trimmed = line.trim();
+        const endsSentence = /[\.!?][\)\]"']?$/.test(trimmed);
+        const tooLong = paragraphBuffer.length > 420;
+        if (endsSentence || tooLong) {
+          await flushParagraph();
+        }
       };
 
       while (true) {
@@ -552,6 +577,9 @@ export class Terminal extends EventEmitter {
       if (remainingLine && !inCodeBlock) {
         await processLine(remainingLine);
       }
+
+      // Final flush
+      await flushParagraph();
 
       // Clean up content
       const cleanContent = fullContent

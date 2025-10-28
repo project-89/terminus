@@ -20,6 +20,7 @@ ESTABLISHING CONNECTION...`.trim();
   private isScrolling = false;
   private isKeyboardVisible: boolean = false;
   private readonly MOBILE_BOTTOM_PADDING = 80; // Extra padding for mobile browsers
+  private hydrated: boolean = false;
 
   constructor(context: ScreenContext) {
     super(context);
@@ -275,38 +276,47 @@ ESTABLISHING CONNECTION...`.trim();
 
     // Get terminal context
     const context = GameContext.getInstance();
+    // Ensure a server thread exists for persistence
+    await context.ensureThread();
     const { walletConnected, walletAddress, lastSeen } = context.getState();
 
-    // Clear any existing game messages when starting fresh
-    if (!context.getGameMessages().length) {
-      context.setGameMessages([
-        {
-          role: "assistant",
-          content: this.introText,
-        },
-      ]);
-    } else {
-      // Filter out empty messages
-      const validMessages = context
-        .getGameMessages()
-        .filter((msg) => msg.content && msg.content.trim() !== "");
-      if (validMessages.length !== context.getGameMessages().length) {
-        context.setGameMessages(validMessages);
+    const existing = context.getGameMessages();
+    const isFresh = existing.length === 0;
+    if (isFresh) {
+      // Initialize with intro and print it once
+      context.setGameMessages([{ role: "assistant", content: this.introText }]);
+      for (const line of this.introText.split("\n")) {
+        await this.terminal.print(line, {
+          color: TERMINAL_COLORS.primary,
+          speed: "normal",
+        });
       }
+      await this.terminal.print("\n", { speed: "instant" });
+      this.hydrated = true;
+    } else if (!this.hydrated) {
+      // Hydrate prior conversation onto the terminal
+      await this.terminal.clear();
+      for (const msg of existing) {
+        if (!msg.content || !msg.content.trim()) continue;
+        // Simple role-aware rendering
+        if (msg.role === "user") {
+          await this.terminal.print(`> ${msg.content}`, {
+            color: TERMINAL_COLORS.primary,
+            speed: "instant",
+          });
+        } else {
+          await this.terminal.print(msg.content, {
+            color: TERMINAL_COLORS.primary,
+            speed: "instant",
+          });
+        }
+        await this.terminal.print("\n", { speed: "instant" });
+      }
+      this.hydrated = true;
     }
-
-    // Print intro text
-    for (const line of this.introText.split("\n")) {
-      await this.terminal.print(line, {
-        color: TERMINAL_COLORS.primary,
-        speed: "normal",
-      });
-    }
-
-    await this.terminal.print("\n", { speed: "instant" });
 
     // Check for returning user with wallet
-    if (walletConnected && walletAddress) {
+    if (isFresh && walletConnected && walletAddress) {
       // Verify wallet is still connected
       const walletService = new WalletService();
       try {
@@ -341,7 +351,7 @@ ESTABLISHING CONNECTION...`.trim();
           lastSeen: undefined,
         });
       }
-    } else {
+    } else if (isFresh) {
       // Regular new user flow
       await generateOneOffResponse(
         "Before the game starts, print out a short introduction about the Project and its purpose, and on how to play the text adventure, but DO NOT use weird characters like [object].  Commands are listed with CAPS. You don't need to explain everything.  Show commands as a list with a short description of the command.  Enough to get them started. Interject a couple commands which are ontological and hyperstitial in nature. Do not simulate the text adventure until you receive the first command after this.",

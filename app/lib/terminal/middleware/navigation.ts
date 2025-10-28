@@ -26,5 +26,20 @@ export const navigationMiddleware: TerminalMiddleware = async (ctx, next) => {
     }
     return;
   }
+
+  if (ctx.command === "archive") {
+    ctx.handled = true;
+    const router = ctx.router;
+    if (!router) return;
+    try {
+      await router.navigate("archives");
+    } catch (error) {
+      console.error("Navigation error:", error);
+      await ctx.terminal.print("Error navigating to archives dashboard", {
+        color: "#ff0000",
+      });
+    }
+    return;
+  }
   await next();
 };

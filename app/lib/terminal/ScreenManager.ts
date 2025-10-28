@@ -8,6 +8,8 @@ import { AdventureScreen } from "./screens/AdventureScreen";
 import { FluidScreen } from "./screens/FluidScreen";
 import { ArchiveScreen } from "./screens/ArchiveScreen";
 import { MainScreen } from "./screens/MainScreen";
+import { AdminDashboardScreen } from "./screens/AdminDashboardScreen";
+import { ArchivesDashboardScreen } from "./screens/ArchivesDashboardScreen";
 
 export class ScreenManager {
   private screens = new Map<
@@ -30,6 +32,8 @@ export class ScreenManager {
     this.registerScreen("scanning", ScanningScreen);
     this.registerScreen("consent", ConsentScreen);
     this.registerScreen("main", MainScreen);
+    this.registerScreen("dashboard", AdminDashboardScreen);
+    this.registerScreen("archives", ArchivesDashboardScreen);
   }
 
   private registerScreen<T extends BaseScreen>(

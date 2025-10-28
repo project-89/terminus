@@ -73,9 +73,7 @@ export function TerminalCanvas() {
         },
       });
 
-      // Clear game state on fresh load
-      const context = TerminalContext.getInstance();
-      context.clearState();
+      // Preserve prior session state; do not clear here
 
       // Initialize router and properly set it in terminal context
       const router = new ScreenRouter(terminal);
