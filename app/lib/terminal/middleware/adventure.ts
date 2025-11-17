@@ -29,17 +29,120 @@ export const adventureMiddleware: TerminalMiddleware = async (
 
   try {
     const context = TerminalContext.getInstance();
-    let chatHistory = context.getGameMessages();
+    const handle = context.ensureHandle("agent");
+    const sessionId = await context.ensureSession({ handle });
+    if (!sessionId) {
+      await ctx.terminal.print("Failed to establish session with the Logos.", {
+        color: TERMINAL_COLORS.error,
+        speed: "normal",
+      });
+      ctx.handled = true;
+      return;
+    }
 
-    // Add user message
+    const state = context.getState();
+    let chatHistory = context.getGameMessages();
     const userMessage = {
       role: "user",
       content: ctx.command,
     };
+
+    let reportSummary: string | null = null;
+
+    if (state.expectingReport) {
+      if (!state.activeMissionRunId) {
+        await ctx.terminal.print(
+          "The Logos expected a mission run, but none is active.",
+          {
+            color: TERMINAL_COLORS.warning,
+            speed: "normal",
+          }
+        );
+      } else {
+        try {
+          const response = await fetch("/api/report", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId,
+              missionRunId: state.activeMissionRunId,
+              content: ctx.command,
+            }),
+          });
+          if (!response.ok) {
+            throw new Error(`Report failed (${response.status})`);
+          }
+          const result = await response.json();
+
+          context.setExpectingReport(false);
+          context.setActiveMissionRun(undefined);
+
+          await ctx.terminal.print("\nMission report received.", {
+            color: TERMINAL_COLORS.system,
+            speed: "normal",
+          });
+          if (result.feedback) {
+            await ctx.terminal.print(result.feedback, {
+              color: TERMINAL_COLORS.secondary,
+              speed: "normal",
+            });
+          }
+          if (typeof result.score === "number") {
+            await ctx.terminal.print(
+              `Score: ${(result.score * 100).toFixed(0)}%`,
+              {
+                color: TERMINAL_COLORS.system,
+                speed: "fast",
+              }
+            );
+          }
+          if (result.reward) {
+            await ctx.terminal.print(
+              `Reward: ${result.reward.amount} ${result.reward.type}`,
+              {
+                color: TERMINAL_COLORS.primary,
+                speed: "fast",
+              }
+            );
+          }
+
+          const scorePercent =
+            typeof result.score === "number"
+              ? `${Math.round(result.score * 100)}%`
+              : "N/A";
+          reportSummary = `Mission report submitted. Score ${scorePercent}. Reward ${
+            result.reward?.amount ?? 0
+          } ${result.reward?.type ?? "CREDIT"}.`;
+        } catch (error: any) {
+          console.error("report submission failed", error);
+          await ctx.terminal.print(
+            `Failed to submit report: ${error.message}`,
+            {
+              color: TERMINAL_COLORS.error,
+              speed: "normal",
+            }
+          );
+        }
+      }
+    }
+
+    // Add user message to history
     chatHistory.push(userMessage);
 
+    if (reportSummary) {
+      chatHistory.push({
+        role: "system",
+        content: reportSummary,
+      });
+    }
+
     // Get AI response
-    const stream = await getAdventureResponse(chatHistory);
+    const stream = await getAdventureResponse(chatHistory, {
+      sessionId,
+      handle,
+      activeMissionRunId: context.getState().activeMissionRunId,
+      reportJustSubmitted: Boolean(reportSummary),
+    });
     if (!stream) {
       throw new Error("Failed to get adventure response");
     }

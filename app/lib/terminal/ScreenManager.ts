@@ -10,6 +10,11 @@ import { ArchiveScreen } from "./screens/ArchiveScreen";
 import { MainScreen } from "./screens/MainScreen";
 import { AdminDashboardScreen } from "./screens/AdminDashboardScreen";
 import { ArchivesDashboardScreen } from "./screens/ArchivesDashboardScreen";
+import { HyperstitionMachineScreen } from "./screens/HyperstitionMachineScreen";
+import { RealityMatrixScannerScreen } from "./screens/RealityMatrixScannerScreen";
+import { QuantumSigilGeneratorScreen } from "./screens/QuantumSigilGeneratorScreen";
+import { ConsciousnessInterfaceScreen } from "./screens/ConsciousnessInterfaceScreen";
+import { DreamscapeNavigatorScreen } from "./screens/DreamscapeNavigatorScreen";
 
 export class ScreenManager {
   private screens = new Map<
@@ -34,6 +39,12 @@ export class ScreenManager {
     this.registerScreen("main", MainScreen);
     this.registerScreen("dashboard", AdminDashboardScreen);
     this.registerScreen("archives", ArchivesDashboardScreen);
+    // Ops tool experiences
+    this.registerScreen("hyperstition", HyperstitionMachineScreen as any);
+    this.registerScreen("scanner", RealityMatrixScannerScreen as any);
+    this.registerScreen("sigils", QuantumSigilGeneratorScreen as any);
+    this.registerScreen("consciousness", ConsciousnessInterfaceScreen as any);
+    this.registerScreen("dreamscape", DreamscapeNavigatorScreen as any);
   }
 
   private registerScreen<T extends BaseScreen>(

@@ -27,6 +27,52 @@ try {
       create: async () => ({}),
       delete: async () => ({}),
     };
+
+    gameSession = {
+      findFirst: async () => null,
+      findMany: async () => [],
+      create: async () => ({}),
+      update: async () => ({}),
+    };
+
+    gameMessage = {
+      create: async () => ({}),
+      createMany: async () => ({ count: 0 }),
+      findMany: async () => [],
+    };
+
+    memoryEvent = {
+      create: async () => ({}),
+      findMany: async () => [],
+    };
+
+    memoryEmbedding = {
+      create: async () => ({}),
+    };
+
+    playerProfile = {
+      findUnique: async () => null,
+      create: async () => ({}),
+      update: async () => ({}),
+    };
+
+    missionDefinition = {
+      findMany: async () => [],
+      findFirst: async () => null,
+      create: async () => ({}),
+    };
+
+    missionRun = {
+      findFirst: async () => null,
+      findMany: async () => [],
+      create: async () => ({}),
+      update: async () => ({}),
+    };
+
+    reward = {
+      create: async () => ({}),
+      findMany: async () => [],
+    };
   };
 }
 

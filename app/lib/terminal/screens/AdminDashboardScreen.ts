@@ -10,6 +10,9 @@ export class AdminDashboardScreen extends BaseScreen {
   private animationFrame = 0;
   private rotation = 0;
   private points: { lat: number; lon: number; weight: number }[] = [];
+  private opsTools: Array<{ name: string; title: string; description?: string }> = [];
+  private experiences: Array<{ label: string; route: string }>; 
+  private onClickBound = (e: MouseEvent) => this.handleClick(e);
 
   constructor(context: { terminal: Terminal }) {
     super(context);
@@ -38,6 +41,15 @@ export class AdminDashboardScreen extends BaseScreen {
     ];
 
     window.addEventListener("resize", this.handleResize);
+    this.canvas.addEventListener("click", this.onClickBound);
+    this.loadOpsTools().catch(() => {});
+    this.experiences = [
+      { label: "Adventure", route: "adventure" },
+      { label: "Archives", route: "archives" },
+      { label: "Scanning", route: "scanning" },
+      { label: "Static", route: "static" },
+      { label: "Home", route: "home" },
+    ];
     this.animate();
   }
 
@@ -140,7 +152,7 @@ export class AdminDashboardScreen extends BaseScreen {
     // Panels
     const padding = 16;
     const sideW = Math.max(260, this.width * 0.24);
-    const rightW = Math.max(260, this.width * 0.26);
+    const rightW = Math.max(320, this.width * 0.28);
     const topH = 90;
 
     this.drawPanel(
@@ -176,7 +188,7 @@ export class AdminDashboardScreen extends BaseScreen {
         w: rightW,
         h: this.height - (padding * 2 + topH + 12),
       },
-      "ANOMALIES & GLITCHES"
+      "OPS TOOLS & EXPERIENCES"
     );
 
     // Stats badges
@@ -207,15 +219,34 @@ export class AdminDashboardScreen extends BaseScreen {
       agentY += 22;
     });
 
-    const anomX = this.width - rightW - padding + 16;
-    let anomY = padding + topH + 36;
-    [
-      "Temporal drift / SF",
-      "Audio bleed / Tokyo",
-      "Light shear / London",
-    ].forEach((t) => {
-      this.ctx.fillText(`• ${t}`, anomX, anomY);
-      anomY += 22;
+    // OPS panel lists: tools and experiences
+    const opsX = this.width - rightW - padding + 16;
+    let y = padding + topH + 36;
+    this.ctx.fillStyle = "#2fb7c3";
+    this.ctx.fillText("Tools", opsX, y);
+    y += 18;
+    this.ctx.fillStyle = "rgba(255,255,255,0.8)";
+    const lineH = 22;
+    // Render tools
+    this.opsTools.forEach((t, idx) => {
+      this.ctx.fillText(`• ${t.name} – ${t.title}`, opsX, y);
+      // Store a lightweight hit area per item
+      (this as any)._toolHits = (this as any)._toolHits || [];
+      (this as any)._toolHits[idx] = { x: opsX, y, w: rightW - 32, h: lineH, name: t.name };
+      y += lineH;
+    });
+
+    // Experiences header
+    y += 10;
+    this.ctx.fillStyle = "#2fb7c3";
+    this.ctx.fillText("Experiences", opsX, y);
+    y += 18;
+    this.ctx.fillStyle = "rgba(255,255,255,0.8)";
+    this.experiences.forEach((e, idx) => {
+      this.ctx.fillText(`• ${e.label}`, opsX, y);
+      (this as any)._expHits = (this as any)._expHits || [];
+      (this as any)._expHits[idx] = { x: opsX, y, w: rightW - 32, h: lineH, route: e.route };
+      y += lineH;
     });
   }
 
@@ -236,7 +267,67 @@ export class AdminDashboardScreen extends BaseScreen {
   async cleanup(): Promise<void> {
     await super.cleanup();
     window.removeEventListener("resize", this.handleResize);
+    this.canvas.removeEventListener("click", this.onClickBound);
     if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
     this.canvas.remove();
+  }
+
+  private async loadOpsTools() {
+    try {
+      const res = await fetch(`/api/tools`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "list" }),
+      });
+      const data = await res.json();
+      this.opsTools = (data?.tools || []) as Array<{ name: string; title: string; description?: string }>;
+      this.renderUI(0);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  private async handleClick(e: MouseEvent) {
+    const rect = this.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const toolHits = (this as any)._toolHits as Array<{ x: number; y: number; w: number; h: number; name: string }> | undefined;
+    if (toolHits) {
+      for (const hit of toolHits) {
+        if (!hit) continue;
+        if (x >= hit.x && x <= hit.x + hit.w && y >= hit.y - 14 && y <= hit.y + hit.h) {
+          // Run tool: hide overlay to show streamed output, then restore
+          try {
+            this.canvas.style.display = "none";
+            const res = await fetch(`/api/tools`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "run", name: hit.name, input: "" }),
+            });
+            if (res.body) {
+              await this.terminal.processAIStream(res.body);
+            } else {
+              const text = await res.text();
+              await this.terminal.print(text, { speed: "fast" });
+            }
+          } catch (err) {
+            await this.terminal.print(`Tool failed: ${String(err)}`);
+          } finally {
+            this.canvas.style.display = "block";
+          }
+          return;
+        }
+      }
+    }
+    const expHits = (this as any)._expHits as Array<{ x: number; y: number; w: number; h: number; route: string }> | undefined;
+    if (expHits) {
+      for (const hit of expHits) {
+        if (!hit) continue;
+        if (x >= hit.x && x <= hit.x + hit.w && y >= hit.y - 14 && y <= hit.y + hit.h) {
+          (this.terminal as any).emit("screen:transition", { to: hit.route });
+          return;
+        }
+      }
+    }
   }
 }

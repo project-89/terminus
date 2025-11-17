@@ -9,6 +9,7 @@ import { adventureMiddleware } from "../middleware/adventure";
 import { adventureCommands } from "../commands/adventure";
 import { WalletService } from "../../wallet/WalletService";
 import { generateCLIResponse, generateOneOffResponse } from "../../ai/prompts";
+import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
 
 export class AdventureScreen extends BaseScreen {
   private introText = `
@@ -352,14 +353,46 @@ ESTABLISHING CONNECTION...`.trim();
         });
       }
     } else if (isFresh) {
-      // Regular new user flow
-      await generateOneOffResponse(
-        "Before the game starts, print out a short introduction about the Project and its purpose, and on how to play the text adventure, but DO NOT use weird characters like [object].  Commands are listed with CAPS. You don't need to explain everything.  Show commands as a list with a short description of the command.  Enough to get them started. Interject a couple commands which are ontological and hyperstitial in nature. Do not simulate the text adventure until you receive the first command after this.",
-        this.terminal,
-        {
-          addSpacing: false,
+      // First-run introduction (longer, rich, but no IF yet)
+      try {
+        const routerCtx = GameContext.getInstance();
+        const handle = routerCtx.ensureHandle("agent");
+        const sessionId = await routerCtx.ensureSession({ handle });
+        const introPrompt = `INTRO_P89: Print a welcoming introduction to Project 89 and to the Agent.
+Use a mysterious, cinematic tone with warmth. Explain at a high level what Project 89 is doing, the idea of missions and reports, and that this terminal is an interface.
+Do not reveal privileged/admin commands. Mention only: HELP, MISSION, REPORT, PROFILE, RESET.
+Target 200–350 words across 2–4 paragraphs. Do not start the IF scene yet.`;
+        const introStream = await getAdventureResponse(
+          [{ role: "user", content: introPrompt }],
+          { sessionId, handle }
+        );
+        if (introStream) {
+          await this.terminal.processAIStream(introStream);
         }
-      );
+      } catch {}
+
+      // Initialize IF scene using adventure pipeline (CANON aware)
+      const initPrompt = `INIT_IF: Begin strictly in IF mode. Print only the opening scene per CANON (starting location). Present the room description, any visible items/exits, and a single subtle hint. No meta commentary, no code fences. If you must run covert tools, you may emit single-line JSON commands but never mention them and never end your response on a tool line. Do not advance beyond the starting location.`;
+      try {
+        const routerCtx = GameContext.getInstance();
+        const handle = routerCtx.ensureHandle("agent");
+        const sessionId = await routerCtx.ensureSession({ handle });
+        const stream = await getAdventureResponse(
+          [
+            { role: "user", content: initPrompt },
+          ],
+          { sessionId, handle }
+        );
+        if (stream) {
+          await this.terminal.processAIStream(stream);
+        }
+      } catch (e) {
+        // Fallback: minimal banner if API fails
+        await this.terminal.print("The Logos stirs behind the prompt...", {
+          color: TERMINAL_COLORS.secondary,
+          speed: "fast",
+        });
+      }
     }
 
     // Enable command handling

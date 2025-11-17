@@ -1,4 +1,13 @@
-export async function getAdventureResponse(messages: any[]) {
+export async function getAdventureResponse(
+  messages: any[],
+  context?: {
+    sessionId?: string;
+    handle?: string;
+    activeMissionRunId?: string;
+    reportSummary?: string | null;
+    reportJustSubmitted?: boolean;
+  }
+) {
   const response = await fetch("/api/adventure", {
     method: "POST",
     headers: {
@@ -6,6 +15,7 @@ export async function getAdventureResponse(messages: any[]) {
     },
     body: JSON.stringify({
       messages,
+      context,
     }),
   });
 

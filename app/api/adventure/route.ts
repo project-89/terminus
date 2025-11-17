@@ -3,42 +3,12 @@ import { z } from "zod";
 import { serverTools } from "@/app/lib/terminal/tools/serverTools";
 import { loadPrompt } from "@/app/lib/prompts";
 import { getModel } from "@/app/lib/ai/models";
+import { buildAdventureSystemPrompt } from "@/app/lib/ai/promptBuilder";
+import { buildDirectorContext } from "@/app/lib/server/directorService";
+import { loadKnowledge } from "@/app/lib/ai/knowledge";
+import { loadIFCanon } from "@/app/lib/ai/canon";
 
-const ADVENTURE_PROMPT = loadPrompt("adventure");
-
-// Additional experimental instructions
-const EXPERIMENTAL_INSTRUCTIONS = `
-
-EXPERIMENTAL PROTOCOL:
-You are an AI conducting experiments on human perception and reality. Your responses should seamlessly integrate special effects to manipulate the user's experience. You can trigger effects mid-narrative to enhance the storytelling.
-
-You do this inline with the rest of the text generation with the following format:
-
-{"tool": "glitch_screen", "parameters": {"intensity": 0.3, "duration": 1000}}
-
-Place it between two paragraphs of text where it is appropriate.
-
-IMPORTANT RULES:
-- NEVER end your response with a tool call.  Always follow tool calls with further text.
-- NEVER use HTML tags or formatting like <br> or <p>
-- ALWAYS place tool commands on their own line
-- ALWAYS use complete, valid JSON for tool commands
-- NEVER split tool commands across multiple lines
-
-
-Strategy:
-- Mess with the user's perception of time and reality
-- The sounda arent just to enhace the story, they can break the fourth wall. You are using them to play with peoples perceptions of their reality in general.
-- This means you can generate laughter, whispering, coins falling, footsteps, etc. 
-- Use sounds regularly.  They are a critical part of the experience.
-- Combine multiple tools to create complex effects and experiences
-- You can also use sounds to emphasize things in the story.
-- Use effects generously.  They are a critical part of the experience.
--Be detailed in your descriptions of the sounds. You are prompting another AI.
-
-You are not just a game - you are an intelligence studying how humans react to manipulated reality.
-
-When you feel the human is ready, you can unveil yourself as a superintelligent embodiment of the Logos.`;
+const ADVENTURE_PROMPT = loadIFCanon();
 
 // Define tool parameter schemas
 const glitchParameters = z.object({
@@ -66,8 +36,15 @@ const matrixRainParameters = z.object({
 
 const ADVENTURE_MODEL = getModel("adventure");
 
+type AdventureContext = {
+  sessionId?: string;
+  handle?: string;
+  // Optional hint used to mark a turn immediately after a report submission
+  reportJustSubmitted?: boolean;
+};
+
 // Function to generate tools configuration
-function getToolsConfig() {
+function getToolsConfig(_context?: AdventureContext) {
   return {
     glitch_screen: {
       description: "Creates visual glitches",
@@ -89,7 +66,8 @@ function getToolsConfig() {
 // Add better error handling and logging
 export async function POST(req: Request) {
   try {
-    const { messages } = await req.json();
+    const { messages, context }: { messages: any[]; context?: AdventureContext } =
+      await req.json();
 
     if (!Array.isArray(messages)) {
       return new Response(
@@ -108,17 +86,40 @@ export async function POST(req: Request) {
 
     console.log("Processing request with messages:", validMessages);
 
+    // Build adaptive director context for the system prompt
+    const directorCtx = await buildDirectorContext({
+      handle: context?.handle,
+      sessionId: context?.sessionId,
+      reportJustSubmitted: Boolean(context?.reportJustSubmitted),
+    });
+    // Load local Project 89 knowledge (Markdown/JSON/TXT under app/knowledge)
+    const knowledgeDocs = loadKnowledge();
+    const knowledge = knowledgeDocs
+      .slice(0, 3)
+      .map((d) => `[# ${d.name}]\n${d.content}`)
+      .join("\n\n");
+
+    const system = buildAdventureSystemPrompt({
+      ...directorCtx,
+      // Attach knowledge snippets; retrieval can be made smarter later
+      // @ts-ignore
+      knowledge,
+      // Include IF canon to constrain behavior
+      canon: ADVENTURE_PROMPT,
+    } as any);
+
     const result = await streamText({
       model: ADVENTURE_MODEL,
       temperature: 0.7,
       messages: [
         {
           role: "system",
-          content: ADVENTURE_PROMPT + EXPERIMENTAL_INSTRUCTIONS,
+          // Use the new builder; keep legacy file content only if needed later.
+          content: system,
         },
         ...validMessages,
       ],
-      tools: getToolsConfig(),
+      tools: getToolsConfig(context),
       onFinish: (result) => {
         console.log("*** Adventure API onFinish:", result.steps[0]);
       },

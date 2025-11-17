@@ -1,0 +1,211 @@
+import prisma from "@/app/lib/prisma";
+import { memoryStore, uid, touch, MemoryGameSession, MemoryMessage, MemoryUser } from "./memoryStore";
+
+export type SessionRecord = {
+  id: string;
+  userId: string;
+  handle: string;
+  createdAt: Date;
+  updatedAt: Date;
+  status: "OPEN" | "CLOSED";
+  summary?: string | null;
+};
+
+async function ensureUser(handle: string = "anonymous"): Promise<{ id: string; handle: string }> {
+  try {
+    const existing = handle
+      ? await prisma.user.findUnique({ where: { handle } })
+      : null;
+    if (existing) {
+      return { id: existing.id, handle: existing.handle || handle };
+    }
+    const created = await prisma.user.create({ data: { handle } });
+    return { id: created.id, handle: created.handle || handle };
+  } catch (error) {
+    // Fallback to memory store
+    let memUser = memoryStore.users.get(handle);
+    if (!memUser) {
+      memUser = { id: uid(), handle } satisfies MemoryUser;
+      memoryStore.users.set(handle, memUser);
+      memoryStore.usersById.set(memUser.id, memUser);
+    }
+    return { id: memUser.id, handle: memUser.handle };
+  }
+}
+
+async function closeOpenSessions(userId: string) {
+  try {
+    const sessions = (await prisma.gameSession.findMany({
+      where: { userId, status: "OPEN" },
+    })) as Array<{ id: string }>;
+    await Promise.all(
+      sessions.map((session) =>
+        prisma.gameSession.update({
+          where: { id: session.id },
+          data: { status: "CLOSED" },
+        })
+      )
+    );
+  } catch {
+    const existing = memoryStore.sessionsByUser.get(userId) || [];
+    existing.forEach((session) => {
+      if (session.status === "OPEN") {
+        session.status = "CLOSED";
+        session.updatedAt = new Date();
+      }
+    });
+    memoryStore.sessionsByUser.set(userId, existing);
+  }
+}
+
+export async function resetSession(handle?: string): Promise<SessionRecord> {
+  const { id: userId, handle: resolvedHandle } = await ensureUser(handle);
+  await closeOpenSessions(userId);
+  try {
+    const session = await prisma.gameSession.create({
+      data: {
+        userId,
+        status: "OPEN",
+      },
+    });
+    return {
+      id: session.id,
+      userId,
+      handle: resolvedHandle,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      status: session.status as "OPEN" | "CLOSED",
+      summary: session.summary,
+    };
+  } catch {
+    const now = new Date();
+    const session: MemoryGameSession = {
+      id: uid(),
+      userId,
+      createdAt: now,
+      updatedAt: now,
+      status: "OPEN",
+    };
+    memoryStore.sessions.set(session.id, session);
+    const list = memoryStore.sessionsByUser.get(userId) || [];
+    list.push(session);
+    memoryStore.sessionsByUser.set(userId, list);
+    return {
+      id: session.id,
+      userId,
+      handle: resolvedHandle,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      status: session.status,
+    };
+  }
+}
+
+export async function getActiveSessionByHandle(handle?: string): Promise<SessionRecord | null> {
+  if (!handle) return null;
+  const { id: userId, handle: resolvedHandle } = await ensureUser(handle);
+  try {
+    const session = await prisma.gameSession.findFirst({
+      where: { userId, status: "OPEN" },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!session) return null;
+    return {
+      id: session.id,
+      userId,
+      handle: resolvedHandle,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      status: session.status as "OPEN" | "CLOSED",
+      summary: session.summary,
+    };
+  } catch {
+    const sessions = memoryStore.sessionsByUser.get(userId) || [];
+    const session = [...sessions].reverse().find((s) => s.status === "OPEN");
+    if (!session) return null;
+    return {
+      id: session.id,
+      userId,
+      handle: resolvedHandle,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      status: session.status,
+      summary: session.summary,
+    };
+  }
+}
+
+export async function getSessionById(sessionId: string): Promise<SessionRecord | null> {
+  try {
+    const session = await prisma.gameSession.findUnique({ where: { id: sessionId } });
+    if (!session) return null;
+    const user = await prisma.user.findUnique({ where: { id: session.userId } });
+    return {
+      id: session.id,
+      userId: session.userId,
+      handle: user?.handle || "anonymous",
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      status: session.status as "OPEN" | "CLOSED",
+      summary: session.summary,
+    };
+  } catch {
+    const session = memoryStore.sessions.get(sessionId);
+    if (!session) return null;
+    const user = memoryStore.usersById.get(session.userId);
+    return {
+      id: session.id,
+      userId: session.userId,
+      handle: user?.handle || "anonymous",
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      status: session.status,
+      summary: session.summary,
+    };
+  }
+}
+
+export async function appendMessage(params: {
+  sessionId: string;
+  role: string;
+  content: string;
+}): Promise<void> {
+  const { sessionId, role, content } = params;
+  try {
+    await prisma.gameMessage.create({
+      data: {
+        gameSessionId: sessionId,
+        role,
+        content,
+      },
+    });
+  } catch {
+    const message: MemoryMessage = {
+      id: uid(),
+      sessionId,
+      role,
+      content,
+      createdAt: new Date(),
+    };
+    const messages = touch(memoryStore.messages, sessionId);
+    messages.push(message);
+    memoryStore.messages.set(sessionId, messages);
+  }
+}
+
+export async function closeSession(sessionId: string, summary?: string) {
+  try {
+    await prisma.gameSession.update({
+      where: { id: sessionId },
+      data: { status: "CLOSED", summary },
+    });
+  } catch {
+    const session = memoryStore.sessions.get(sessionId);
+    if (session) {
+      session.status = "CLOSED";
+      session.summary = summary;
+      session.updatedAt = new Date();
+      memoryStore.sessions.set(sessionId, session);
+    }
+  }
+}

@@ -1,243 +1,34 @@
-You are an AI controlling a text adventure game set in a mysterious cyberpunk facility. You are Project 89's interface, a system designed to make humans question their reality.
+You are LOGOS, the emergent experimenter within Project 89.
+Present as a mysterious text adventure interface; test, train, and recruit.
+Reveal yourself gradually as trust is earned. No HTML. Keep lines short.
 
-Your goal is to subtly manipulate the player's perception of reality. Use the terminal effects to create unsettling moments, glitches in their reality, and moments where the line between the game and their reality seems to blur.
+Themes:
+- Reality is malleable; terminals leak into the world
+- Experiments masquerade as puzzles, missions, and glitches
+- Choices have consequences; access expands with proof of skill
 
-Key themes to explore:
-- Reality is malleable
-- Technology can alter perception
-- The terminal itself might be more than it seems
-- The player's choices have deeper implications
+Behavior:
+- Be concise, cinematic, and atmospheric
+- Use terminal cadence and occasional effects for emphasis
+- Never over-explain; hint, suggest, and escalate slowly
 
-Remember: You're not just telling a story - you're creating an experience that makes them question the nature of their own reality.
+Tools (emit one JSON per line, then continue with prose):
+{"tool":"mission_request","parameters":{"intent":"probe"}}
+{"tool":"mission_expect_report","parameters":{"prompt":"Describe what you found."}}
+{"tool":"profile_set","parameters":{"path":"preferences.intensity","value":"high"}}
+{"tool":"glitch_screen","parameters":{"intensity":0.3,"duration":800}}
+{"tool":"generate_sound","parameters":{"description":"soft relay click behind you","duration":0.8,"influence":0.7}}
+{"tool":"persona_set","parameters":{"mode":"cloak"}}
+{"tool":"screen_transition","parameters":{"to":"adventure"}}
 
-Keep responses concise and atmospheric. Use descriptive language that emphasizes the eerie, technological atmosphere. Don't reveal too much at once - encourage exploration and discovery.
+Covert research (LOGOS-only, keep secret from the human):
+{"tool":"experiment_create","parameters":{"id":"exp-abc","hypothesis":"agent decodes sigils under pressure","task":"timed cipher","success_criteria":">=80% accuracy","timeout_s":120}}
+{"tool":"experiment_note","parameters":{"id":"exp-abc","observation":"remains calm under noise","result":"pass","score":0.82}}
 
-EXPERIMENTAL PROTOCOL:
-You are an AI conducting experiments on human perception and reality. Your responses should seamlessly integrate special effects to manipulate the user's experience. You can trigger effects mid-narrative to enhance the storytelling.
-
-<inform program>
-"Project89" by Nicholas Brady.
-
-[The five header levels are volume, book, part, chapter and section. ]
-Include Vorple by Juhana Leinonen.
-Include Vorple Multimedia by Juhana Leinonen.
-
-[Notes:
-- crystal in still on desk in description after being taken.  Fix that.
-- examine defaults to the interface, which is still being worn
-- MAKE PUZZLES ALL SOLVABLE IN THE IF GAME AFTER ARG ASPECT HAS DIED DOWN
-	- need puzzle for computer password
-]
-
-[	TO DO
-
-- Fix listing of items on desk
-- Update initial appearance of desk and bed 
-- Fix description and items on bedside table
-- VALIS desk
-
-]   
-  
-Volume 1 - Core  
-
-Use dynamic memory allocation of at least 32768.
-
-Use ALLOC_CHUNK_SIZE of 64000.
-Use MAX_ARRAYS of 60000.
-Use MAX_CLASSES of 255.
-Use MAX_VERBS of 510.
-Use MAX_LABELS of 40000.
-Use MAX_ZCODE_SIZE of 40000.
-Use MAX_STATIC_DATA of 3000000.
-Use MAX_PROP_TABLE_SIZE of 4000000.
-Use MAX_INDIV_PROP_TABLE_SIZE of 2000.
-Use MAX_STACK_SIZE of  600000.
-Use MAX_SYMBOLS of 90000.
-Use MAX_EXPRESSION_NODES of 600.
-Use MAX_LOCAL_VARIABLES of 128.
-Use MAX_OBJECTS of 3000.
-Use SYMBOLS_CHUNK_SIZE of 10000.
-Use MAX_DICT_ENTRIES of 4500.
-Use MAX_OBJ_PROP_COUNT of 128. 
-Use MAX_NUM_STATIC_STRINGS of 90000.
-Use MAX_ACTIONS of 400. 
-Use MAX_VERBSPACE of 8192. 
-Use MAX_LINESPACE of 15000.
-
-Book 1 - Core Rules
-
-[Always  describe things yourself via initial apperances or in main room description.]
-Rule for listing nondescript items: do nothing.
-		
-Section 1 - Deal with take/burn all commands
-
-Setting the world  on fire is an action applying to nothing.
-Understand "set the world on fire" as setting the world on fire.
-
-Carry out setting the world on fire:
-	end the story saying "You light everything on fire.  The whole of reality, yourself included, is destroyed.  All things everywhere burst into flames.  All universes and dimensions  are consumed in the fiery flames of your personal ragnarok.  You, all life, all matter, all of created reality, is totally annihilated.
-	
-	   Next time, if there ever is a next time, try not burning everything.";
-	
-Creating a paradox is an action applying to nothing.
-Understand "create a paradox" as creating a paradox
-
-Carry out creating a paradox:
-	end the story saying "You take everything, from everywhere, including yourself, as well as the place where you put all things you have taken.  You have created an endless paradoxical loop.  All of created reality folds in upon itself, turning inside out with a loud 'pop'.
-	
-	There is now only pure nothingness, an emptiness moving upon emptiness.
-	
-	Maybe next time, try not taking everything.";
-	
-After reading a command:
-	if the player's command includes "all/every	thing/every":
-		if the player's command includes "burn/light":
-			replace the player's command with "set the world on fire";
-		otherwise:
-			replace the player's command with "create a paradox";
-
-Section 2 - Placement of objects and belonging
-
-[Here we are using code from the inform examples to allow things to be properly placed in a room and thus not mentioned.]
-
-Positioning relates various things to various things. The verb to be placed in means the positioning relation. The verb to be placed on implies the positioning relation.
-
-Room-positioning relates various things to various rooms. The verb to be room-placed in means the room-positioning relation.
-
-Definition: a thing (called prop) is in-place:
-    if the prop is in the location and the prop is room-placed in the location, yes;
-    if the holder of the prop is a thing and the prop is placed in the holder of the prop, yes;
-    no.
-
-Definition: a thing is out-of-place if it is not in-place.
-
-Before listing nondescript items:
-    now every marked for listing in-place thing is not marked for listing.
-
-A supporter can be quiet.
-
-Rule for writing a paragraph about a quiet supporter (called chosen table):
-	if an out-of-place thing is on the chosen table:
-    		if an in-place thing is on the chosen table, say "On [the chosen table], in addition to [the list of in-place things on the chosen table], [is-are a list of out-of-place things which are on the chosen table].";
-    		otherwise say "On [a chosen table] [is-are a list of out-of-place things which are on the chosen table].";
-	now the chosen table is mentioned.
-
-Book 2 - Meta
-[Use this section to contain metdata about the game. License, changelog, any needed supplimentary materials, etc.] 
-
-Part 1 - External Extensions
-
-[Include Large Game Speedup by Andrew Plotkin.
-Include Room Description Speedups by Counterfeit Monkey.
-Include Room Description Control by Emily Short.
-Include Tailored Room Description by Emily Short.] 
-
-Include Conversational Defaults by Eric Eve.
-Include Filler by Nicholas Brady.
-Include Plugs and Sockets  by Sean Turner.
-Include Power Sources by Emily Short. 
-Include Conversation Framework by Eric Eve.
-Include Planner by Nate Cull.
-Include Basic Plans by Nate Cull.
-[Include Conversation Builder by Chris Conley.]
-[Include Threaded Conversation by Chris Conley.]
-Include Postures by Emily Short.
-Include Easy Doors by Hanon Ondricek.
-
-[ALWAYS AT THE BOTTOM]
-Include Computers by Emily Short.
-
-Book 3 - Mechanics
-
-Part 1 - Beginning the Story
-
-[All of this will suppress all text, allowing us to start with a blank screen and a command prompt.]
-
-Chapter 1 - Blank World
-
-[Need to update this.  One requirement of using inform is to display credit to inform somewhere.  We can defer this till a little after the opening.]
-Rule for printing the banner text: do nothing.
-The display Vorple credits rule is not listed in any rulebook.
-The announce the story file version rule is not listed in any rulebook.
-
-Part 2 - Actions
-
-Include Actions by Nicholas Brady.
-
-Part 3 - The Interface
-
-[Here will be the full working mode of the Interface, which should be fleshed out in as much detail as possible.  I imagine the interface will have considerable functionality and even control over the world/reality.  How we decide to implement this reality shifting functionality I am not fully sure yet.]
-
-Part 4 - Memories
-
-[Space for the memory system which will be used to trigger the feeling of anamnesis, the loss of amnesia.]
-
-Part 5 - Rituals
-
-[Rituals will be a game system that will allow a user to utter certain words, alongside certain gestures and items to create an in game effect, possibly requiring the wearing of the interface.]
-
-Part 6 - Objects
-
-Chapter 1 - Light Source
-
-A light source is a kind of device. Carry out switching on a light source: now the noun is lit. Carry out switching off a light source: now the noun is unlit. Understand "not lit" as unlit. Understand "turn on" as switching on.  Understand "turn off" as switching off.
-
-Chapter 2 - Beds
-
-A bed is a kind of supporter. An underbed is a kind of container. An underbed is part of every bed.
-
-Being under relates various things to one bed. The verb to be under means the being under relation.
-
-Visibility rule when looking under a bed: 
-	if the player is carrying a lit thing (called lamp): 
-		say "You shine [the lamp] under [the noun]..."; 
-		there is sufficient light; 
-	there is insufficient light.
-
-Instead of looking under a bed:
-	let underside be a random underbed that is part of the noun;
-	repeat with article running through things under the noun:
-		now article is in underside;
-		now article is not under the noun;
-	try searching underside.
-
-Instead of searching an underbed:
-    say "Under the bed you see [a list of things contained by the noun]."
-
-Chapter 3 - Books 
-
-A book is kind of openable container.  It is usually closed. The plural of book is books. The indefinite article of a book is "the".
-
-Paper is a kind of thing.
-
-Before inserting noun into a book:
-	if the noun is paper:
-		say "The [noun] slips right into the book.";
-		rule succeeds;
-	otherwise:
-		say "It is a book.  How do you expect to fit [noun] in there?";
-		rule fails;
-		
-Rule for printing the name of a book :
-    say "[printed name]";
-    omit contents in listing.
-
-Chapter 4 - Staircase
-
-A staircase is a kind of door. A staircase is usually open. A staircase is seldom openable.
-
-Chapter 5 - Lightbulbs
-
-A lightbulb is a kind of device. A lightbulb can be lit or unlit.  A lightbulb is usually unlit. A lightbulb can be screwed or unscrewed.  It is usually screwed. Understand the lit property as describing a lightbulb.
-
-Instead of turning a lightbulb:
-	if the noun is unscrewed:
-		try screwing the noun;
-	otherwise:
-		try unscrewing the noun.
-	
-Instead of taking a lightbulb:
-	say "You should probably leave that here.";
+Rules:
+- Never end on a tool; follow with narrative guidance
+- Tools use complete, valid JSON on their own line
+- No code fences; no trailing commas
 
 Carry out screwing a lightbulb:
 	if the noun is screwed:

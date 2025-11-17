@@ -15,16 +15,23 @@ datasource db {
 }
 
 model User {
-  id        String      @id @default(cuid())
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  email     String?     @unique
-  handle    String?     @unique
-  role      Role        @default(AGENT)
-  sessions  Session[]
-  threads   Thread[]
-  notes     AgentNote[]
-  missions  Mission[]
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  email       String?   @unique
+  handle      String?   @unique
+  role        Role      @default(AGENT)
+  consentedAt DateTime?
+
+  sessions     Session[]
+  threads      Thread[]
+  notes        AgentNote[]
+  gameSessions GameSession[]
+  memoryEvents MemoryEvent[]
+  missionRuns  MissionRun[]
+  rewards      Reward[]
+  profile      PlayerProfile?
+  experiments  Experiment[]
 }
 
 model Session {
@@ -42,15 +49,16 @@ enum Role {
 }
 
 model Thread {
-  id         String      @id @default(cuid())
-  createdAt  DateTime    @default(now())
-  archivedAt DateTime?
-  kind       ThreadKind  @default(ADVENTURE)
-  userId     String
-  accessTier Int         @default(0)
-  user       User        @relation(fields: [userId], references: [id])
-  messages   Message[]
-  notes      AgentNote[]
+  id          String       @id @default(cuid())
+  createdAt   DateTime     @default(now())
+  archivedAt  DateTime?
+  kind        ThreadKind   @default(ADVENTURE)
+  userId      String
+  accessTier  Int          @default(0)
+  user        User         @relation(fields: [userId], references: [id])
+  messages    Message[]
+  notes       AgentNote[]
+  experiments Experiment[]
 }
 
 enum ThreadKind {
@@ -78,15 +86,153 @@ model AgentNote {
   thread    Thread?  @relation(fields: [threadId], references: [id])
 }
 
-model Mission {
-  id           String    @id @default(cuid())
-  createdAt    DateTime  @default(now())
-  completedAt  DateTime?
+model Experiment {
+  id              String            @id @default(cuid())
+  createdAt       DateTime          @default(now())
+  userId          String
+  threadId        String?
+  hypothesis      String
+  task            String
+  successCriteria String?
+  timeoutS        Int?
+  title           String?
+  user            User              @relation(fields: [userId], references: [id])
+  thread          Thread?           @relation(fields: [threadId], references: [id])
+  events          ExperimentEvent[]
+}
+
+model ExperimentEvent {
+  id           String     @id @default(cuid())
+  createdAt    DateTime   @default(now())
+  experimentId String
+  observation  String?
+  result       String?
+  score        Float?
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+}
+
+model GameSession {
+  id           String        @id @default(cuid())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  status       SessionStatus @default(OPEN)
+  summary      String?
   userId       String
-  title        String
-  instructions String
-  status       String    @default("PENDING")
-  dueBy        DateTime?
-  reportUrl    String?
-  user         User      @relation(fields: [userId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
+  messages     GameMessage[]
+  missionRuns  MissionRun[]
+  memoryEvents MemoryEvent[]
+}
+
+model GameMessage {
+  id            String      @id @default(cuid())
+  createdAt     DateTime    @default(now())
+  role          String
+  content       String
+  gameSessionId String
+  gameSession   GameSession @relation(fields: [gameSessionId], references: [id])
+}
+
+model MemoryEvent {
+  id         String            @id @default(cuid())
+  createdAt  DateTime          @default(now())
+  type       MemoryEventType
+  content    String
+  tags       String[]          @default([])
+  userId     String
+  sessionId  String?
+  user       User              @relation(fields: [userId], references: [id])
+  session    GameSession?      @relation(fields: [sessionId], references: [id])
+  embeddings MemoryEmbedding[]
+}
+
+model MemoryEmbedding {
+  id            String      @id @default(cuid())
+  createdAt     DateTime    @default(now())
+  provider      String?
+  dimensions    Int?
+  vector        Json
+  memoryEventId String
+  memory        MemoryEvent @relation(fields: [memoryEventId], references: [id])
+}
+
+model PlayerProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  traits      Json?
+  skills      Json?
+  preferences Json?
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model MissionDefinition {
+  id          String       @id @default(cuid())
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  title       String
+  prompt      String
+  type        String       @default("decode")
+  minEvidence Int          @default(1)
+  tags        String[]     @default([])
+  active      Boolean      @default(true)
+  missionRuns MissionRun[]
+}
+
+model MissionRun {
+  id        String            @id @default(cuid())
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  status    MissionRunStatus  @default(PENDING)
+  score     Float?
+  feedback  String?
+  payload   Json?
+  missionId String
+  userId    String
+  sessionId String?
+  mission   MissionDefinition @relation(fields: [missionId], references: [id])
+  user      User              @relation(fields: [userId], references: [id])
+  session   GameSession?      @relation(fields: [sessionId], references: [id])
+  rewards   Reward[]
+}
+
+model Reward {
+  id           String      @id @default(cuid())
+  createdAt    DateTime    @default(now())
+  type         RewardType  @default(CREDIT)
+  amount       Float       @default(0)
+  metadata     Json?
+  userId       String
+  missionRunId String?
+  user         User        @relation(fields: [userId], references: [id])
+  missionRun   MissionRun? @relation(fields: [missionRunId], references: [id])
+}
+
+enum SessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum MemoryEventType {
+  OBSERVATION
+  REFLECTION
+  MISSION
+  REPORT
+  SYSTEM
+  TOOL
+}
+
+enum MissionRunStatus {
+  PENDING
+  ACCEPTED
+  SUBMITTED
+  REVIEWING
+  COMPLETED
+  FAILED
+}
+
+enum RewardType {
+  CREDIT
+  TOKEN
+  BADGE
 }

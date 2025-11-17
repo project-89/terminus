@@ -67,13 +67,21 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
 
           ctx.terminal.startGeneration();
 
-          const stream = await getAdventureResponse([
+          const handle = terminalContext.ensureHandle("agent");
+          const sessionId = await terminalContext.ensureSession({ handle });
+          const stream = await getAdventureResponse(
+            [
+              {
+                role: "user",
+                content:
+                  "The user has just discovered and entered the correct access code to unlock the secret back end of the terminal. The user now has full access to all system commands. Print a brief message to the user welcoming them to the system, and hint that typing 'dashboard' opens a classified control surface.",
+              },
+            ],
             {
-              role: "user",
-              content:
-                "The user has just discovered and entered the correct access code to unlock the secret back end of the terminal. The user now has full access to all system commands. Print a brief message to the user welcoming them to the system, and hint that typing 'dashboard' opens a classified control surface.",
-            },
-          ]);
+              sessionId,
+              handle,
+            }
+          );
 
           if (stream) {
             await ctx.terminal.processAIStream(stream);

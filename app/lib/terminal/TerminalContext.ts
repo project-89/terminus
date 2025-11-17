@@ -7,6 +7,10 @@ export interface TerminalState {
   gameMessages?: { role: string; content: string }[];
   accessTier?: number; // 0=normal,1=override,2=elevated
   threadId?: string;
+  handle?: string;
+  sessionId?: string;
+  activeMissionRunId?: string;
+  expectingReport?: boolean;
 }
 
 export class TerminalContext {
@@ -16,6 +20,10 @@ export class TerminalContext {
     walletConnected: false,
     accessTier: 0,
     threadId: undefined,
+    handle: undefined,
+    sessionId: undefined,
+    activeMissionRunId: undefined,
+    expectingReport: false,
   };
 
   private constructor() {
@@ -64,7 +72,7 @@ export class TerminalContext {
       const data = text ? JSON.parse(text) : {};
       const threadId = data.threadId as string;
       if (!threadId) throw new Error("No threadId returned");
-      this.setState({ threadId });
+      this.setState({ threadId, handle });
       return threadId;
     } catch (e) {
       console.error("Failed to create thread", e);
@@ -73,15 +81,41 @@ export class TerminalContext {
   }
 
   clearState() {
+    const handle = this.state.handle;
     this.state = {
       hasFullAccess: false,
       walletConnected: false,
       accessTier: 0,
       threadId: undefined,
+      handle,
+      sessionId: undefined,
+      activeMissionRunId: undefined,
+      expectingReport: false,
     };
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("terminalState");
+      window.localStorage.setItem("terminalState", JSON.stringify(this.state));
     }
+  }
+
+  ensureHandle(prefix: string = "agent") {
+    if (!this.state.handle) {
+      const alias = `${prefix}-${Math.random().toString(36).slice(2, 6)}`;
+      this.setState({ handle: alias });
+    }
+    return this.state.handle as string;
+  }
+
+  setSessionId(sessionId?: string) {
+    this.setState({ sessionId });
+  }
+
+  setActiveMissionRun(runId?: string) {
+    this.setState({ activeMissionRunId: runId });
+  }
+
+  setExpectingReport(flag: boolean) {
+    this.setState({ expectingReport: flag });
   }
 
   getGameMessages(): { role: string; content: string }[] {
@@ -108,5 +142,52 @@ export class TerminalContext {
     const messages = this.getGameMessages();
     messages.push(message);
     this.setGameMessages(messages);
+  }
+
+  async ensureSession(options: { reset?: boolean; handle?: string } = {}) {
+    const handle = this.ensureHandle(options.handle || "agent");
+    const shouldReset = options.reset === true;
+
+    if (!shouldReset && this.state.sessionId) {
+      return this.state.sessionId;
+    }
+
+    const attempt = async (reset: boolean) => {
+      const res = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle, reset }),
+      });
+      if (!res.ok) {
+        throw new Error(`Session request failed: ${res.status}`);
+      }
+      const data = (await res.json()) as {
+        sessionId: string;
+        handle: string;
+      };
+      this.setState({ sessionId: data.sessionId, handle: data.handle });
+      if (reset) {
+        this.setGameMessages([]);
+        this.setActiveMissionRun(undefined);
+        this.setExpectingReport(false);
+      }
+      return data.sessionId;
+    };
+
+    try {
+      if (shouldReset) {
+        return await attempt(true);
+      }
+      return await attempt(false);
+    } catch (error) {
+      console.warn("ensureSession primary attempt failed", error);
+      if (shouldReset) return undefined;
+      try {
+        return await attempt(true);
+      } catch (finalError) {
+        console.error("Failed to ensure session", finalError);
+        return undefined;
+      }
+    }
   }
 }

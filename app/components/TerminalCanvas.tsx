@@ -101,7 +101,10 @@ export function TerminalCanvas() {
     // Establish a base bottom padding so the last line is always visible on mobile
     const fontSize = terminal.options?.fontSize ?? 16;
     const lineHeight = fontSize * 1.5;
-    baseBottomPaddingRef.current = isMobile() ? Math.round(lineHeight * 2) : 0;
+    // Add a little extra baseline space to avoid browser bars covering content
+    baseBottomPaddingRef.current = isMobile()
+      ? Math.round(lineHeight * 3 + 16)
+      : 0;
     terminal.setBottomPadding(baseBottomPaddingRef.current);
 
     // Cleanup
@@ -373,7 +376,7 @@ export function TerminalCanvas() {
     };
   }, []);
 
-  // Keyboard-safe padding using visualViewport
+  // Keyboard-safe padding using visualViewport (and resize terminal on vv changes)
   useEffect(() => {
     if (!window.visualViewport) return;
 
@@ -394,6 +397,12 @@ export function TerminalCanvas() {
       );
       if (hiddenInputRef.current === document.activeElement) {
         terminalRef.current.scrollToLatest({ extraPadding: lineHeight * 1.5 });
+      }
+
+      // Also trigger a terminal resize to match container size when visual viewport changes
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        terminalRef.current.resize(rect.width, rect.height);
       }
     };
 
@@ -420,7 +429,10 @@ export function TerminalCanvas() {
         ref={containerRef}
         onClick={handleCanvasClick}
         className="relative w-full h-full"
-        style={{ height: "100vh" }}
+        style={{
+          // Use dynamic viewport height to avoid iOS toolbar/keyboard issues
+          height: "100dvh",
+        }}
       >
         <canvas
           ref={canvasRef}
@@ -467,8 +479,10 @@ export function TerminalCanvas() {
             const keyboardHeight = vv
               ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
               : 0;
+            // Extra safe-area fudge for mobile browser bars
+            const SAFE_BOTTOM = 16;
             terminalRef.current.setBottomPadding(
-              baseBottomPaddingRef.current + keyboardHeight + lineHeight * 2
+              baseBottomPaddingRef.current + keyboardHeight + lineHeight * 2 + SAFE_BOTTOM
             );
             // Ensure the input line is visible even as the keyboard animates
             const settleFrames = 6;

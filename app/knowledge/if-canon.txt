@@ -1,0 +1,9 @@
+// Paste your Inform 7 / IF canonical source here.
+// The adventure API will include this text verbatim as [CANON].
+// Keep it focused on rules, scenes, and content — not meta commentary.
+
+// Example header (replace with your full canon):
+// You are emulating a text adventure game called Project 89. Adhere strictly to all subsequent instructions and tags.
+// <inform program>
+// ...
+

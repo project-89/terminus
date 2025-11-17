@@ -128,7 +128,8 @@ exports.Prisma.UserScalarFieldEnum = {
   updatedAt: 'updatedAt',
   email: 'email',
   handle: 'handle',
-  role: 'role'
+  role: 'role',
+  consentedAt: 'consentedAt'
 };
 
 exports.Prisma.SessionScalarFieldEnum = {
@@ -165,21 +166,119 @@ exports.Prisma.AgentNoteScalarFieldEnum = {
   value: 'value'
 };
 
-exports.Prisma.MissionScalarFieldEnum = {
+exports.Prisma.ExperimentScalarFieldEnum = {
   id: 'id',
   createdAt: 'createdAt',
-  completedAt: 'completedAt',
   userId: 'userId',
-  title: 'title',
-  instructions: 'instructions',
+  threadId: 'threadId',
+  hypothesis: 'hypothesis',
+  task: 'task',
+  successCriteria: 'successCriteria',
+  timeoutS: 'timeoutS',
+  title: 'title'
+};
+
+exports.Prisma.ExperimentEventScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  experimentId: 'experimentId',
+  observation: 'observation',
+  result: 'result',
+  score: 'score'
+};
+
+exports.Prisma.GameSessionScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
   status: 'status',
-  dueBy: 'dueBy',
-  reportUrl: 'reportUrl'
+  summary: 'summary',
+  userId: 'userId'
+};
+
+exports.Prisma.GameMessageScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  role: 'role',
+  content: 'content',
+  gameSessionId: 'gameSessionId'
+};
+
+exports.Prisma.MemoryEventScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  type: 'type',
+  content: 'content',
+  tags: 'tags',
+  userId: 'userId',
+  sessionId: 'sessionId'
+};
+
+exports.Prisma.MemoryEmbeddingScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  provider: 'provider',
+  dimensions: 'dimensions',
+  vector: 'vector',
+  memoryEventId: 'memoryEventId'
+};
+
+exports.Prisma.PlayerProfileScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  traits: 'traits',
+  skills: 'skills',
+  preferences: 'preferences',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.MissionDefinitionScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  title: 'title',
+  prompt: 'prompt',
+  type: 'type',
+  minEvidence: 'minEvidence',
+  tags: 'tags',
+  active: 'active'
+};
+
+exports.Prisma.MissionRunScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  status: 'status',
+  score: 'score',
+  feedback: 'feedback',
+  payload: 'payload',
+  missionId: 'missionId',
+  userId: 'userId',
+  sessionId: 'sessionId'
+};
+
+exports.Prisma.RewardScalarFieldEnum = {
+  id: 'id',
+  createdAt: 'createdAt',
+  type: 'type',
+  amount: 'amount',
+  metadata: 'metadata',
+  userId: 'userId',
+  missionRunId: 'missionRunId'
 };
 
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
+};
+
+exports.Prisma.JsonNullValueInput = {
+  JsonNull: Prisma.JsonNull
+};
+
+exports.Prisma.NullableJsonNullValueInput = {
+  DbNull: Prisma.DbNull,
+  JsonNull: Prisma.JsonNull
 };
 
 exports.Prisma.QueryMode = {
@@ -191,6 +290,12 @@ exports.Prisma.NullsOrder = {
   first: 'first',
   last: 'last'
 };
+
+exports.Prisma.JsonNullValueFilter = {
+  DbNull: Prisma.DbNull,
+  JsonNull: Prisma.JsonNull,
+  AnyNull: Prisma.AnyNull
+};
 exports.Role = exports.$Enums.Role = {
   AGENT: 'AGENT',
   ADMIN: 'ADMIN'
@@ -201,13 +306,51 @@ exports.ThreadKind = exports.$Enums.ThreadKind = {
   OPS: 'OPS'
 };
 
+exports.SessionStatus = exports.$Enums.SessionStatus = {
+  OPEN: 'OPEN',
+  CLOSED: 'CLOSED'
+};
+
+exports.MemoryEventType = exports.$Enums.MemoryEventType = {
+  OBSERVATION: 'OBSERVATION',
+  REFLECTION: 'REFLECTION',
+  MISSION: 'MISSION',
+  REPORT: 'REPORT',
+  SYSTEM: 'SYSTEM',
+  TOOL: 'TOOL'
+};
+
+exports.MissionRunStatus = exports.$Enums.MissionRunStatus = {
+  PENDING: 'PENDING',
+  ACCEPTED: 'ACCEPTED',
+  SUBMITTED: 'SUBMITTED',
+  REVIEWING: 'REVIEWING',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED'
+};
+
+exports.RewardType = exports.$Enums.RewardType = {
+  CREDIT: 'CREDIT',
+  TOKEN: 'TOKEN',
+  BADGE: 'BADGE'
+};
+
 exports.Prisma.ModelName = {
   User: 'User',
   Session: 'Session',
   Thread: 'Thread',
   Message: 'Message',
   AgentNote: 'AgentNote',
-  Mission: 'Mission'
+  Experiment: 'Experiment',
+  ExperimentEvent: 'ExperimentEvent',
+  GameSession: 'GameSession',
+  GameMessage: 'GameMessage',
+  MemoryEvent: 'MemoryEvent',
+  MemoryEmbedding: 'MemoryEmbedding',
+  PlayerProfile: 'PlayerProfile',
+  MissionDefinition: 'MissionDefinition',
+  MissionRun: 'MissionRun',
+  Reward: 'Reward'
 };
 
 /**

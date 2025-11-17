@@ -25,13 +25,40 @@ export class MainScreen extends BaseScreen {
   }
 
   async handleCommand(ctx: TerminalContext): Promise<void> {
-    const command = this.commandRegistry.getCommand(ctx.command);
+    const raw = String(ctx.command || "").trim();
+    const command = this.commandRegistry.getCommand(raw);
     if (command) {
       await command.handler(ctx);
       return;
     }
-
-    // Handle other commands...
+    const lower = raw.toLowerCase();
+    const toRoute = async (route: string) =>
+      (this.terminal as any).emit("screen:transition", { to: route });
+    if (lower === "1" || lower.includes("hyperstition")) {
+      await toRoute("hyperstition");
+      ctx.handled = true;
+      return;
+    }
+    if (lower === "2" || lower.includes("scanner") || lower.includes("matrix")) {
+      await toRoute("scanner");
+      ctx.handled = true;
+      return;
+    }
+    if (lower === "3" || lower.includes("sigil")) {
+      await toRoute("sigils");
+      ctx.handled = true;
+      return;
+    }
+    if (lower === "4" || lower.includes("conscious")) {
+      await toRoute("consciousness");
+      ctx.handled = true;
+      return;
+    }
+    if (lower === "5" || lower.includes("dream")) {
+      await toRoute("dreamscape");
+      ctx.handled = true;
+      return;
+    }
   }
 
   private banner = `
@@ -150,6 +177,10 @@ export class MainScreen extends BaseScreen {
         speed: "instant",
       }
     );
+    await this.terminal.print(leftPadding + "Open a tool: 1 | 2 | 3 | 4 | 5", {
+      color: TERMINAL_COLORS.secondary,
+      speed: "instant",
+    });
     await this.terminal.print(
       leftPadding +
         "-----------------------------------------------------------------------------",
