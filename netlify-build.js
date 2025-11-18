@@ -21,43 +21,14 @@ if (!fs.existsSync(prismaClientDir)) {
   fs.mkdirSync(prismaClientDir, { recursive: true });
 }
 
-// Skip Prisma generation in production, use mock instead
-console.log("⚙️ Skipping Prisma generation, using mock client...");
-fs.writeFileSync(
-  path.join(prismaClientDir, "index.js"),
-  `
-// Mock Prisma client for Netlify builds
-class PrismaClient {
-  constructor() {
-    console.log('Using mock PrismaClient');
-  }
-
-  user = {
-    findUnique: async () => null,
-    findMany: async () => [],
-    create: async () => ({}),
-    update: async () => ({}),
-  };
-
-  session = {
-    findUnique: async () => null,
-    findMany: async () => [],
-    create: async () => ({}),
-    delete: async () => ({}),
-  };
+// Generate Prisma client
+console.log("🔧 Generating Prisma client...");
+try {
+  execSync("npx prisma generate", { stdio: "inherit" });
+} catch (error) {
+  console.error("Failed to generate Prisma client:", error);
+  process.exit(1);
 }
-
-const Role = {
-  AGENT: "AGENT",
-  ADMIN: "ADMIN"
-};
-
-module.exports = {
-  PrismaClient,
-  Role
-};
-`
-);
 
 // Build the Next.js application
 console.log("🏗️ Building Next.js application...");
