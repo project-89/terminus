@@ -63,6 +63,7 @@ export class RetroMediaScreen extends BaseScreen {
     this.analyser.fftSize = 256;
     source.connect(this.analyser);
     this.analyser.connect(this.audioContext.destination);
+    // Explicitly create a standard Uint8Array with the correct length
     this.visualizerData = new Uint8Array(this.analyser.frequencyBinCount);
   }
 
@@ -128,7 +129,7 @@ export class RetroMediaScreen extends BaseScreen {
   }
 
   private renderVisualizer() {
-    this.analyser.getByteFrequencyData(this.visualizerData);
+    this.analyser.getByteFrequencyData(this.visualizerData as any);
 
     // Clear visualizer area with slight trail effect
     this.ctx.fillStyle = "rgba(9, 8, 18, 0.3)";

@@ -19,7 +19,7 @@ export async function GET(req: Request) {
           throw new Error("Expected binary content for PDF response");
         }
 
-        return new Response(content, {
+        return new Response(content as any, {
           headers: {
             "Content-Type": "application/pdf",
             "Content-Disposition": "inline",
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
           txt: "text/plain",
         }[extension || ""] || "text/plain";
 
-      return new Response(content, {
+      return new Response(content as any, {
         headers: { "Content-Type": contentType },
       });
     } else {
