@@ -142,6 +142,8 @@ export const adventureMiddleware: TerminalMiddleware = async (
       handle,
       activeMissionRunId: context.getState().activeMissionRunId,
       reportJustSubmitted: Boolean(reportSummary),
+      accessTier: state.accessTier ?? 0,
+      hasFullAccess: Boolean(state.hasFullAccess),
     });
     if (!stream) {
       throw new Error("Failed to get adventure response");

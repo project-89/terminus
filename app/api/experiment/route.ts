@@ -1,0 +1,101 @@
+import { NextResponse } from "next/server";
+import {
+  createExperiment,
+  appendExperimentNote,
+} from "@/app/lib/server/experimentService";
+import {
+  getSessionById,
+  getActiveSessionByHandle,
+} from "@/app/lib/server/sessionService";
+
+type ResolveParams = {
+  sessionId?: string | null;
+  handle?: string | null;
+};
+
+async function resolveUserId({ sessionId, handle }: ResolveParams) {
+  if (sessionId) {
+    const session = await getSessionById(sessionId);
+    if (session) {
+      return { userId: session.userId, handle: session.handle };
+    }
+  }
+  if (handle) {
+    const session = await getActiveSessionByHandle(handle);
+    if (session) {
+      return { userId: session.userId, handle: session.handle };
+    }
+  }
+  return null;
+}
+
+export async function POST(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  const action = body?.action === "note" ? "note" : "create";
+
+  const resolution = await resolveUserId({
+    sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
+    handle: typeof body.handle === "string" ? body.handle : undefined,
+  });
+
+  if (!resolution) {
+    return NextResponse.json(
+      { error: "Unable to resolve user" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    if (action === "note") {
+      if (!body.id) {
+        return NextResponse.json(
+          { error: "Experiment id required" },
+          { status: 400 }
+        );
+      }
+      const note = await appendExperimentNote({
+        userId: resolution.userId,
+        threadId:
+          typeof body.threadId === "string" ? body.threadId : undefined,
+        id: body.id,
+        observation:
+          typeof body.observation === "string" ? body.observation : undefined,
+        result: typeof body.result === "string" ? body.result : undefined,
+        score:
+          typeof body.score === "number" ? Math.max(0, Math.min(1, body.score)) : undefined,
+      });
+      return NextResponse.json({ note });
+    }
+
+    if (!body.hypothesis || !body.task) {
+      return NextResponse.json(
+        { error: "hypothesis and task are required" },
+        { status: 400 }
+      );
+    }
+
+    const experiment = await createExperiment({
+      userId: resolution.userId,
+      threadId:
+        typeof body.threadId === "string" ? body.threadId : undefined,
+      expId: typeof body.id === "string" ? body.id : undefined,
+      hypothesis: body.hypothesis,
+      task: body.task,
+      success_criteria:
+        typeof body.success_criteria === "string"
+          ? body.success_criteria
+          : undefined,
+      timeout_s:
+        typeof body.timeout_s === "number" ? Math.round(body.timeout_s) : undefined,
+      title: typeof body.title === "string" ? body.title : undefined,
+    });
+
+    return NextResponse.json({ experiment });
+  } catch (error) {
+    console.error("Experiment API error:", error);
+    return NextResponse.json(
+      { error: "Failed to process experiment request" },
+      { status: 500 }
+    );
+  }
+}

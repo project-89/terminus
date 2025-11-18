@@ -1,12 +1,16 @@
+export type AdventureRequestContext = {
+  sessionId?: string;
+  handle?: string;
+  activeMissionRunId?: string;
+  reportSummary?: string | null;
+  reportJustSubmitted?: boolean;
+  accessTier?: number;
+  hasFullAccess?: boolean;
+};
+
 export async function getAdventureResponse(
   messages: any[],
-  context?: {
-    sessionId?: string;
-    handle?: string;
-    activeMissionRunId?: string;
-    reportSummary?: string | null;
-    reportJustSubmitted?: boolean;
-  }
+  context?: AdventureRequestContext
 ) {
   const response = await fetch("/api/adventure", {
     method: "POST",

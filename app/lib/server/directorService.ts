@@ -13,6 +13,7 @@ export type DirectorContext = {
     traits?: Record<string, number>;
     preferences?: Record<string, any>;
     consent?: boolean;
+    accessTier?: number;
   };
   director?: {
     phase?: DirectorPhase;
@@ -101,6 +102,7 @@ export async function buildDirectorContext(input: {
   handle?: string;
   sessionId?: string;
   reportJustSubmitted?: boolean;
+  clientAccessTier?: number;
 }): Promise<DirectorContext> {
   const { handle, reportJustSubmitted } = input || {};
   const userId = (await getUserIdByHandle(handle)) || "";
@@ -141,6 +143,9 @@ export async function buildDirectorContext(input: {
     justReported: !!reportJustSubmitted,
   });
 
+  const clientAccessTier =
+    typeof input?.clientAccessTier === "number" ? input.clientAccessTier : 0;
+
   return {
     player: {
       handle,
@@ -148,6 +153,7 @@ export async function buildDirectorContext(input: {
       traits: profile?.traits as any,
       preferences: { verbosity: "rich", ...(profile?.preferences as any) },
       consent: Boolean(profile?.preferences?.consent ?? true),
+      accessTier: clientAccessTier,
     },
     director: {
       phase,

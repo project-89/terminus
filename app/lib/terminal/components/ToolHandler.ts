@@ -57,6 +57,17 @@ export class ToolHandler {
     }
   }
 
+  private async ensureSessionContext() {
+    const terminalContext = TerminalContext.getInstance();
+    const handle = terminalContext.ensureHandle("agent");
+    const sessionId = await terminalContext.ensureSession({ handle });
+    if (!sessionId) {
+      return null;
+    }
+    const threadId = await terminalContext.ensureThread(handle);
+    return { terminalContext, handle, sessionId, threadId };
+  }
+
   private async handleTool(name: string, params: any) {
     const handler = this.tools.get(`tool:${name}`);
     if (handler) {
@@ -351,27 +362,40 @@ export class ToolHandler {
         success_criteria?: string;
         timeout_s?: number;
       }) => {
+        const context = await this.ensureSessionContext();
+        if (!context) {
+          await this.terminal.print("Experiment create failed: session missing.", {
+            color: TERMINAL_COLORS.error,
+            speed: "fast",
+          });
+          return;
+        }
+
         try {
-          const terminalContext = TerminalContext.getInstance();
-          const handle = terminalContext.ensureHandle("agent");
-          const threadId = terminalContext.getState().threadId;
-          await fetch("/api/experiments", {
+          await fetch("/api/experiment", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               action: "create",
-              userHandle: handle,
-              threadId,
-              id: params?.id,
-              title: params?.title,
-              hypothesis: params.hypothesis,
-              task: params.task,
-              success_criteria: params?.success_criteria,
-              timeout_s: params?.timeout_s,
+              sessionId: context.sessionId,
+              handle: context.handle,
+              threadId: context.threadId,
+              ...params,
             }),
           });
+          await this.terminal.print(
+            `\n[Experiment logged] ${params.title || params.id || "untitled"} — ${params.hypothesis}`,
+            {
+              color: TERMINAL_COLORS.system,
+              speed: "fast",
+            }
+          );
         } catch (error) {
           console.warn("experiment_create failed", error);
+          await this.terminal.print("Failed to record experiment.", {
+            color: TERMINAL_COLORS.error,
+            speed: "fast",
+          });
         }
       },
     });
@@ -385,25 +409,41 @@ export class ToolHandler {
         score?: number;
       }) => {
         if (!params?.id) return;
+        const context = await this.ensureSessionContext();
+        if (!context) {
+          await this.terminal.print("Experiment note failed: session missing.", {
+            color: TERMINAL_COLORS.error,
+            speed: "fast",
+          });
+          return;
+        }
+
         try {
-          const terminalContext = TerminalContext.getInstance();
-          const handle = terminalContext.ensureHandle("agent");
-          const threadId = terminalContext.getState().threadId;
-          await fetch("/api/experiments", {
+          await fetch("/api/experiment", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               action: "note",
-              userHandle: handle,
-              threadId,
-              id: params.id,
-              observation: params?.observation,
-              result: params?.result,
-              score: params?.score,
+              sessionId: context.sessionId,
+              handle: context.handle,
+              threadId: context.threadId,
+              ...params,
             }),
+          });
+          const summary =
+            params.result || params.observation || (typeof params.score === "number"
+              ? `score ${(params.score * 100).toFixed(0)}%`
+              : "updated");
+          await this.terminal.print(`\n[Experiment note] ${params.id}: ${summary}`, {
+            color: TERMINAL_COLORS.secondary,
+            speed: "fast",
           });
         } catch (error) {
           console.warn("experiment_note failed", error);
+          await this.terminal.print("Failed to append experiment note.", {
+            color: TERMINAL_COLORS.error,
+            speed: "fast",
+          });
         }
       },
     });

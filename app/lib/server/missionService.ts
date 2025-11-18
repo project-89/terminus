@@ -1,6 +1,14 @@
 import prisma from "@/app/lib/prisma";
-import { memoryStore, uid, touch, MemoryMissionDefinition, MemoryMissionRun, MemoryReward } from "./memoryStore";
-import type { SessionRecord } from "./sessionService";
+import {
+  memoryStore,
+  uid,
+  touch,
+  MemoryMissionDefinition,
+  MemoryMissionRun,
+  MemoryReward,
+} from "./memoryStore";
+import { getProfile, ProfileRecord } from "./profileService";
+import { getMissionCatalog, MissionCatalogEntry } from "../missions/catalog";
 
 export type MissionDefinitionRecord = {
   id: string;
@@ -19,69 +27,6 @@ export type MissionRunRecord = {
   feedback?: string;
 };
 
-const SEED_MISSIONS: MissionDefinitionRecord[] = [
-  {
-    id: "",
-    title: "Decode the Matrix Echo",
-    prompt:
-      "An anomalous broadcast repeats numbers in base-89. Decode the hidden phrase and report its meaning.",
-    type: "decode",
-    minEvidence: 1,
-    tags: ["logic", "signal", "numerics"],
-  },
-  {
-    id: "",
-    title: "Reality Fracture Observation",
-    prompt:
-      "Capture an image or detailed description of a liminal space near you that feels 'out of phase'. Note colors, sounds, and any presence felt.",
-    type: "observe",
-    minEvidence: 1,
-    tags: ["perception", "field"],
-  },
-  {
-    id: "",
-    title: "Hyperstitional Meme Draft",
-    prompt:
-      "Draft a short memetic fragment (≤120 words) that could seed belief in the Project 89 resistance. Keep tone mysterious, hopeful, and subversive.",
-    type: "create",
-    minEvidence: 1,
-    tags: ["creation", "memetic"],
-  },
-];
-
-async function seedMissions(): Promise<void> {
-  try {
-    const existing = await prisma.missionDefinition.findMany();
-    if (existing.length > 0) return;
-    await prisma.missionDefinition.createMany({
-      data: SEED_MISSIONS.map((mission) => ({
-        title: mission.title,
-        prompt: mission.prompt,
-        type: mission.type,
-        minEvidence: mission.minEvidence,
-        tags: mission.tags,
-      })),
-    });
-  } catch {
-    if (memoryStore.missions.size > 0) return;
-    SEED_MISSIONS.forEach((mission) => {
-      const now = new Date();
-      const record: MemoryMissionDefinition = {
-        id: uid(),
-        title: mission.title,
-        prompt: mission.prompt,
-        type: mission.type,
-        minEvidence: mission.minEvidence,
-        tags: mission.tags,
-        active: true,
-        createdAt: now,
-        updatedAt: now,
-      };
-      memoryStore.missions.set(record.id, record);
-    });
-  }
-}
-
 async function mapDefinition(record: any): Promise<MissionDefinitionRecord> {
   if (!record) throw new Error("Mission definition not found");
   return {
@@ -94,30 +39,205 @@ async function mapDefinition(record: any): Promise<MissionDefinitionRecord> {
   };
 }
 
-export async function getNextMission(userId: string): Promise<MissionDefinitionRecord | null> {
-  await seedMissions();
+const CATALOG_TAG_PREFIX = "catalog:";
+
+function getCatalogTag(slug: string) {
+  return `${CATALOG_TAG_PREFIX}${slug}`;
+}
+
+function extractCatalogTag(tags?: string[]): string | undefined {
+  if (!Array.isArray(tags)) return undefined;
+  const tag = tags.find((t) => t.startsWith(CATALOG_TAG_PREFIX));
+  return tag ? tag.slice(CATALOG_TAG_PREFIX.length) : undefined;
+}
+
+type PlayerMissionSignal = {
+  profile: ProfileRecord;
+  trustScore: number;
+  weakestTrack?: string;
+  completedSlugs: Set<string>;
+};
+
+async function resolveMissionRuns(userId: string) {
   try {
-    const runs = (await prisma.missionRun.findMany({
+    return await prisma.missionRun.findMany({
       where: { userId },
-      select: { missionId: true },
-    })) as Array<{ missionId: string }>;
-    const completedMissionIds = new Set(runs.map((run) => run.missionId));
-    const definitions = (await prisma.missionDefinition.findMany({
-      where: { active: true },
-    })) as Array<Record<string, any>>;
-    const next = definitions.find((def) => !completedMissionIds.has(def.id));
-    if (!next) return null;
-    return mapDefinition(next);
+      include: { mission: true },
+    });
   } catch {
-    const runs = memoryStore.missionRunsByUser.get(userId) || [];
-    const completed = new Set(runs.map((run) => run.missionId));
-    for (const mission of Array.from(memoryStore.missions.values())) {
-      if (mission.active && !completed.has(mission.id)) {
-        return mapDefinition(mission);
+    return memoryStore.missionRunsByUser.get(userId) || [];
+  }
+}
+
+function computeTrustScoreFromRuns(
+  runs: Array<{ score?: number }>
+): number {
+  if (!runs || runs.length === 0) return 0.2;
+  const recent = runs
+    .filter((r) => typeof r.score === "number")
+    .slice(-5) as Array<{ score: number }>;
+  if (recent.length === 0) return 0.25;
+  const avg =
+    recent.reduce((sum, run) => sum + (run.score ?? 0), 0) / recent.length;
+  return Math.max(0.1, Math.min(1, avg));
+}
+
+async function buildPlayerMissionSignal(userId: string): Promise<PlayerMissionSignal> {
+  const profile = await getProfile(userId);
+  const runs = await resolveMissionRuns(userId);
+  const trustScore = computeTrustScoreFromRuns(runs);
+
+  const completedSlugs = new Set<string>();
+  for (const run of runs) {
+    let tags =
+      (run as any)?.mission?.tags ??
+      (run as MemoryMissionRun as any)?.tags;
+    if (!tags && "missionId" in (run as any)) {
+      const memMission = memoryStore.missions.get(
+        (run as any).missionId
+      );
+      tags = memMission?.tags;
+    }
+    const slug = extractCatalogTag(tags);
+    if (slug) completedSlugs.add(slug);
+  }
+
+  const skills = profile?.skills || {};
+  const trackEntries = Object.entries(skills);
+  let weakestTrack: string | undefined;
+  if (trackEntries.length > 0) {
+    weakestTrack = trackEntries.reduce((lowest, [track, value]) => {
+      if (!lowest) return track;
+      const current = skills[lowest] ?? 0;
+      return value < current ? track : lowest;
+    }, trackEntries[0][0]);
+  }
+
+  return { profile, trustScore, weakestTrack, completedSlugs };
+}
+
+function scoreMissionEntry(
+  entry: MissionCatalogEntry,
+  signal: PlayerMissionSignal
+): number {
+  const { trustScore, profile, weakestTrack } = signal;
+  if (typeof entry.minTrust === "number" && trustScore < entry.minTrust) {
+    return -Infinity;
+  }
+  if (typeof entry.maxTrust === "number" && trustScore > entry.maxTrust) {
+    return -Infinity;
+  }
+
+  const traits = profile?.traits || {};
+  if (entry.requiredTraits) {
+    for (const [trait, threshold] of Object.entries(entry.requiredTraits)) {
+      if (Number(traits[trait] ?? 0) < threshold) {
+        return -Infinity;
       }
     }
+  }
+
+  let score = entry.priority ?? 0;
+  if (entry.preferredTraits) {
+    for (const [trait, target] of Object.entries(entry.preferredTraits)) {
+      const value = Number(traits[trait] ?? 0);
+      score += Math.max(0, value - target / 2);
+    }
+  }
+
+  if (weakestTrack && entry.track === weakestTrack) {
+    score += 1.5;
+  }
+
+  // Encourage variety when trust increases
+  score += trustScore * 0.5;
+
+  // Tiny noise to break ties
+  score += Math.random() * 0.1;
+
+  return score;
+}
+
+async function ensureMissionDefinitionFromCatalog(
+  entry: MissionCatalogEntry
+): Promise<MissionDefinitionRecord> {
+  const catalogTag = getCatalogTag(entry.id);
+  const tags = Array.from(new Set([catalogTag, ...entry.tags]));
+
+  try {
+    const existing = await prisma.missionDefinition.findFirst({
+      where: {
+        tags: {
+          has: catalogTag,
+        },
+      },
+    });
+    if (existing) {
+      return mapDefinition(existing);
+    }
+    const created = await prisma.missionDefinition.create({
+      data: {
+        title: entry.title,
+        prompt: entry.prompt,
+        type: entry.type,
+        minEvidence: 1,
+        tags,
+        active: true,
+      },
+    });
+    return mapDefinition(created);
+  } catch {
+    // Fallback to memory store
+    let definition = Array.from(memoryStore.missions.values()).find((mission) =>
+      mission.tags?.includes(catalogTag)
+    );
+    if (!definition) {
+      const now = new Date();
+      definition = {
+        id: uid(),
+        title: entry.title,
+        prompt: entry.prompt,
+        type: entry.type,
+        minEvidence: 1,
+        tags,
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      memoryStore.missions.set(definition.id, definition);
+    }
+    return mapDefinition(definition);
+  }
+}
+
+export async function getNextMission(userId: string): Promise<MissionDefinitionRecord | null> {
+  const signal = await buildPlayerMissionSignal(userId);
+  const catalog = getMissionCatalog();
+
+  const candidates = catalog
+    .filter((entry) => {
+      if (!entry.repeatable && signal.completedSlugs.has(entry.id)) {
+        return false;
+      }
+      return true;
+    })
+    .map((entry) => ({
+      entry,
+      score: scoreMissionEntry(entry, signal),
+    }))
+    .filter(({ score }) => Number.isFinite(score))
+    .sort((a, b) => b.score - a.score);
+
+  const chosen =
+    candidates.length > 0
+      ? candidates[0].entry
+      : catalog[Math.floor(Math.random() * catalog.length)];
+
+  if (!chosen) {
     return null;
   }
+
+  return ensureMissionDefinitionFromCatalog(chosen);
 }
 
 export async function acceptMission(params: {
@@ -126,7 +246,6 @@ export async function acceptMission(params: {
   sessionId?: string;
 }): Promise<MissionRunRecord> {
   const { missionId, userId, sessionId } = params;
-  await seedMissions();
   try {
     const run = await prisma.missionRun.create({
       data: {
