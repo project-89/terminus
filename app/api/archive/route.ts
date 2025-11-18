@@ -14,6 +14,11 @@ export async function GET(req: Request) {
       if (extension === "pdf") {
         // For PDFs, return the raw buffer
         const content = await fileProvider.readFile(path, true); // Add support for binary reading
+        
+        if (!Buffer.isBuffer(content)) {
+          throw new Error("Expected binary content for PDF response");
+        }
+
         return new Response(content, {
           headers: {
             "Content-Type": "application/pdf",
