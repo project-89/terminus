@@ -73,6 +73,16 @@ try {
       create: async () => ({}),
       findMany: async () => [],
     };
+
+    thread = {
+      findUnique: async () => null,
+      create: async () => ({ id: "mock-thread-id" }),
+    };
+
+    message = {
+      findMany: async () => [],
+      createMany: async () => ({ count: 0 }),
+    };
   };
 }
 

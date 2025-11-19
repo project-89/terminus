@@ -1,5 +1,5 @@
 [build]
-  command = "node netlify-build.js"
+  command = "npm run build"
   publish = ".next"
 
 # Define environment variables for the build
