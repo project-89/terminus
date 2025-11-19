@@ -83,6 +83,21 @@ try {
       findMany: async () => [],
       createMany: async () => ({ count: 0 }),
     };
+
+    experiment = {
+      findMany: async () => [],
+      create: async () => ({ id: "mock-exp-id", createdAt: new Date() }),
+    };
+
+    experimentEvent = {
+      create: async () => ({}),
+      findMany: async () => [],
+    };
+
+    agentNote = {
+      findMany: async () => [],
+      create: async () => ({}),
+    };
   };
 }
 
