@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev -p 8889",
     "build": "next build",
+    "prebuild": "prisma generate",
     "netlify:build": "prisma generate && next build",
     "start": "next start -p 8888",
     "lint": "next lint",
