@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 8889",
-    "build": "npx prisma generate && next build",
+    "build": "next build",
+    "netlify:build": "prisma generate && next build",
     "start": "next start -p 8888",
     "lint": "next lint",
     "prisma:generate": "prisma generate",
