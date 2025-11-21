@@ -1,15 +1,17 @@
 import { z } from "zod";
 
 export interface ServerToolResult {
-  type: "image" | "sound";
-  url: string;
+  type: "image" | "sound" | "data";
+  url?: string;
   metadata?: Record<string, any>;
+  success?: boolean;
 }
 
 // Server-side tool definitions
 export const serverTools = {
   generate_image: {
     name: "generate_image",
+// ...
     description: "Generates a cyberpunk-themed image",
     parameters: z.object({
       prompt: z.string().describe("Image description"),

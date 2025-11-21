@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal, TERMINAL_COLORS } from "@/app/lib/terminal/Terminal";
 import { FluidScreen } from "@/app/lib/terminal/screens/FluidScreen";
 import { analytics } from "@/app/lib/analytics";
 import { ScreenRouter } from "@/app/lib/terminal/ScreenRouter";
 import { TerminalContext } from "@/app/lib/terminal/TerminalContext";
+import { ShaderOverlay } from "./ShaderOverlay";
+import { toolEvents } from "@/app/lib/terminal/tools/registry";
 
 export function TerminalCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -18,9 +20,30 @@ export function TerminalCanvas() {
   const isScrollingRef = useRef<boolean>(false);
   const baseBottomPaddingRef = useRef<number>(0);
 
+  // Shader state
+  const [shaderActive, setShaderActive] = useState(false);
+  const [shaderCode, setShaderCode] = useState<string>("");
+  const [shaderDuration, setShaderDuration] = useState<number>(5000);
+
   const isMobile = () => {
     return typeof window !== "undefined" && window.innerWidth < 480;
   };
+
+  // Handle tool events for shaders
+  useEffect(() => {
+    const handleShader = (params: any) => {
+      if (params && params.glsl) {
+        setShaderCode(params.glsl);
+        setShaderDuration(params.duration || 5000);
+        setShaderActive(true);
+      }
+    };
+
+    toolEvents.on("tool:generate_shader", handleShader);
+    return () => {
+      toolEvents.off("tool:generate_shader", handleShader);
+    };
+  }, []);
 
   // Initialize terminal once
   useEffect(() => {
@@ -205,7 +228,12 @@ export function TerminalCanvas() {
     function handleWheel(e: WheelEvent) {
       if (!terminalRef.current) return;
       e.preventDefault();
-      terminalRef.current.scroll(e.deltaY);
+      // Normalize delta: usually deltaY is ~100 for mouse wheels, or variable for trackpads.
+      // Terminal.scroll expects a "direction" multiplier, where 1 = 1 line.
+      // We'll scale it down significantly.
+      const sensitivity = 0.05;
+      const direction = Math.sign(e.deltaY) * Math.min(1, Math.abs(e.deltaY) * sensitivity);
+      terminalRef.current.scroll(direction);
     }
 
     // Attach event listener to the canvas element
@@ -232,22 +260,38 @@ export function TerminalCanvas() {
       touchStartXRef.current = t.clientX;
       touchStartTimeRef.current = performance.now();
       isScrollingRef.current = false;
+      
+      // Dismiss shader on interaction
+      if (shaderActive) {
+        setShaderActive(false);
+      }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
       if (!terminalRef.current) return;
       if (touchStartYRef.current === null) return;
+      
       const t = e.touches[0];
-      const dy = touchStartYRef.current - t.clientY;
-      const dx = (touchStartXRef.current ?? t.clientX) - t.clientX;
-      const moved = Math.hypot(dx, dy);
-      const moveThreshold = 6;
-      if (moved > moveThreshold) {
-        isScrollingRef.current = true;
+      const dy = touchStartYRef.current - t.clientY; // Positive = dragging finger up = scrolling down
+      
+      // If we haven't locked into scrolling yet, check threshold
+      if (!isScrollingRef.current) {
+        const dx = (touchStartXRef.current ?? t.clientX) - t.clientX;
+        const moved = Math.hypot(dx, dy);
+        if (moved > 5) {
+          isScrollingRef.current = true;
+        }
       }
+
       if (isScrollingRef.current) {
-        e.preventDefault();
-        terminalRef.current.scroll(dy);
+        e.preventDefault(); // Prevent native page scroll
+        
+        // Normalize for terminal scroll (which expects line-multipliers)
+        // 50px drag should equate to maybe 1 line? 
+        // 1 line ~ 24px. 
+        const lines = dy / 24; 
+        
+        terminalRef.current.scroll(lines);
         touchStartYRef.current = t.clientY; // incremental scrolling
       }
     };
@@ -256,6 +300,8 @@ export function TerminalCanvas() {
       const now = performance.now();
       const duration = now - touchStartTimeRef.current;
       const wasScroll = isScrollingRef.current;
+      
+      // Reset
       touchStartYRef.current = null;
       touchStartXRef.current = null;
       isScrollingRef.current = false;
@@ -299,6 +345,11 @@ export function TerminalCanvas() {
 
   // Add input keydown handler
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Dismiss active shader on input
+    if (shaderActive) {
+      setShaderActive(false);
+    }
+
     e.preventDefault();
     if (!terminalRef.current) return;
 
@@ -459,6 +510,13 @@ export function TerminalCanvas() {
             const h = el ? el.clientHeight : undefined;
             return h ? Math.max(1, Math.floor(h * dpr)) : undefined;
           })()}
+        />
+        <ShaderOverlay 
+          active={shaderActive} 
+          fragmentShader={shaderCode} 
+          duration={shaderDuration} 
+          sourceCanvas={canvasRef.current}
+          onComplete={() => setShaderActive(false)} 
         />
         <input
           ref={hiddenInputRef}

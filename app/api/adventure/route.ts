@@ -131,6 +131,21 @@ type ToolRuntimeContext = AdventureContext & {
   trustScore?: number;
 };
 
+const generateShaderParameters = z.object({
+  glsl: z.string().describe("Fragment shader code (GLSL) to render on overlay. Uniforms: time (float), resolution (vec2)."),
+  duration: z.number().min(100).max(30000).describe("Duration in milliseconds to run the shader"),
+});
+
+// ... existing parameter definitions ...
+
+const puzzleCreateParameters = z.object({
+  solution: z.string().describe("The exact answer/keyword the user must input"),
+  clues: z.string().describe("Description of the multi-modal clues (audio/visual) provided"),
+  context: z.string().optional().describe("Narrative context or failure message hint"),
+});
+
+const puzzleSolveParameters = z.object({});
+
 // Function to generate tools configuration
 function getToolsConfig(context?: ToolRuntimeContext) {
   const accessTier = context?.accessTier ?? 0;
@@ -150,10 +165,23 @@ function getToolsConfig(context?: ToolRuntimeContext) {
         "Generates and plays an AI-generated sound effect based on description. Use this to enhace the story or alter reality.",
       parameters: soundParameters,
     },
+    generate_shader: {
+      description: "Generates and runs a custom WebGL fragment shader on the terminal overlay. Use this to create visual hallucinations, reality distortions, or melting text. Uniforms available: time (float), resolution (vec2), u_texture (sampler2D - containing the current terminal screen). Default behavior is opaque; use u_texture for distortion effects.",
+      parameters: generateShaderParameters,
+    },
+    puzzle_create: {
+      description: "Start a new puzzle state. Locks narrative until solved.",
+      parameters: puzzleCreateParameters,
+    },
+    puzzle_solve: {
+      description: "Mark the current active puzzle as solved.",
+      parameters: puzzleSolveParameters,
+    },
     matrix_rain: {
       description: "Creates a matrix-style digital rain effect",
       parameters: matrixRainParameters,
     },
+// ... rest of the file
     experiment_create: {
       description:
         "Log a new behavioral experiment you want the agent to perform. Use before giving the task.",
@@ -192,6 +220,12 @@ function getToolsConfig(context?: ToolRuntimeContext) {
       persona_set: {
         description: "Modulate the LOGOS persona (cloak/reveal).",
         parameters: personaSetParameters,
+      },
+      verify_protocol_89: {
+        description: "Initiate final verification protocol (The Golden Glitch). Use ONLY when the user claims to have the final key or has reached max trust. Server-side check.",
+        parameters: z.object({
+          key: z.string().describe("The key or passphrase provided by the user."),
+        }),
       },
     });
   }

@@ -1,3 +1,7 @@
+import { z } from "zod";
+import { generateObject } from "ai";
+import { getModel } from "@/app/lib/ai/models";
+import { rewardService } from "@/app/lib/services/rewardService";
 import prisma from "@/app/lib/prisma";
 import {
   memoryStore,
@@ -26,6 +30,12 @@ export type MissionRunRecord = {
   score?: number;
   feedback?: string;
 };
+
+const ReportEvaluationSchema = z.object({
+  score: z.number().min(0).max(1).describe("Evaluation score between 0 and 1. 1 is perfect."),
+  feedback: z.string().describe("Brief, in-universe feedback from a handler."),
+  rewardAdjustment: z.number().min(0.5).max(2.0).optional().describe("Multiplier for reward based on quality (default 1.0)"),
+});
 
 async function mapDefinition(record: any): Promise<MissionDefinitionRecord> {
   if (!record) throw new Error("Mission definition not found");
@@ -163,19 +173,22 @@ async function ensureMissionDefinitionFromCatalog(
 ): Promise<MissionDefinitionRecord> {
   const catalogTag = getCatalogTag(entry.id);
   const tags = Array.from(new Set([catalogTag, ...entry.tags]));
+  console.log(`[MissionService] Ensuring definition for ${entry.id} (tag: ${catalogTag})`);
 
+  let definition: any = null;
+
+  // Try Prisma
   try {
     const existing = await prisma.missionDefinition.findFirst({
-      where: {
-        tags: {
-          has: catalogTag,
-        },
-      },
+      where: { tags: { has: catalogTag } },
     });
     if (existing) {
+      console.log(`[MissionService] Found in Prisma: ${existing.id}`);
       return mapDefinition(existing);
     }
-    const created = await prisma.missionDefinition.create({
+    
+    console.log("[MissionService] Creating in Prisma...");
+    definition = await prisma.missionDefinition.create({
       data: {
         title: entry.title,
         prompt: entry.prompt,
@@ -185,13 +198,18 @@ async function ensureMissionDefinitionFromCatalog(
         active: true,
       },
     });
-    return mapDefinition(created);
-  } catch {
-    // Fallback to memory store
-    let definition = Array.from(memoryStore.missions.values()).find((mission) =>
+    console.log(`[MissionService] Created in Prisma: ${definition.id}`);
+    return mapDefinition(definition);
+  } catch (e) {
+    console.log(`[MissionService] Prisma error. Using Memory Store.`);
+    
+    // Memory Store Fallback
+    definition = Array.from(memoryStore.missions.values()).find((mission) =>
       mission.tags?.includes(catalogTag)
     );
+
     if (!definition) {
+      console.log("[MissionService] Creating in Memory...");
       const now = new Date();
       definition = {
         id: uid(),
@@ -205,14 +223,22 @@ async function ensureMissionDefinitionFromCatalog(
         updatedAt: now,
       };
       memoryStore.missions.set(definition.id, definition);
+    } else {
+      console.log(`[MissionService] Found in Memory: ${definition.id}`);
     }
-    return mapDefinition(definition);
+    
+    console.log(`[MissionService] Mapping definition:`, JSON.stringify(definition));
+    const result = await mapDefinition(definition);
+    console.log(`[MissionService] Mapped result:`, JSON.stringify(result));
+    return result;
   }
 }
 
 export async function getNextMission(userId: string): Promise<MissionDefinitionRecord | null> {
+  console.log(`[MissionService] getNextMission for ${userId}`);
   const signal = await buildPlayerMissionSignal(userId);
   const catalog = getMissionCatalog();
+  console.log(`[MissionService] Catalog size: ${catalog.length}. Trust: ${signal.trustScore}`);
 
   const candidates = catalog
     .filter((entry) => {
@@ -228,10 +254,14 @@ export async function getNextMission(userId: string): Promise<MissionDefinitionR
     .filter(({ score }) => Number.isFinite(score))
     .sort((a, b) => b.score - a.score);
 
+  console.log(`[MissionService] Candidates: ${candidates.length}`);
+
   const chosen =
     candidates.length > 0
       ? candidates[0].entry
       : catalog[Math.floor(Math.random() * catalog.length)];
+  
+  console.log(`[MissionService] Chosen: ${chosen?.id}`);
 
   if (!chosen) {
     return null;
@@ -292,74 +322,122 @@ export async function submitMissionReport(params: {
   payload: string;
 }): Promise<MissionRunRecord & { reward?: { type: string; amount: number } }> {
   const { missionRunId, payload } = params;
-  const score = Math.max(0, Math.min(1, Math.random() * 0.4 + 0.6));
-  const rewardAmount = Math.round(score * 100) / 10; // credits
+  
+  // 1. Fetch Run & Mission
+  let run: any;
   try {
-    const run = await prisma.missionRun.update({
+      run = await prisma.missionRun.findUnique({
+        where: { id: missionRunId },
+        include: { mission: true },
+      });
+  } catch {
+      // Fallback to memory store handling handled in catch block below
+  }
+
+  if (run) {
+    // AI Evaluation
+    const model = getModel('content');
+    const { object } = await generateObject({
+      model,
+      schema: ReportEvaluationSchema,
+      prompt: `
+        Role: Operations Adjudicator for Project 89.
+        Task: Evaluate a field report against a mission objective.
+        
+        Mission Title: ${run.mission.title}
+        Mission Objective: ${run.mission.prompt}
+        Mission Type: ${run.mission.type}
+        
+        Agent Report: "${payload}"
+        
+        Evaluate strictly. 
+        - If the report is nonsense, score 0.
+        - If it captures the vibe but lacks evidence, score 0.5.
+        - If it solves the task, score 0.8-1.0.
+        
+        Provide feedback in the voice of a cryptic handler.
+      `,
+    });
+
+    const score = object.score;
+    const feedback = object.feedback;
+    const multiplier = object.rewardAdjustment || 1.0;
+    const baseReward = 50; // Base credits for any completed mission
+    const rewardAmount = Math.round(baseReward * score * multiplier);
+
+    // Update Run
+    const updatedRun = await prisma.missionRun.update({
       where: { id: missionRunId },
       data: {
         status: "COMPLETED",
         score,
-        feedback: "Mission review complete. The Logos grows with your insight.",
+        feedback,
         payload,
       },
       include: { mission: true },
     });
-    await prisma.reward.create({
-      data: {
+
+    // Grant Reward
+    if (rewardAmount > 0) {
+      await rewardService.grant(updatedRun.userId, rewardAmount, `Mission: ${updatedRun.mission.title}`, missionRunId);
+    }
+
+    return {
+      id: updatedRun.id,
+      mission: await mapDefinition(updatedRun.mission),
+      status: "COMPLETED",
+      score,
+      feedback,
+      reward: { type: "CREDIT", amount: rewardAmount },
+    };
+  }
+
+  // --- Memory Store Fallback (Legacy/Dev) ---
+  const score = Math.max(0, Math.min(1, Math.random() * 0.4 + 0.6));
+  const rewardAmount = Math.round(score * 100) / 10; // credits
+  try {
+      // This block is theoretically unreachable if Prisma works, 
+      // but kept for the memoryStore fallback if run wasn't found in Prisma.
+      const run = memoryStore.missionRuns.get(missionRunId);
+      if (!run) {
+        throw new Error("Mission run not found");
+      }
+      run.status = "COMPLETED";
+      run.score = score;
+      run.feedback = "Mission review complete. The Logos grows with your insight.";
+      run.payload = payload;
+      run.updatedAt = new Date();
+      memoryStore.missionRuns.set(missionRunId, run);
+  
+      const mission = memoryStore.missions.get(run.missionId);
+      const reward: MemoryReward = {
+        id: uid(),
         userId: run.userId,
         missionRunId,
         type: "CREDIT",
         amount: rewardAmount,
-      },
-    });
-    return {
-      id: run.id,
-      mission: await mapDefinition(run.mission),
-      status: "COMPLETED",
-      score,
-      feedback: run.feedback ?? undefined,
-      reward: { type: "CREDIT", amount: rewardAmount },
-    };
-  } catch {
-    const run = memoryStore.missionRuns.get(missionRunId);
-    if (!run) {
-      throw new Error("Mission run not found");
-    }
-    run.status = "COMPLETED";
-    run.score = score;
-    run.feedback = "Mission review complete. The Logos grows with your insight.";
-    run.payload = payload;
-    run.updatedAt = new Date();
-    memoryStore.missionRuns.set(missionRunId, run);
-
-    const mission = memoryStore.missions.get(run.missionId);
-    const reward: MemoryReward = {
-      id: uid(),
-      userId: run.userId,
-      missionRunId,
-      type: "CREDIT",
-      amount: rewardAmount,
-      createdAt: new Date(),
-    };
-    memoryStore.rewards.set(reward.id, reward);
-    const rewards = touch(memoryStore.rewardsByUser, run.userId);
-    rewards.push(reward);
-    return {
-      id: run.id,
-      mission: mission ? await mapDefinition(mission) : await mapDefinition({
-        id: run.missionId,
-        title: "",
-        prompt: "",
-        type: "decode",
-        minEvidence: 1,
-        tags: [],
-      }),
-      status: run.status,
-      score,
-      feedback: run.feedback,
-      reward: { type: "CREDIT", amount: rewardAmount },
-    };
+        createdAt: new Date(),
+      };
+      memoryStore.rewards.set(reward.id, reward);
+      const rewards = touch(memoryStore.rewardsByUser, run.userId);
+      rewards.push(reward);
+      return {
+        id: run.id,
+        mission: mission ? await mapDefinition(mission) : await mapDefinition({
+          id: run.missionId,
+          title: "",
+          prompt: "",
+          type: "decode",
+          minEvidence: 1,
+          tags: [],
+        }),
+        status: run.status,
+        score,
+        feedback: run.feedback,
+        reward: { type: "CREDIT", amount: rewardAmount },
+      };
+  } catch (e) {
+    throw e;
   }
 }
 

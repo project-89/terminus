@@ -33,8 +33,9 @@ export async function GET(req: Request) {
     });
   }
   const mission = await getNextMission(resolved.userId);
+  console.log(`[API] Mission Result:`, mission);
   if (!mission) {
-    return new Response(JSON.stringify({ message: "No missions available" }), {
+    return new Response(JSON.stringify({ message: "No missions available (Debug)" }), {
       headers: { "Content-Type": "application/json" },
     });
   }

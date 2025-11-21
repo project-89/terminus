@@ -680,13 +680,14 @@ export class Terminal extends EventEmitter {
     );
 
     // Update scroll position
-    this.scrollOffset = Math.max(
-      0,
-      Math.min(maxScroll, this.scrollOffset + scrollAmount)
-    );
+    const rawNext = this.scrollOffset + scrollAmount;
+    this.scrollOffset = Math.max(0, Math.min(maxScroll, rawNext));
 
-    // Update bottom state
-    this.isAtBottom = this.scrollOffset >= maxScroll - lineHeight / 2;
+    // Snap to pixel grid to prevent blurriness
+    this.scrollOffset = Math.round(this.scrollOffset);
+
+    // Update bottom state with a small epsilon tolerance for float math
+    this.isAtBottom = this.scrollOffset >= maxScroll - lineHeight / 2 - 1;
 
     this.render();
   }

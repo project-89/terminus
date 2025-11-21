@@ -18,7 +18,6 @@ const SYSTEM_COMMANDS = new Set([
   "report",
   "profile",
   "new",
-  "clear",
   "archive",
   "dashboard",
   "ops",
@@ -182,7 +181,7 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
     return;
   }
 
-  if (commandKey === "reset" || commandKey === "restart" || commandKey === "new" || commandKey === "clear") {
+  if (commandKey === "reset" || commandKey === "restart" || commandKey === "new") {
     try {
       const result = await fetchJSON("/api/session", {
         method: "POST",

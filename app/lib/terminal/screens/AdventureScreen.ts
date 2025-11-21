@@ -7,6 +7,8 @@ import { systemCommandsMiddleware } from "../middleware/system";
 import { overrideMiddleware } from "../middleware/override";
 import { adventureMiddleware } from "../middleware/adventure";
 import { adventureCommands } from "../commands/adventure";
+import { rewardCommands } from "../commands/rewards";
+import { missionCommands } from "../commands/mission";
 import { WalletService } from "../../wallet/WalletService";
 import { generateCLIResponse, generateOneOffResponse } from "../../ai/prompts";
 import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
@@ -34,6 +36,8 @@ ESTABLISHING CONNECTION...`.trim();
     // Register screen-specific commands
     this.registerCommands([
       ...adventureCommands,
+      ...rewardCommands,
+      ...missionCommands,
       {
         name: "!help",
         type: "system",
@@ -46,6 +50,15 @@ ESTABLISHING CONNECTION...`.trim();
         name: "!clear",
         type: "system",
         description: "Clear terminal display",
+        handler: async (ctx: TerminalContext) => {
+          await this.terminal.clear();
+        },
+      },
+      {
+        name: "clear",
+        type: "system",
+        description: "Clear terminal display",
+        // Exact match only (enforced by registry middleware)
         handler: async (ctx: TerminalContext) => {
           await this.terminal.clear();
         },
@@ -194,71 +207,6 @@ ESTABLISHING CONNECTION...`.trim();
           }
         );
       }
-    }
-  }
-
-  private triggerMatrixRain() {
-    toolEvents.emit("tool:matrix_rain", {
-      duration: 5000, // 5 seconds
-      intensity: 0.8, // High intensity
-    });
-  }
-
-  private triggerGlitch() {
-    toolEvents.emit("tool:glitch_screen", {
-      duration: 3000, // 3 seconds
-      intensity: 0.7, // Medium-high intensity
-    });
-  }
-
-  public async processCommand(command: string): Promise<void> {
-    const context = GameContext.getInstance();
-
-    // Store user command
-    context.addGameMessage({
-      role: "user",
-      content: command,
-    });
-
-    // Handle special commands
-    if (command.toLowerCase() === "matrix") {
-      this.triggerMatrixRain();
-      return;
-    }
-
-    if (command.toLowerCase() === "glitch") {
-      this.triggerGlitch();
-      return;
-    }
-
-    try {
-      const response = await fetch("/api/adventure", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messages: context.getGameMessages(),
-        }),
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error("Failed to get adventure response");
-      }
-
-      // Process the response and store it
-      const content = await this.terminal.processAIStream(response.body);
-      if (content) {
-        context.addGameMessage({
-          role: "assistant",
-          content: content,
-        });
-      }
-    } catch (error) {
-      console.error("Error processing command:", error);
-      await this.terminal.print("Error processing command. Please try again.", {
-        color: TERMINAL_COLORS.error,
-      });
     }
   }
 

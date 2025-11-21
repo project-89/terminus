@@ -35,7 +35,7 @@ export const missionCatalog: MissionCatalogEntry[] = [
     type: "observe",
     tags: ["perception", "field"],
     track: "perception",
-    minTrust: 0.15,
+    minTrust: 0.0,
     preferredTraits: { perception: 0.4 },
   },
   {

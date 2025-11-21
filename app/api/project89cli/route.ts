@@ -1,43 +1,17 @@
-import { StreamingTextResponse, streamText } from "ai";
-import { loadPrompt } from "@/app/lib/prompts";
-import { getModel } from "@/app/lib/ai/models";
+import { NextRequest, NextResponse } from "next/server";
+import { rewardService } from "@/app/lib/services/rewardService";
+import prisma from "@/app/lib/prisma";
 
-const CLI_MODEL = getModel("cli");
-const SYSTEM_PROMPT = loadPrompt("project89-cli");
+// Minimal CLI handler for specific structured commands if needed
+// But mostly we might use a general "command" router.
+// Actually, the promptBuilder and AI handle "conversational" commands.
+// This route seems to be a place where we can handle strict commands if the AI delegates them.
+// OR, we can expose a dedicated /api/rewards route.
 
-export async function POST(req: Request) {
-  const { messages } = await req.json();
+// Let's check how commands are currently handled. 
+// app/lib/terminal/components/CommandHandler.ts likely calls an API.
 
-  if (!Array.isArray(messages)) {
-    return new Response(
-      JSON.stringify({ error: "Request body must include a messages array" }),
-      {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
-  }
-
-  try {
-    const result = await streamText({
-      model: CLI_MODEL,
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        ...messages,
-      ],
-    });
-
-    return new StreamingTextResponse(result.textStream);
-  } catch (error) {
-    console.error("CLI AI Error:", error);
-    return new Response(JSON.stringify({ error: "AI processing failed" }), {
-      status: 500,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-  }
+export async function POST(req: NextRequest) {
+  // Placeholder for legacy CLI route
+  return NextResponse.json({ message: "Project 89 CLI" });
 }

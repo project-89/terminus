@@ -62,7 +62,7 @@ export type MemoryReward = {
   createdAt: Date;
 };
 
-export const memoryStore = {
+const initialStore = {
   users: new Map<string, MemoryUser>(), // key: handle
   usersById: new Map<string, MemoryUser>(),
   sessions: new Map<string, MemoryGameSession>(),
@@ -76,6 +76,17 @@ export const memoryStore = {
   rewards: new Map<string, MemoryReward>(),
   rewardsByUser: new Map<string, MemoryReward[]>(),
 };
+
+// Global singleton pattern for development (preserves memory across hot reloads)
+const globalForMemory = globalThis as unknown as {
+  project89MemoryStore: typeof initialStore | undefined;
+};
+
+if (!globalForMemory.project89MemoryStore) {
+  globalForMemory.project89MemoryStore = initialStore;
+}
+
+export const memoryStore = globalForMemory.project89MemoryStore!;
 
 export function uid(): string {
   try {

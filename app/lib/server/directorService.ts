@@ -27,6 +27,13 @@ export type DirectorContext = {
     brief?: string;
     rubric?: string[];
   };
+  puzzle?: {
+    id?: string;
+    status?: "active" | "solved";
+    solution?: string;
+    clues?: string;
+    context?: string;
+  };
   experiments?: Array<{
     id: string;
     hypothesis: string;
@@ -113,6 +120,8 @@ export async function buildDirectorContext(input: {
   let experiments: DirectorContext["experiments"] = [];
   let experimentAvg = 0;
 
+  let puzzle: DirectorContext["puzzle"];
+
   if (userId) {
     successRate = await getRecentMissionSuccessRate(userId);
     const open = await getLatestOpenMissionRun(userId);
@@ -121,6 +130,30 @@ export async function buildDirectorContext(input: {
       awaitingReport = open.status === "ACCEPTED";
       missionBrief = open.mission?.prompt;
     }
+
+    // Fetch active puzzle state
+    try {
+       const activePuzzleNote = await prisma.agentNote.findFirst({
+         where: {
+           userId,
+           key: "puzzle:active",
+         },
+         orderBy: { createdAt: "desc" },
+       });
+       if (activePuzzleNote) {
+         try {
+           const data = JSON.parse(activePuzzleNote.value);
+           puzzle = {
+             id: data.id,
+             status: data.status,
+             solution: data.solution,
+             clues: data.clues,
+             context: data.context,
+           };
+         } catch {}
+       }
+    } catch {}
+
     // Attach recent experiments for adaptive context
     try {
       experiments = await summarizeExperiments({ userId, limit: 5 });
@@ -167,6 +200,7 @@ export async function buildDirectorContext(input: {
       brief: missionBrief,
       rubric: [],
     },
+    puzzle,
     experiments,
   };
 }

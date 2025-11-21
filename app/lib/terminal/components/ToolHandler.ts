@@ -115,6 +115,113 @@ export class ToolHandler {
     };
 
     this.registerTool({
+      name: "generate_shader",
+      handler: async (params: any) => {
+        // This will be caught by the UI layer (TerminalCanvas) via the toolEvents system
+        // params: { glsl: string, duration: number }
+        // return { success: true };
+      },
+    });
+
+    this.registerTool({
+      name: "verify_protocol_89",
+      handler: async (params: { key: string }) => {
+        await this.terminal.print("\nINITIATING PROTOCOL 89...", {
+           color: TERMINAL_COLORS.warning,
+           speed: "slow"
+        });
+        
+        // Visual effects
+        this.terminal.effects.startMatrixRain(1.0);
+        
+        try {
+            const handle = typeof window !== 'undefined' ? localStorage.getItem("p89_handle") : null;
+            const res = await fetch("/api/verify", {
+               method: "POST",
+               headers: { "Content-Type": "application/json" },
+               body: JSON.stringify({ key: params.key, handle })
+            });
+            const data = await res.json();
+            
+            this.terminal.effects.stopMatrixRain();
+            
+            if (data.success) {
+               await this.terminal.print("\nACCESS GRANTED.", { color: TERMINAL_COLORS.success, speed: "slow" });
+               await this.terminal.print(data.message, { color: TERMINAL_COLORS.primary });
+               if (data.claimCode) {
+                   await this.terminal.print(`\nCLAIM CODE: ${data.claimCode}`, { color: TERMINAL_COLORS.secondary });
+                   await this.terminal.print("Save this code. It is your only proof.", { color: TERMINAL_COLORS.system });
+               }
+               // Trigger glitch
+               toolEvents.emit("tool:glitch_screen", { duration: 2000, intensity: 0.8 });
+            } else {
+               await this.terminal.print("\nACCESS DENIED.", { color: TERMINAL_COLORS.error });
+               await this.terminal.print(data.error || "Verification failed.", { color: TERMINAL_COLORS.error });
+            }
+        } catch (e) {
+            this.terminal.effects.stopMatrixRain();
+            await this.terminal.print("SYSTEM ERROR.", { color: TERMINAL_COLORS.error });
+        }
+      }
+    });
+
+    this.registerTool({
+      name: "puzzle_create",
+      handler: async (params: any) => {
+        console.log("[Client] Puzzle Created", params);
+        // Persist puzzle state to server via agent notes
+        try {
+          // Try to find handle in local storage or context
+          const handle = typeof window !== 'undefined' ? localStorage.getItem("p89_handle") : null;
+          if (handle) {
+             await fetch("/api/notes", {
+               method: "POST",
+               headers: { "Content-Type": "application/json" },
+               body: JSON.stringify({
+                 userHandle: handle,
+                 key: "puzzle:active",
+                 value: JSON.stringify({
+                   ...params,
+                   status: "active",
+                   id: crypto.randomUUID(),
+                   createdAt: new Date().toISOString()
+                 })
+               })
+             });
+          }
+        } catch (e) {
+          console.error("Failed to persist puzzle state", e);
+        }
+      },
+    });
+
+    this.registerTool({
+      name: "puzzle_solve",
+      handler: async (params: any) => {
+        console.log("[Client] Puzzle Solved");
+        try {
+          const handle = typeof window !== 'undefined' ? localStorage.getItem("p89_handle") : null;
+          if (handle) {
+             await fetch("/api/notes", {
+               method: "POST",
+               headers: { "Content-Type": "application/json" },
+               body: JSON.stringify({
+                 userHandle: handle,
+                 key: "puzzle:active",
+                 value: JSON.stringify({
+                   status: "solved",
+                   solvedAt: new Date().toISOString()
+                 })
+               })
+             });
+          }
+        } catch (e) {
+           console.error("Failed to clear puzzle state", e);
+        }
+      },
+    });
+    
+    this.registerTool({
       name: "glitch_screen",
       handler: async (params: { intensity: number; duration: number }) => {
         console.log("Glitch screen effect triggered", params);

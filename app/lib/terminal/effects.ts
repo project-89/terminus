@@ -274,6 +274,27 @@ export class TerminalEffects {
           sliceHeight
         );
         this.ctx.putImageData(sliceData, offset, sliceY);
+
+        // Text corruption
+        const terminal = (this.ctx.canvas as any).terminal;
+        if (terminal && terminal.buffer && Math.random() < 0.3) {
+          // Corrupt a random line visible on screen
+          const visibleLines = Math.floor(this.height / (terminal.options.fontSize * 1.5));
+          const startLine = Math.max(0, terminal.buffer.length - visibleLines);
+          const targetIndex = startLine + Math.floor(Math.random() * (terminal.buffer.length - startLine));
+          
+          if (terminal.buffer[targetIndex]) {
+             // We don't permanently corrupt the buffer here to avoid destroying game state,
+             // but we render a corrupted version on top just for this frame
+             const originalText = terminal.buffer[targetIndex].text;
+             const corrupted = terminal.corruptText(originalText, intensity * 0.5);
+             // Render corrupted text overlay (simplified, just drawing text over)
+             this.ctx.fillStyle = terminal.options.foregroundColor;
+             this.ctx.font = `${terminal.options.fontSize}px "${terminal.options.fontFamily}"`;
+             const y = (targetIndex - startLine) * (terminal.options.fontSize * 1.5) + 50; // approximate Y
+             this.ctx.fillText(corrupted, 20, y);
+          }
+        }
       }
 
       // Color shift effect

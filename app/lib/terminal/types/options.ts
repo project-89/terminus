@@ -4,7 +4,7 @@ import { TerminalContext } from "./index";
 
 export interface CommandConfig {
   name: string;
-  type: "system" | "adventure";
+  type: "system" | "adventure" | "game";
   description: string;
   handler: (ctx: TerminalContext) => Promise<void>;
   blockProcessing?: boolean;
