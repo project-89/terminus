@@ -20,6 +20,7 @@
     "@as-integrations/next": "^3.0.0",
     "@google-cloud/storage": "^7.14.0",
     "@graphql-tools/schema": "^10.0.2",
+    "@modelcontextprotocol/sdk": "1.22.0",
     "@prisma/client": "^5.10.2",
     "@solana/wallet-adapter-base": "^0.9.23",
     "@solana/wallet-adapter-phantom": "^0.9.24",
