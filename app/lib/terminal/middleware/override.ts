@@ -11,7 +11,14 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
     const terminalContext = TerminalContext.getInstance();
     const state = terminalContext.getState();
     if (state.hasFullAccess) {
-      await ctx.terminal.emit("screen:transition", { to: "dashboard" });
+      await ctx.terminal.print("Launching Admin Dashboard...", {
+        color: TERMINAL_COLORS.system,
+        speed: "fast",
+      });
+      // Allow browser to open the window
+      setTimeout(() => {
+          window.open("/dashboard", "_blank");
+      }, 800);
       ctx.handled = true;
       return;
     }
