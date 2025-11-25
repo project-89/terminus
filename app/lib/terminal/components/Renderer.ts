@@ -44,7 +44,7 @@ export class Renderer {
     this.canvas.style.height = `${height}px`;
 
     this.ctx.scale(dpr, dpr);
-    this.ctx.font = `${this.options.fontSize}px ${this.options.fontFamily}`;
+    this.ctx.font = `${this.options.fontSize}px ${this.options.fontFamily}, monospace`;
     this.ctx.textBaseline = "top";
   }
 

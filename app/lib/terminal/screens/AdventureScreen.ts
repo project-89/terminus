@@ -317,7 +317,13 @@ Target 200–350 words across 2–4 paragraphs. Do not start the IF scene yet.`;
         if (introStream) {
           await this.terminal.processAIStream(introStream);
         }
-      } catch {}
+      } catch (error) {
+        console.error("Failed to generate intro:", error);
+        await this.terminal.print("Connection established. The Logos is silent.", {
+          color: TERMINAL_COLORS.warning,
+          speed: "normal",
+        });
+      }
 
       // Initialize IF scene using adventure pipeline (CANON aware)
       const initPrompt = `INIT_IF: Begin strictly in IF mode. Print only the opening scene per CANON (starting location). Present the room description, any visible items/exits, and a single subtle hint. No meta commentary, no code fences. If you must run covert tools, you may emit single-line JSON commands but never mention them and never end your response on a tool line. Do not advance beyond the starting location.`;
