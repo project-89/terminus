@@ -11,6 +11,11 @@ export interface TerminalState {
   sessionId?: string;
   activeMissionRunId?: string;
   expectingReport?: boolean;
+  profile?: {
+    traits: Record<string, any>;
+    skills: Record<string, any>;
+    preferences: Record<string, any>;
+  };
 }
 
 export class TerminalContext {
@@ -24,6 +29,7 @@ export class TerminalContext {
     sessionId: undefined,
     activeMissionRunId: undefined,
     expectingReport: false,
+    profile: undefined,
   };
 
   private constructor() {
@@ -91,6 +97,7 @@ export class TerminalContext {
       sessionId: undefined,
       activeMissionRunId: undefined,
       expectingReport: false,
+      profile: undefined,
     };
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("terminalState");
@@ -142,6 +149,29 @@ export class TerminalContext {
     const messages = this.getGameMessages();
     messages.push(message);
     this.setGameMessages(messages);
+  }
+
+  async ensureProfile(force: boolean = false): Promise<TerminalState['profile'] | undefined> {
+    if (this.state.profile && !force) return this.state.profile;
+    
+    // We need a sessionId or handle to fetch profile
+    let params = "";
+    if (this.state.sessionId) params = `sessionId=${this.state.sessionId}`;
+    else if (this.state.handle) params = `handle=${this.state.handle}`;
+    
+    if (!params) return undefined;
+
+    try {
+      const res = await fetch(`/api/profile?${params}`);
+      if (res.ok) {
+        const profile = await res.json();
+        this.setState({ profile });
+        return profile;
+      }
+    } catch (e) {
+      console.warn("Failed to fetch profile", e);
+    }
+    return undefined;
   }
 
   async ensureSession(options: { reset?: boolean; handle?: string } = {}) {

@@ -1,70 +1,39 @@
-import { streamText } from "ai";
+import { NextResponse } from "next/server";
+import { streamText, StreamingTextResponse } from "ai";
 import { getModel } from "@/app/lib/ai/models";
-import prisma from "@/app/lib/prisma";
+
+const ANALYST_MODEL = getModel("content");
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  try {
-    const { handle, query } = await req.json();
+  const body = await req.json().catch(() => ({}));
+  const handle = typeof body.handle === "string" ? body.handle : "Agent";
+  const query = typeof body.query === "string" ? body.query : "";
 
-    // 1. Fetch Agent Data
-    const agent = await prisma.user.findUnique({
-      where: { handle },
-      include: {
-        profile: true,
-        missionRuns: {
-          take: 5,
-          orderBy: { createdAt: "desc" },
-          include: { mission: true }
-        },
-        experiments: {
-          take: 3,
-          orderBy: { createdAt: "desc" }
-        }
-      }
-    });
-
-    if (!agent) {
-      return new Response("Agent not found", { status: 404 });
-    }
-
-    // 2. Build Context
-    const context = `
-    AGENT PROFILE: ${agent.handle} (Role: ${agent.role})
-    TRAITS: ${JSON.stringify(agent.profile?.traits || {})}
-    SKILLS: ${JSON.stringify(agent.profile?.skills || {})}
-    
-    RECENT MISSIONS:
-    ${agent.missionRuns.map((m: any) => `- ${m.mission.title}: ${m.status} (Score: ${m.score})`).join("\n")}
-    
-    RECENT EXPERIMENTS:
-    ${agent.experiments.map((e: any) => `- ${e.hypothesis}`).join("\n")}
-    `;
-
-    // 3. Prompt
-    const systemPrompt = `You are the ARCHITECT, the central intelligence of Project 89. 
-    You are analyzing one of your agents for a senior handler.
-    Tone: Clinical, insightful, slightly paranoid. The user is authorized.
-    
-    Analyze the provided data.
-    User Question: "${query || "Assess this agent's utility."}"
-    
-    Limit response to 150 words. Focus on psychological stability and utility.`;
-
-    // 4. Generate
-    const model = getModel("adventure");
-    
-    const result = await streamText({
-        model,
-        messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: `Data:\n${context}` }
-        ]
-    });
-
-    return result.toDataStreamResponse();
-
-  } catch (error) {
-    console.error("Analysis error:", error);
-    return new Response("Analysis failed", { status: 500 });
+  if (!query.trim()) {
+    return NextResponse.json(
+      { error: "Query required" },
+      { status: 400 }
+    );
   }
+
+  const system = `You are ARCHITECT, an ops analyst for Project 89.
+- Style: concise, tactical, supportive; 1–3 short paragraphs.
+- Context: answering operator questions about agents, missions, and experiments.
+- If asked about unknown data, acknowledge limits; do not hallucinate specifics.`;
+
+  const result = await streamText({
+    model: ANALYST_MODEL,
+    messages: [
+      { role: "system", content: system },
+      {
+        role: "user",
+        content: `Subject: ${handle}\n\n${query}`,
+      },
+    ],
+    temperature: 0.4,
+  });
+
+  return new StreamingTextResponse(result.textStream);
 }

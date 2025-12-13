@@ -6,14 +6,30 @@
 terminus/
 ├── app/
 │   ├── api/                      # API routes
-│   │   ├── adventure/           # AI text adventure responses
-│   │   ├── generate-content/    # Content generation
-│   │   ├── generate-items/      # Item generation
-│   │   ├── override/           # ⭐ Secret code validation
-│   │   └── project89cli/        # CLI interface
+│   │   ├── adventure/            # ⭐ Streaming LOGOS narrative + tool schemas
+│   │   ├── tools/                # ⭐ Ops tools runner (loads app/ops-tools/*.md)
+│   │   ├── session/              # GameSession reset/resume/close
+│   │   ├── mission/              # Mission selection + accept (MissionRun)
+│   │   ├── report/               # Mission report submission + scoring
+│   │   ├── profile/              # PlayerProfile get/update
+│   │   ├── thread/               # Thread/Message persistence (adventure history)
+│   │   ├── rewards/              # Reward balance + redemption
+│   │   ├── sound/                # ElevenLabs audio generation
+│   │   ├── verify/               # Protocol 89 verification
+│   │   ├── archive/              # Archive provider abstraction
+│   │   ├── files/                # Direct FS archive browsing (public/archive)
+│   │   ├── admin/analyze/         # /dashboard “Architect” streaming channel
+│   │   ├── graphql/              # Apollo GraphQL handler
+│   │   ├── override/             # Secret code validation (override/elevate)
+│   │   └── project89cli/          # Stub/placeholder CLI route
 │   │
+│   ├── dashboard/                # /dashboard admin UI
+│   ├── knowledge/                # Local knowledge + IF canon
+│   ├── ops-tools/                # Operator prompt packs (*.md)
+│   ├── graphql/                  # schema.graphql + resolvers
 │   ├── components/
-│   │   └── TerminalCanvas.tsx   # ⭐ Main React component (mobile handling)
+│   │   ├── TerminalCanvas.tsx    # ⭐ Main React component (mobile handling)
+│   │   └── ShaderOverlay.tsx     # WebGL overlay for generate_shader
 │   │
 │   ├── lib/
 │   │   ├── terminal/
@@ -57,20 +73,39 @@ terminus/
 │   │   ├── wallet/
 │   │   │   └── WalletService.ts      # ⭐ Phantom wallet integration
 │   │   │
-│   │   └── ai/
-│   │       ├── prompts.ts            # AI prompt helpers
-│   │       └── models.ts             # AI model configs
+│   │   ├── ai/                       # Prompt builder + knowledge/canon + model configs
+│   │   ├── server/                   # Director/session/mission/memory services
+│   │   ├── services/                 # Reward service, etc.
+│   │   ├── missions/                 # Mission catalog
+│   │   └── opsTools/                 # Ops tools loader
 │   │
+│   ├── middleware.ts                 # CSP headers
 │   ├── layout.tsx                    # ⭐ Root layout (viewport meta)
 │   ├── page.tsx                      # Main page component
 │   └── globals.css                   # Global styles
 │
 ├── public/                           # Static assets
-├── prisma/                           # Database schema
+├── prisma/schema.prisma              # Database schema
 └── netlify.toml                      # Deployment config
 
 ⭐ = Critical files for activation & mobile
 ```
+
+---
+
+## 🔌 API Routes (Quick Index)
+
+- `POST /api/adventure` → streaming narrative + director context + tool schemas
+- `POST /api/tools` → list/run ops tools (`app/ops-tools/*.md`)
+- `POST /api/session` → reset/resume sessions (by handle)
+- `GET/PATCH /api/profile` → profile fetch/update
+- `GET/POST /api/mission` → mission selection/accept
+- `POST /api/report` → mission evidence submission + scoring + rewards
+- `GET/POST/PATCH /api/thread` → adventure transcript persistence
+- `POST /api/sound` → ElevenLabs audio generation
+- `POST /api/verify` → protocol verification
+- `GET /api/archive` and `GET /api/files` → archive browsing/viewing
+- `GET/POST /api/graphql` → GraphQL handler (Apollo)
 
 ---
 
@@ -121,6 +156,9 @@ processAIStream(stream)       // Handle AI responses
 "consent"   → ConsentScreen    // Warning + acceptance
 "main"      → MainScreen       // Internal interface
 "static"    → StaticScreen     // Static content
+"dashboard" → AdminDashboardScreen // Terminal admin surface
+"archives"  → ArchivesDashboardScreen // Archives dashboard surface
+"hyperstition" | "scanner" | "sigils" | "consciousness" | "dreamscape" // Ops tool screens
 ```
 
 **Methods:**
@@ -135,14 +173,16 @@ navigate(screenName, options); // Switch screens
 
 **Location:** `app/lib/terminal/screens/BaseScreen.ts`
 
-**Global Middlewares (applied to ALL screens):**
+**Global Middlewares (applied to most screens):**
 
 ```typescript
 1. overrideMiddleware       // Secret code unlock
-2. systemCommandsMiddleware // Wallet, identify, help
+2. systemCommandsMiddleware // Core commands (+ privileged ops/wallet/effects)
 3. navigationMiddleware     // "main" command
 4. [screen-specific]        // Custom screen handlers
 ```
+
+Note: `MainScreen` overrides `handleCommand` and can bypass this chain.
 
 **Protected Methods:**
 
@@ -170,11 +210,17 @@ cleanup() // Called on screen exit
 ```typescript
 interface TerminalState {
   hasFullAccess: boolean; // ⭐ Unlocked via override code
-  walletConnected: boolean; // Phantom wallet status
-  walletAddress?: string; // Connected wallet address
-  tokenBalance?: number; // P89 token balance
-  lastSeen?: Date; // Last connection time
-  gameMessages?: Message[]; // Adventure mode history
+  accessTier?: number; // 0=normal, 1=override, 2=elevated
+  walletConnected: boolean;
+  walletAddress?: string;
+  tokenBalance?: number;
+  handle?: string;
+  sessionId?: string;
+  threadId?: string;
+  gameMessages?: { role: string; content: string }[]; // Recent adventure turns
+  activeMissionRunId?: string;
+  expectingReport?: boolean;
+  profile?: { traits: any; skills: any; preferences: any };
 }
 ```
 
@@ -210,15 +256,18 @@ clearState(); // Reset everything
 
 **Location:** `app/lib/terminal/middleware/system.ts`
 
-**Only works if:** `hasFullAccess === true`
+System commands are split:
+- Always available: `help`, `reset/new`, `resume`, `profile`, `mission`, `report`
+- Privileged (requires `hasFullAccess`): wallet (`connect`, `disconnect`, `identify`), effects (`glitch`, `rain`, `sound`), operator tools (`ops …`, `oracle …`)
 
 **Commands:**
 
 ```typescript
-"connect"; // Connect Phantom wallet
-"disconnect"; // Disconnect wallet
-"identify"; // Start neural scan flow
-"help"; // Show system commands
+"help"; // Command list
+"reset" | "resume"; // Session lifecycle
+"profile" | "mission" | "report"; // Core loop
+"ops list/run" | "oracle"; // Privileged operator tooling
+"connect" | "disconnect" | "identify"; // Privileged wallet + scan flow
 ```
 
 ---
@@ -230,7 +279,8 @@ clearState(); // Reset everything
 **Commands:**
 
 ```typescript
-"main" → navigate("home") // Always returns to home
+"main" → navigate("home")
+"archive" → navigate("archives")
 ```
 
 ---
@@ -299,6 +349,14 @@ PROJECT89_MINT = "Bz4MhmVRQENiCou7ZpJ575wpjNFjBjVBSiVhuNg1pump";
 "glitch_screen"; // Glitch effect
 "matrix_rain"; // Matrix rain animation
 "generate_sound"; // AI-generated sounds
+"generate_shader"; // WebGL overlay shader (ShaderOverlay)
+"mission_request" | "mission_expect_report"; // Mission lifecycle hooks
+"profile_set"; // Patch profile preferences/traits/skills
+"experiment_create" | "experiment_note"; // Experiment logging
+"puzzle_create" | "puzzle_solve"; // Puzzle state tracking
+"persona_set"; // Persona stance (cloak/reveal/neutral)
+"screen_transition"; // Navigate between terminal screens
+"verify_protocol_89"; // Server-side verification
 ```
 
 **Registration:**
@@ -329,7 +387,10 @@ toolEvents.emit("tool:custom_tool", { param: value });
 ?screen=home       → FluidScreen (menu)
 ?screen=adventure  → AdventureScreen
 ?screen=archive    → ArchiveScreen
-?screen=main       → MainScreen (after unlock)
+?screen=main       → MainScreen
+?screen=dashboard  → AdminDashboardScreen (terminal)
+?screen=archives   → ArchivesDashboardScreen (terminal)
+?screen=hyperstition|scanner|sigils|consciousness|dreamscape → Ops tool screens
 ```
 
 ### **Event-Based Navigation**
@@ -381,7 +442,7 @@ await this.transition("main", { type: "instant" });
 ```
 1. overrideMiddleware       // Check for "override CODE"
    ↓
-2. systemCommandsMiddleware // Check for system commands (if unlocked)
+2. systemCommandsMiddleware // Core commands (+ privileged subset if unlocked)
    ↓
 3. navigationMiddleware     // Check for "main"
    ↓
@@ -429,12 +490,29 @@ document.addEventListener("touchend", handleGlobalTap);
 # Required for override code unlock
 OVERRIDE_CODE=your-secret-code
 
+# Protocol verification (verify_protocol_89)
+PROTOCOL_89_KEY=your-master-key
+
+# ElevenLabs for /api/sound
+ELEVENLABS_API_KEY=...
+
+# Database (Prisma)
+DATABASE_URL=postgresql://...
+
 # Optional: Solana RPC (defaults to public endpoint)
 NEXT_PUBLIC_ALCHEMY_RPC_URL=https://...
 
-# AI provider credentials
-ANTHROPIC_API_KEY=sk-...
-OPENAI_API_KEY=sk-...
+# Gemini (used by ai-sdk Google provider)
+GOOGLE_GENERATIVE_AI_API_KEY=...
+
+# Optional model overrides
+PROJECT89_ADVENTURE_MODEL=gemini-2.5-pro
+PROJECT89_CONTENT_MODEL=gemini-1.5-pro-latest
+PROJECT89_CLI_MODEL=gemini-1.5-pro-latest
+
+# Optional storage wiring (currently used by app/lib/server.ts)
+GCP_BUCKET_NAME=...
+GCP_CREDENTIALS='{"type":"service_account",...}'
 ```
 
 ---
@@ -493,16 +571,24 @@ User command → AdventureScreen.processCommand()
                 ↓
              POST /api/adventure
                 ↓
-             AI generates response (streaming)
+             AI generates response (streaming text)
                 ↓
              Terminal.processAIStream()
                 ↓
-             Parse for tool calls
+             Parse for JSON tool lines / fenced tool JSON
                 ↓
-             [Execute tools if found]
+             toolEvents.emit("tool:<name>") → ToolHandler executes
                 ↓
              Terminal.print() → Display text
 ```
+
+---
+
+## 🧠 Prompting & Tool Contract
+
+- `buildAdventureSystemPrompt()` (`app/lib/ai/promptBuilder.ts`) injects director context + knowledge + canon and documents the tool JSON-line contract:
+  - `{"tool":"<name>","parameters":{...}}` (one JSON object per line)
+- `Terminal.processAIStream()` (`app/lib/terminal/Terminal.ts`) is the runtime that detects those JSON lines and dispatches them via `toolEvents`.
 
 ---
 
@@ -536,4 +622,3 @@ User command → AdventureScreen.processCommand()
 **Quick Reference:** ⭐ marks files critical for hidden flows
 **Mobile Focus:** Visual viewport, bottom padding, touch events
 **Hidden Flows:** Override → System commands → Internal screens
-

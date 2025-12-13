@@ -25,7 +25,7 @@ dependencies:
     version: 10.0.29(graphql@16.12.0)
   '@modelcontextprotocol/sdk':
     specifier: 1.22.0
-    version: 1.22.0
+    version: 1.22.0(@cfworker/json-schema@4.1.1)
   '@prisma/client':
     specifier: ^5.10.2
     version: 5.22.0(prisma@5.22.0)
@@ -85,6 +85,9 @@ dependencies:
     version: 3.25.76
 
 devDependencies:
+  '@cfworker/json-schema':
+    specifier: 4.1.1
+    version: 4.1.1
   '@types/node':
     specifier: ^20
     version: 20.19.25
@@ -769,6 +772,9 @@ packages:
       '@babel/helper-validator-identifier': 7.28.5
     dev: false
 
+  /@cfworker/json-schema@4.1.1:
+    resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
+
   /@emnapi/core@1.7.1:
     resolution: {integrity: sha512-o1uhUASyo921r2XtHYOHy7gdkGLge8ghBEQHMWmyJFoXlpU58kIrhhN3w26lpQb6dspetweapMn2CSNwQ8I4wg==}
     requiresBuild: true
@@ -1186,7 +1192,7 @@ packages:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  /@modelcontextprotocol/sdk@1.22.0:
+  /@modelcontextprotocol/sdk@1.22.0(@cfworker/json-schema@4.1.1):
     resolution: {integrity: sha512-VUpl106XVTCpDmTBil2ehgJZjhyLY2QZikzF8NvTXtLRF1CvO5iEE2UNZdVIUer35vFOwMKYeUGbjJtvPWan3g==}
     engines: {node: '>=18'}
     peerDependencies:
@@ -1195,6 +1201,7 @@ packages:
       '@cfworker/json-schema':
         optional: true
     dependencies:
+      '@cfworker/json-schema': 4.1.1
       ajv: 8.17.1
       ajv-formats: 3.0.1(ajv@8.17.1)
       content-type: 1.0.5

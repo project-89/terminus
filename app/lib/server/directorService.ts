@@ -3,6 +3,7 @@ import { memoryStore } from "./memoryStore";
 import { getProfile } from "./profileService";
 import { getLatestOpenMissionRun } from "./missionService";
 import { summarizeExperiments } from "./experimentService";
+import { getRecentMemoryEvents } from "./memoryService";
 
 export type DirectorPhase = "probe" | "train" | "mission" | "report" | "reflection";
 
@@ -42,6 +43,7 @@ export type DirectorContext = {
     lastResult?: string;
     createdAt: string;
   }>;
+  memory?: Array<{ type: string; content: string; tags?: string[] }>;
 };
 
 async function getUserIdByHandle(handle?: string): Promise<string | null> {
@@ -119,6 +121,7 @@ export async function buildDirectorContext(input: {
   let missionBrief: string | undefined;
   let experiments: DirectorContext["experiments"] = [];
   let experimentAvg = 0;
+  let memory: DirectorContext["memory"] = [];
 
   let puzzle: DirectorContext["puzzle"];
 
@@ -164,6 +167,11 @@ export async function buildDirectorContext(input: {
         experimentAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
       }
     } catch {}
+
+    // Attach recent memory events for personalization
+    try {
+      memory = await getRecentMemoryEvents({ userId, limit: 5 });
+    } catch {}
   }
 
   const profile = userId ? await getProfile(userId) : undefined;
@@ -202,5 +210,6 @@ export async function buildDirectorContext(input: {
     },
     puzzle,
     experiments,
+    memory,
   };
 }

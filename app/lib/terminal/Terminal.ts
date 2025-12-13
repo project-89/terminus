@@ -24,7 +24,7 @@ export class Terminal extends EventEmitter {
   public isGenerating: boolean = false;
   public matrixRainEnabled: boolean = false;
   public scrollOffset: number = 0;
-  public thinkingChars = ["⠋", "⠙", "⠹", "", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  public thinkingChars = [".", "..", "...", "....", "...", ".."];
   public thinkingAnimationFrame: number = 0;
   public bottomPadding: number = 0;
 
@@ -340,7 +340,7 @@ export class Terminal extends EventEmitter {
         (this.thinkingAnimationFrame + 1) % this.thinkingChars.length;
       this.cursorVisible = true;
       this.render();
-    }, 80);
+    }, 240);
 
     // Only scroll if we're already at bottom
     if (this.isAtBottom) {
@@ -489,19 +489,24 @@ export class Terminal extends EventEmitter {
           return;
         }
 
-        // Handle inline JSON
-        if (line.startsWith("{") && line.endsWith("}")) {
-          try {
-            const json = JSON.parse(line);
-            if (json.tool && json.parameters) {
-              await toolEvents.emit(`tool:${json.tool}`, json.parameters);
-              justExecutedTool = true;
-              return;
+          // Handle inline JSON
+          if (line.startsWith("{") && line.endsWith("}")) {
+            try {
+              const json = JSON.parse(line);
+              if (json.tool && json.parameters) {
+                try {
+                  await toolEvents.emit(`tool:${json.tool}`, json.parameters);
+                  justExecutedTool = true;
+                  return;
+                } catch (toolErr) {
+                  console.warn("Tool execution failed, continuing stream", toolErr);
+                  // fall through to treat as text so we don't break the stream
+                }
+              }
+            } catch {
+              // If it's not valid JSON, treat it as regular text
             }
-          } catch {
-            // If it's not valid JSON, treat it as regular text
           }
-        }
 
         // Reset tool execution flag when we get a non-empty line
         if (line.trim()) {

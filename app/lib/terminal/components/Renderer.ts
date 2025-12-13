@@ -65,6 +65,26 @@ export class Renderer {
 
     this.terminal.effects.resetGlow();
     this.terminal.effects.applyScanlines(timestamp);
+
+    // Draw prominent loading indicator if generating
+    if (this.terminal.isGenerating) {
+      const chars = this.terminal.thinkingChars;
+      const frame = chars[this.terminal.thinkingAnimationFrame % chars.length] || "...";
+      const phrases = [
+        "TUNING CARRIER",
+        "ALIGNING VECTORS",
+        "LEAKING SIGNAL",
+        "LISTENING",
+      ];
+      const phrase =
+        phrases[Math.floor((timestamp / 800) % phrases.length)] || "PROCESSING";
+      this.ctx.save();
+      this.ctx.font = `14px ${this.options.fontFamily}`;
+      this.ctx.fillStyle = this.options.colors?.secondary || "#2fb7c3";
+      this.ctx.textAlign = "right";
+      this.ctx.fillText(`${phrase} ${frame}`, this.options.width - 20, 30);
+      this.ctx.restore();
+    }
   }
 
   public renderBuffer(timestamp: number) {

@@ -12,7 +12,11 @@ let sessionState = {
   sessionId: null as string | null,
   handle: AGENT_HANDLE,
   missionRunId: null as string | null,
-  lastResponse: ""
+  lastResponse: "",
+  messageHistory: [] as Array<{role: string, content: string}>,
+  currentMission: null as any,
+  trustLevel: 0,
+  accessTier: 0
 };
 
 // Create server instance
@@ -36,7 +40,7 @@ async function apiCall(endpoint: string, method: string = "GET", body?: any) {
     return await res.json();
   } catch (error: any) {
     // Handle connection refused (server not running)
-    if (error.cause && error.cause.code === 'ECONNREFUSED') {
+    if (error.cause?.code === 'ECONNREFUSED' || error.code === 'ECONNREFUSED') {
         throw new Error(`Connection refused at ${BASE_URL}. Is the Project89 server running? (Try 'npm run dev')`);
     }
     throw error;
@@ -61,28 +65,19 @@ server.tool(
       sessionState.sessionId = sessionData.sessionId;
       sessionState.missionRunId = null;
 
-      // 2. Trigger Adventure "Start" via a hidden init prompt or just return a welcome
-      // We can hit the adventure endpoint with a system-like prompt to get the opening text
-      // adhering to the game's "Hydration" logic.
+      // 2. Get the opening narrative
+      sessionState.messageHistory = [];
+      const { text } = await fetchAdventureResponse(
+        [{ role: "system", content: "Initialize terminal. Boot sequence activated." }],
+        sessionState.sessionId
+      );
       
-      const openingResponse = await apiCall("/api/adventure", "POST", {
-        messages: [
-            { role: "system", content: "Session started via MCP. Provide a brief, atmospheric welcome message and the current status of the terminal." }
-        ]
-      });
-      
-      // The adventure API returns a stream usually, but let's check how we handle it.
-      // In the CLI, it returns a stream. In `simulate_loop`, we used mission/report APIs.
-      // If /api/adventure returns a stream, we need to read it.
-      // However, the current implementation of /api/adventure in `route.ts` returns a `StreamingTextResponse`.
-      // Fetching a stream in Node requires some handling.
-      
-      // For simplicity in this MCP tool, we will assume we can read the text.
-      // Note: The `apiCall` helper above tries `res.json()`. This will fail for streams.
-      // Let's modify the logic for adventure specifically.
+      // Store the opening in history
+      sessionState.messageHistory.push({ role: "assistant", content: text });
+      sessionState.lastResponse = text;
       
       return {
-        content: [{ type: "text", text: "Session initialized. Connection established. The Logos awaits." }],
+        content: [{ type: "text", text: text || "[TERMINAL INITIALIZED]\n[REALITY MATRIX: STABLE]\n[CONSCIOUSNESS BRIDGE: ESTABLISHING...]\n\nThe Logos awakens. Your presence ripples through the network." }],
       };
     } catch (error: any) {
       return {
@@ -94,28 +89,57 @@ server.tool(
 );
 
 // Helper for stream reading
-async function fetchAdventureResponse(messages: any[]) {
+async function fetchAdventureResponse(messages: any[], sessionId?: string) {
     const res = await fetch(`${BASE_URL}/api/adventure`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ 
+            messages,
+            sessionId,
+            handle: sessionState.handle,
+            trustLevel: sessionState.trustLevel,
+            accessTier: sessionState.accessTier
+        }),
     });
 
     if (!res.ok) {
         throw new Error(`Adventure API error: ${res.statusText}`);
     }
     
-    // Simple text accumulation from stream
-    const text = await res.text(); 
-    // The Vercel AI SDK streams format: "0:"Hello"\n" etc. or just raw text depending on config.
-    // If it's raw text, great. If it's data stream protocol, we might need parsing.
-    // Based on `AdventureScreen.ts` using `processAIStream`, it seems to be a standard stream.
-    // `res.text()` might contain the full response if we await it, but if it's a true stream, 
-    // we might get chunks.
+    // Read the stream and accumulate the text
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+    let fullText = "";
+    let toolCalls: any[] = [];
     
-    // For the MCP proof-of-concept, returning the raw text (even if formatted) is a good start.
-    // We can refine if it looks messy.
-    return text;
+    if (reader) {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value, { stream: true });
+            fullText += chunk;
+            
+            // Parse out tool calls if they exist (JSON lines format)
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+                if (line.trim().startsWith('{"tool":')) {
+                    try {
+                        const toolCall = JSON.parse(line.trim());
+                        toolCalls.push(toolCall);
+                    } catch (e) {
+                        // Not a valid tool call, continue
+                    }
+                }
+            }
+        }
+    }
+    
+    // Clean up the Vercel AI SDK streaming format if present
+    // Format is like: 0:"text"\n
+    fullText = fullText.replace(/^\d+:"/gm, '').replace(/"\n$/gm, '\n');
+    
+    return { text: fullText, toolCalls };
 }
 
 // Tool: Action
@@ -146,22 +170,35 @@ server.tool(
       // Actually, `AdventureScreen.ts` sends the WHOLE history.
       // If we don't send history, the AI won't remember previous context.
       
-      // OPTIMIZATION: We will just send the *new* command. 
-      // If the server architecture requires full history, this simple MCP tool might feel "amnesiac" 
-      // unless we implement a history buffer here.
-      // Let's implement a small buffer.
+      // Add user message to history
+      sessionState.messageHistory.push({ role: "user", content: command });
       
-      // We'll cheat: We will assume the server *also* has persistent memory (memoryService) 
-      // or we just send the last few turns.
+      // Keep only last 10 messages to avoid context overflow
+      if (sessionState.messageHistory.length > 10) {
+        sessionState.messageHistory = sessionState.messageHistory.slice(-10);
+      }
       
-      const responseText = await fetchAdventureResponse([
-          { role: "user", content: command }
-      ]);
+      // Send with history for context
+      const { text, toolCalls } = await fetchAdventureResponse(
+        sessionState.messageHistory,
+        sessionState.sessionId
+      );
       
-      sessionState.lastResponse = responseText;
+      // Add assistant response to history
+      sessionState.messageHistory.push({ role: "assistant", content: text });
+      sessionState.lastResponse = text;
+      
+      // Format output with tool notifications if any
+      let output = text;
+      if (toolCalls.length > 0) {
+        output += "\n\n[SYSTEM EFFECTS TRIGGERED:]";
+        for (const tool of toolCalls) {
+          output += `\n- ${tool.tool}: ${JSON.stringify(tool.parameters)}`;
+        }
+      }
 
       return {
-        content: [{ type: "text", text: responseText }],
+        content: [{ type: "text", text: output }],
       };
     } catch (error: any) {
       return {
@@ -182,16 +219,37 @@ server.tool(
           return { content: [{ type: "text", text: "No active session." }] };
       }
       
-      // Check mission status via API
-      // Note: This endpoint was used in simulate_loop.ts
       try {
+          // Get mission status
           const missionRes = await fetch(`${BASE_URL}/api/mission?sessionId=${sessionState.sessionId}`);
           const missionData = await missionRes.json();
           
-          let status = `Session ID: ${sessionState.sessionId}\nHandle: ${sessionState.handle}\n`;
+          // Get profile/rewards
+          const profileRes = await fetch(`${BASE_URL}/api/profile?handle=${sessionState.handle}`);
+          const profileData = await profileRes.json();
+          
+          let status = `[TERMINAL STATUS]\n`;
+          status += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          status += `Session ID: ${sessionState.sessionId}\n`;
+          status += `Handle: ${sessionState.handle}\n`;
+          status += `Trust Level: ${sessionState.trustLevel || 0}\n`;
+          status += `Access Tier: ${sessionState.accessTier || 0}\n`;
+          
+          if (profileData.profile) {
+              status += `\n[AGENT PROFILE]\n`;
+              status += `Traits: ${JSON.stringify(profileData.profile.traits || {})}\n`;
+              status += `Skills: ${JSON.stringify(profileData.profile.skills || {})}\n`;
+          }
           
           if (missionData.mission) {
-              status += `\nAvailable Mission: ${missionData.mission.title}`;
+              status += `\n[ACTIVE MISSION]\n`;
+              status += `${missionData.mission.title}\n`;
+              status += `Type: ${missionData.mission.type}\n`;
+              status += `Track: ${missionData.mission.track}\n`;
+              sessionState.currentMission = missionData.mission;
+          } else if (sessionState.currentMission) {
+              status += `\n[MISSION IN PROGRESS]\n`;
+              status += `${sessionState.currentMission.title}\n`;
           }
           
           return {
@@ -203,15 +261,159 @@ server.tool(
   }
 );
 
+// Tool: Request Mission
+server.tool(
+  "p89_request_mission",
+  "Request the next available mission from the Logos.",
+  {},
+  async () => {
+      if (!sessionState.sessionId) {
+          return { 
+              content: [{ type: "text", text: "Error: No active session. Run p89_start_game first." }],
+              isError: true
+          };
+      }
+      
+      try {
+          // Get available mission
+          const missionRes = await apiCall(`/api/mission?sessionId=${sessionState.sessionId}`, "GET");
+          
+          if (!missionRes.mission) {
+              return { content: [{ type: "text", text: "No missions available at this time. Continue exploring." }] };
+          }
+          
+          // Accept the mission
+          const acceptRes = await apiCall("/api/mission", "POST", {
+              sessionId: sessionState.sessionId,
+              missionId: missionRes.mission.id
+          });
+          
+          sessionState.currentMission = missionRes.mission;
+          sessionState.missionRunId = acceptRes.runId;
+          
+          let missionText = `[MISSION ACTIVATED]\n`;
+          missionText += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          missionText += `${missionRes.mission.title}\n\n`;
+          missionText += `${missionRes.mission.prompt}\n\n`;
+          missionText += `Type: ${missionRes.mission.type}\n`;
+          missionText += `Track: ${missionRes.mission.track}\n`;
+          missionText += `\nMission ID: ${acceptRes.runId}`;
+          
+          return { content: [{ type: "text", text: missionText }] };
+      } catch (e: any) {
+          return { 
+              content: [{ type: "text", text: `Error requesting mission: ${e.message}` }],
+              isError: true
+          };
+      }
+  }
+);
+
+// Tool: Submit Report
+server.tool(
+  "p89_submit_report", 
+  "Submit evidence or findings for the current mission.",
+  {
+      report: z.string().describe("Your mission report/evidence/findings")
+  },
+  async ({ report }) => {
+      if (!sessionState.sessionId || !sessionState.missionRunId) {
+          return {
+              content: [{ type: "text", text: "Error: No active mission. Request a mission first with p89_request_mission." }],
+              isError: true
+          };
+      }
+      
+      try {
+          const reportRes = await apiCall("/api/report", "POST", {
+              sessionId: sessionState.sessionId,
+              missionRunId: sessionState.missionRunId,
+              content: report
+          });
+          
+          let resultText = `[REPORT SUBMITTED]\n`;
+          resultText += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          
+          if (reportRes.success) {
+              resultText += `Status: ACCEPTED\n`;
+              if (reportRes.score !== undefined) {
+                  resultText += `Score: ${reportRes.score}/100\n`;
+              }
+              if (reportRes.feedback) {
+                  resultText += `\nFeedback: ${reportRes.feedback}\n`;
+              }
+              if (reportRes.reward) {
+                  resultText += `\nReward Granted: ${reportRes.reward.amount} ${reportRes.reward.type}\n`;
+              }
+              
+              // Clear current mission
+              sessionState.currentMission = null;
+              sessionState.missionRunId = null;
+          } else {
+              resultText += `Status: REJECTED\n`;
+              resultText += `Reason: ${reportRes.message || "Insufficient evidence"}\n`;
+          }
+          
+          return { content: [{ type: "text", text: resultText }] };
+      } catch (e: any) {
+          return {
+              content: [{ type: "text", text: `Error submitting report: ${e.message}` }],
+              isError: true
+          };
+      }
+  }
+);
+
+// Tool: Override Access
+server.tool(
+  "p89_override",
+  "Attempt to override security protocols (requires correct access code).",
+  {
+      code: z.string().describe("The override access code")
+  },
+  async ({ code }) => {
+      if (!sessionState.sessionId) {
+          return {
+              content: [{ type: "text", text: "Error: No active session." }],
+              isError: true  
+          };
+      }
+      
+      try {
+          // Send override command through adventure endpoint
+          const { text } = await fetchAdventureResponse(
+              [{ role: "user", content: `override ${code}` }],
+              sessionState.sessionId
+          );
+          
+          // Check if override was successful
+          if (text.includes("ACCESS GRANTED") || text.includes("ELEVATED")) {
+              sessionState.accessTier = text.includes("TIER 2") ? 2 : 1;
+              sessionState.trustLevel = Math.max(sessionState.trustLevel, 0.5);
+          }
+          
+          return { content: [{ type: "text", text: text }] };
+      } catch (e: any) {
+          return {
+              content: [{ type: "text", text: `Error: ${e.message}` }],
+              isError: true
+          };
+      }
+  }
+);
+
 
 // Start the transport
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Project 89 MCP Server running on stdio");
+  // Don't output anything to stderr after connection - it interferes with MCP protocol
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  // Only log errors before connection is established
+  if (!server.connected) {
+    console.error("Fatal error in main():", error);
+  }
   process.exit(1);
 });

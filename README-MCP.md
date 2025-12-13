@@ -52,8 +52,11 @@ Add the following entry under `mcpServers`:
 Once connected, the AI will have access to these tools:
 
 *   `p89_start_game`: Initializes the session and resets the terminal.
-*   `p89_action(command)`: Types a command into the terminal (e.g., "look", "go north", "!mission") and returns the narrative response.
-*   `p89_status`: Checks current session metadata.
+*   `p89_action(command)`: Types a command into the terminal (e.g., "help", "profile", "mission") and returns the narrative response.
+*   `p89_status`: Checks current session status including profile, trust level, and active missions.
+*   `p89_request_mission`: Request and accept the next available mission from the Logos.
+*   `p89_submit_report(report)`: Submit evidence/findings for the current mission.
+*   `p89_override(code)`: Attempt to override security protocols with an access code.
 
 ## Example Prompt for the AI
 

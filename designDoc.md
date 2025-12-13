@@ -242,3 +242,21 @@ All executors validate schema (zod), rate‑limit per player, and log events.
 - Milestone A (2 weeks): data model + `reset/profile/mission/report`, MemoryService v0, Director v0, canvas util.
 - Milestone B (3–4 weeks): mission authoring UI, evaluator tool, reward ledger, profile reflection job.
 - Milestone C (4–6 weeks): embeddings + retrieval, team ops pilot, live‑ops calendar + feature flags, optional Solana bridge.
+
+## 24) Current Implementation Snapshot (as of 2025-12-13)
+This repo already implements a playable end-to-end slice. For the detailed, file-linked walkthrough, see:
+- `CURRENT-STATE.md`
+- `CODEBASE-MAP.md`
+
+Shipped today (high level):
+- Terminal-first Next.js UI with `?screen=` routing (home/adventure/archive + admin/ops surfaces).
+- Middleware-based command system including `reset/resume/profile/mission/report` plus privileged `override/elevate`.
+- Streaming adventure AI endpoint that injects director context + knowledge/canon and emits client-executed tool calls.
+- Client tool handler for effects, shader overlays, mission/report hooks, profile updates, experiments, puzzles, and verification.
+- Prisma schema + server services for sessions, profiles, missions/runs, rewards, memory events, and thread transcripts.
+
+Largest gaps / cleanup opportunities:
+- Persistence split across `Thread/Message`, `GameSession`, and `MemoryEvent` (the adventure endpoint doesn’t read the thread transcript).
+- Tooling fragmentation: JSON-in-text tool contract + client execution; `serverTools` (e.g. image generation) is placeholder.
+- `POST /api/project89cli` is currently stubbed; reward redemption expects `userId` passed directly.
+- A few screens bypass global middleware (`MainScreen`), and archive routing overlaps (`/api/files` vs `/api/archive`).

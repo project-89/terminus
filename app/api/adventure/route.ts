@@ -7,31 +7,35 @@ import { buildAdventureSystemPrompt } from "@/app/lib/ai/promptBuilder";
 import { buildDirectorContext } from "@/app/lib/server/directorService";
 import { loadKnowledge } from "@/app/lib/ai/knowledge";
 import { loadIFCanon } from "@/app/lib/ai/canon";
+import { recordMemoryEvent } from "@/app/lib/server/memoryService";
+import { getSessionById, getActiveSessionByHandle } from "@/app/lib/server/sessionService";
 
 const ADVENTURE_PROMPT = loadIFCanon();
 
-// Define tool parameter schemas
+const clampNumber = (min: number, max: number) =>
+  z.preprocess((value) => {
+    const num = typeof value === "string" ? Number(value) : (value as number);
+    if (!Number.isFinite(num)) return undefined;
+    return Math.max(min, Math.min(max, num));
+  }, z.number().min(min).max(max));
+
+// Define tool parameter schemas with clamping to avoid model validation failures
 const glitchParameters = z.object({
-  intensity: z.number().min(0).max(1).describe("Glitch intensity (0-1)"),
-  duration: z.number().min(0).max(5000).describe("Duration in milliseconds"),
+  intensity: clampNumber(0, 1).describe("Glitch intensity (0-1)"),
+  duration: clampNumber(0, 5000).describe("Duration in milliseconds"),
 });
 
 const soundParameters = z.object({
   description: z
     .string()
     .describe("Concise description of the sound to generate"),
-  duration: z.number().min(0.1).max(10).describe("Duration in seconds"),
-  influence: z
-    .number()
-    .min(0)
-    .max(1)
-    .default(0.7)
-    .describe("Prompt influence (0-1)"),
+  duration: clampNumber(0.1, 10).describe("Duration in seconds"),
+  influence: clampNumber(0, 1).default(0.7).describe("Prompt influence (0-1)"),
 });
 
 const matrixRainParameters = z.object({
-  duration: z.number().min(0).max(10000).describe("Duration in milliseconds"),
-  intensity: z.number().min(0).max(1).describe("Effect intensity (0-1)"),
+  duration: clampNumber(0, 10000).describe("Duration in milliseconds"),
+  intensity: clampNumber(0, 1).describe("Effect intensity (0-1)"),
 });
 
 const experimentCreateParameters = z.object({
@@ -125,6 +129,7 @@ type AdventureContext = {
   reportJustSubmitted?: boolean;
   accessTier?: number;
   hasFullAccess?: boolean;
+  toolsDisabled?: boolean;
 };
 
 type ToolRuntimeContext = AdventureContext & {
@@ -192,6 +197,15 @@ function getToolsConfig(context?: ToolRuntimeContext) {
         "Append an observation/result to an active experiment once the agent reacts.",
       parameters: experimentNoteParameters,
     },
+    // Always available director hooks to avoid NoSuchTool errors when model improvises
+    screen_transition: {
+      description: "Switch the player to another terminal surface.",
+      parameters: screenTransitionParameters,
+    },
+    persona_set: {
+      description: "Modulate the LOGOS persona (cloak/reveal).",
+      parameters: personaSetParameters,
+    },
   };
 
   if (allowOpsTools) {
@@ -213,16 +227,9 @@ function getToolsConfig(context?: ToolRuntimeContext) {
 
   if (allowDirectorTools) {
     Object.assign(toolset, {
-      screen_transition: {
-        description: "Switch the player to another terminal surface.",
-        parameters: screenTransitionParameters,
-      },
-      persona_set: {
-        description: "Modulate the LOGOS persona (cloak/reveal).",
-        parameters: personaSetParameters,
-      },
       verify_protocol_89: {
-        description: "Initiate final verification protocol (The Golden Glitch). Use ONLY when the user claims to have the final key or has reached max trust. Server-side check.",
+        description:
+          "Initiate final verification protocol (The Golden Glitch). Use ONLY when the user claims to have the final key or has reached max trust. Server-side check.",
         parameters: z.object({
           key: z.string().describe("The key or passphrase provided by the user."),
         }),
@@ -280,12 +287,15 @@ export async function POST(req: Request) {
       knowledge,
       // Include IF canon to constrain behavior
       canon: ADVENTURE_PROMPT,
+      memory: directorCtx.memory,
     } as any);
 
-    const tools = getToolsConfig({
-      ...(context || {}),
-      trustScore: directorCtx.player?.trustScore,
-    });
+    const tools = context?.toolsDisabled
+      ? undefined
+      : getToolsConfig({
+          ...(context || {}),
+          trustScore: directorCtx.player?.trustScore,
+        });
 
     const result = await streamText({
       model: ADVENTURE_MODEL,
@@ -306,7 +316,51 @@ export async function POST(req: Request) {
     });
 
     console.log("Stream created, sending response");
-    return new StreamingTextResponse(result.textStream);
+    const response = new StreamingTextResponse(result.textStream, {
+      async onComplete(content) {
+        // Persist user/assistant turns as memory events if session is known
+        const sessionId = context?.sessionId;
+        const handle = context?.handle;
+        let resolved = { userId: "", sessionId: "" };
+        try {
+          if (sessionId) {
+            const session = await getSessionById(sessionId);
+            if (session?.userId) {
+              resolved = { userId: session.userId, sessionId: session.id };
+            }
+          } else if (handle) {
+            const session = await getActiveSessionByHandle(handle);
+            if (session?.userId) {
+              resolved = { userId: session.userId, sessionId: session.id };
+            }
+          }
+        } catch {}
+
+        if (resolved.userId && resolved.sessionId) {
+          // Record last user message (if any) and assistant response
+          const lastUser = validMessages[validMessages.length - 1];
+          if (lastUser?.content) {
+            await recordMemoryEvent({
+              userId: resolved.userId,
+              sessionId: resolved.sessionId,
+              type: "OBSERVATION",
+              content: lastUser.content,
+              tags: ["adventure", "user"],
+            });
+          }
+          if (content) {
+            await recordMemoryEvent({
+              userId: resolved.userId,
+              sessionId: resolved.sessionId,
+              type: "REFLECTION",
+              content,
+              tags: ["adventure", "assistant"],
+            });
+          }
+        }
+      },
+    });
+    return response;
   } catch (error) {
     console.error("Adventure API Error:", error);
     return new Response(

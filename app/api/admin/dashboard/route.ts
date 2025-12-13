@@ -22,7 +22,6 @@ export async function GET(request: Request) {
       select: {
         id: true,
         handle: true,
-        lastSeen: true, // We don't have lastSeen on User, checking schema... we have updatedAt
         createdAt: true,
         role: true,
         profile: {
@@ -62,7 +61,7 @@ export async function GET(request: Request) {
         id: a.id,
         handle: a.handle || "Unknown",
         role: a.role,
-        lastActive: a.createdAt, // fallback since we don't have explicit lastSeen column on User
+        lastActive: a.updatedAt || a.createdAt,
         missionsRun: a._count.missionRuns,
         traits: a.profile?.traits || {}
       })),

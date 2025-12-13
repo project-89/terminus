@@ -276,10 +276,18 @@ export class ToolHandler {
         influence: number;
       }) => {
         try {
+          const safeDuration = Math.max(0.2, Number(params.duration) || 2);
+          const safeInfluence = Math.min(1, Math.max(0, Number(params.influence) || 0.7));
+          const description = params.description || "glitchy chime in a dark room";
+
           const response = await fetch("/api/sound", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(params),
+            body: JSON.stringify({
+              description,
+              duration: safeDuration,
+              influence: safeInfluence,
+            }),
           });
 
           if (!response.ok) throw new Error("Sound generation failed");
@@ -444,6 +452,10 @@ export class ToolHandler {
           });
           if (!response.ok) throw new Error(`Profile update failed (${response.status})`);
           await response.json();
+          
+          // Refresh local profile state so UI/commands reflect changes immediately
+          await terminalContext.ensureProfile(true);
+
           await this.terminal.print(`Profile tuned (${params.path} → ${params.value}).`, {
             color: TERMINAL_COLORS.success,
             speed: "fast",
