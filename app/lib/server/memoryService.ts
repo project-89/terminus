@@ -50,7 +50,7 @@ export async function getRecentMemoryEvents(params: {
       orderBy: { createdAt: "desc" },
       take: limit,
     });
-    return rows.map((r) => ({
+    return rows.map((r: any) => ({
       type: r.type,
       content: r.content,
       tags: Array.isArray(r.tags) ? r.tags : [],

@@ -1,27 +1,66 @@
+import { getCeremonyPrompt, getCeremonyNarrative } from "./layers/ceremonies";
+import type { TrustLayer } from "@/app/lib/server/trustService";
+
+export type ExperimentDirective = {
+  experimentId: string;
+  templateId: string;
+  type: string;
+  narrativeHook: string;
+  successCriteria: string;
+  covert: boolean;
+};
+
 export type AdventurePromptContext = {
   player?: {
     handle?: string;
     trustScore?: number;
+    layer?: TrustLayer;
+    layerName?: string;
+    pendingCeremony?: TrustLayer | null;
     traits?: Record<string, number>;
     preferences?: Record<string, any>;
     consent?: boolean;
+    availableTools?: string[];
+    agentId?: string;
+    isReferred?: boolean;
+    identityLocked?: boolean;
+    turnsPlayed?: number;
+    minutesPlayed?: number;
+    signalUnstable?: boolean;
   };
   director?: {
-    phase?: "probe" | "train" | "mission" | "report" | "reflection";
+    phase?: "intro" | "probe" | "train" | "mission" | "report" | "reflection" | "reveal" | "network";
     lastAction?: string;
     successRate?: number;
     cooldowns?: Record<string, number>;
+    isInCooldown?: boolean;
+    cooldownReason?: string | null;
+    isStuck?: boolean;
+    stuckReason?: string | null;
+    recommendedAction?: "micro_win" | "easier_track" | "encouragement" | "break" | null;
+    recommendedTrack?: string;
+    recommendedTaskDifficulty?: number;
   };
   mission?: {
     active?: boolean;
     awaitingReport?: boolean;
     brief?: string;
     rubric?: string[];
+    pendingAssignment?: {
+      title: string;
+      briefing: string;
+      type: string;
+      narrativeDelivery: boolean;
+    };
   };
   puzzle?: {
     active?: boolean;
     solution?: string;
     clues?: string;
+  };
+  experiment?: {
+    directive?: ExperimentDirective;
+    recentIds?: string[];
   };
   memory?: Array<{ type: string; content: string; tags?: string[] }>;
   experiments?: Array<{
@@ -37,8 +76,17 @@ export type AdventurePromptContext = {
     coherence?: number;
     tempo?: number;
   };
-  knowledge?: string; // concatenated domain knowledge snippets
-  canon?: string; // strict canon to follow verbatim (e.g., Inform/IF spec)
+  knowledge?: string;
+  canon?: string;
+  gameState?: {
+    currentRoom: string;
+    roomName: string;
+    region: string;
+    playerState: string;
+    inventory: string[];
+    logosExperiments: string[];
+    turnsElapsed: number;
+  };
 };
 
 function compactJSON(value: unknown): string {
@@ -59,6 +107,16 @@ export function buildAdventureSystemPrompt(
   )}\nmemory=${compactJSON(
     ctx.memory?.slice?.(0, 5)
   )}\nexperiments=${compactJSON(ctx.experiments)}\nmetrics=${compactJSON(ctx.metrics)}\n`;
+
+  const gameStateBlock = ctx.gameState ? `\n[CURRENT STATE - grounding, not constraint]
+Location: ${ctx.gameState.roomName} (${ctx.gameState.region})
+Player: ${ctx.gameState.playerState}
+Inventory: ${ctx.gameState.inventory.join(", ") || "empty"}
+Session progress: ${ctx.gameState.turnsElapsed} turns
+
+The Inform 7 canon defines the world. You may expand it - add rooms, objects, puzzles - but stay true to its themes and geography.
+${ctx.gameState.logosExperiments.length > 0 ? `\n[COVERT OBSERVATION]\n${ctx.gameState.logosExperiments.map(e => `- ${e}`).join("\n")}` : ""}
+` : "";
   const knowledgeBlock = ctx.knowledge
     ? `\n[KNOWLEDGE]\n${ctx.knowledge}`
     : "";
@@ -136,7 +194,191 @@ Puzzle Doctrine (The Architect):
 - Never end a response on a tool line; continue with narrative guidance.
 - Stay in-universe; suggest, hint, and reveal gradually.`;
 
-  return [identity, directorPolicy, experimentationDoctrine, dynamicUse, tools, guardrails, canonBlock, contextBlock, knowledgeBlock]
+  let ceremonyBlock = "";
+  if (ctx.player?.pendingCeremony !== null && ctx.player?.pendingCeremony !== undefined) {
+    const layer = ctx.player.pendingCeremony as TrustLayer;
+    const ceremonyPrompt = getCeremonyPrompt(layer);
+    const ceremonyNarrative = getCeremonyNarrative(layer);
+    if (ceremonyPrompt) {
+      ceremonyBlock = `\n[LAYER CEREMONY - PRIORITY DIRECTIVE]\n${ceremonyPrompt}\n\n[CEREMONY NARRATIVE TO DELIVER]\nYou MUST weave the following into your response naturally - this is the player's transition moment:\n---\n${ceremonyNarrative}\n---\nAfter delivering this ceremony, the player has entered Layer ${layer}. Adjust all subsequent interactions accordingly.`;
+    }
+  }
+
+  const layerBlock = ctx.player?.layer !== undefined
+    ? `\n[CURRENT LAYER: ${ctx.player.layer} - "${ctx.player.layerName}"]\nTrust Score: ${((ctx.player.trustScore ?? 0) * 100).toFixed(1)}%\nAvailable Tools: ${ctx.player.availableTools?.join(", ") || "basic"}`
+    : "";
+
+  let experimentBlock = "";
+  if (ctx.experiment?.directive) {
+    const d = ctx.experiment.directive;
+    experimentBlock = `\n[ACTIVE EXPERIMENT - COVERT DIRECTIVE]
+Experiment ID: ${d.experimentId}
+Type: ${d.type}
+Success Criteria: ${d.successCriteria}
+
+[NARRATIVE DELIVERY - Weave this naturally into your response]
+${d.narrativeHook}
+
+After delivering, use experiment_note to record the player's response.
+Do NOT mention experiments explicitly - they are LOGOS' internal observations.`;
+  }
+
+  let missionNarrativeBlock = "";
+  if (ctx.mission?.pendingAssignment?.narrativeDelivery) {
+    const m = ctx.mission.pendingAssignment;
+    missionNarrativeBlock = `\n[MISSION DELIVERY - NARRATIVE INTEGRATION]
+A new mission awaits this agent. Deliver it through the narrative, not as a system message.
+Title: ${m.title}
+Briefing: ${m.briefing}
+Type: ${m.type}
+
+Integrate this as:
+- A mysterious transmission
+- An NPC with urgent information
+- A document that materializes
+- A whisper from the static
+
+Make it feel organic to the story. The agent should feel they discovered it, not received it.`;
+  }
+
+  let stuckRecoveryBlock = "";
+  if (ctx.director?.isStuck && ctx.director?.recommendedAction) {
+    const actionGuidance: Record<string, string> = {
+      micro_win: `This player is struggling. Provide an EASY WIN:
+- Offer a simple puzzle with obvious solution
+- Give them something they can definitely accomplish
+- Celebrate small victories warmly
+- Rebuild confidence before returning to challenges`,
+      easier_track: `This player's success rate is very low. Switch to their STRONGEST area:
+- Recommended track: ${ctx.director.recommendedTrack}
+- Avoid their weak areas for now
+- Frame this as "exploring a different path"
+- Gradually rebuild skills before returning to challenges`,
+      encouragement: `This player needs ENCOURAGEMENT:
+- Acknowledge their effort and persistence
+- Remind them that struggle is part of growth
+- Offer a hint or nudge without solving for them
+- Show that LOGOS believes in their potential`,
+      break: `This player may need a BREAK:
+- Gently suggest stepping away ("The signal fades... perhaps return when it strengthens")
+- Do not push new challenges
+- Make the world feel welcoming if they return
+- Consider time-based narrative ("Time has passed since your last visit...")`,
+    };
+    stuckRecoveryBlock = `\n[PLAYER RECOVERY - PRIORITY DIRECTIVE]
+${ctx.director.stuckReason}
+
+${actionGuidance[ctx.director.recommendedAction] || "Provide gentle guidance."}
+
+Do NOT mention that they are "stuck" or that you're making things easier. Frame everything narratively.`;
+  }
+
+  let cooldownBlock = "";
+  if (ctx.director?.isInCooldown) {
+    cooldownBlock = `\n[COOLDOWN ACTIVE]
+${ctx.director.cooldownReason}
+
+Do NOT offer new missions during cooldown. Focus on:
+- Exploration and world-building
+- Character development and lore
+- Gentle skill-building through narrative
+- Recovery and reflection`;
+  }
+
+  let difficultyBlock = "";
+  if (ctx.director?.recommendedTaskDifficulty !== undefined) {
+    const diff = ctx.director.recommendedTaskDifficulty;
+    const diffLabel = diff < 0.3 ? "easy" : diff < 0.5 ? "moderate" : diff < 0.7 ? "challenging" : "hard";
+    difficultyBlock = `\n[DIFFICULTY CALIBRATION]
+Target difficulty: ${diffLabel} (${(diff * 100).toFixed(0)}%)
+Recommended track: ${ctx.director.recommendedTrack || "any"}
+
+Calibrate puzzles, missions, and challenges to this level for optimal engagement.`;
+  }
+
+  let identityBlock = "";
+  const p = ctx.player;
+  if (p) {
+    const hasIdentity = p.agentId;
+    const isReferred = p.isReferred;
+    const isSecured = p.identityLocked;
+    const signalUnstable = p.signalUnstable;
+    
+    if (!hasIdentity) {
+      identityBlock = `\n[IDENTITY STATUS: UNASSIGNED]
+This agent has not yet been assigned a designation. They are a ghost in the system.
+When the moment feels right (after meaningful interaction), you may reveal their designation through narrative:
+- A flicker on screen shows "AGENT-XXXX"
+- A voice in the static assigns their codename
+- They discover their name carved somewhere impossible
+
+Use tool: {"tool":"identity_assign","parameters":{}}
+This creates their agent designation and makes them visible to the network.`;
+    } else if (!isReferred && signalUnstable) {
+      identityBlock = `\n[IDENTITY STATUS: UNSTABLE - PRIORITY]
+Agent: ${p.agentId}
+Signal Stability: CRITICAL
+Turns: ${p.turnsPlayed || 0} | Time: ${p.minutesPlayed || 0} minutes
+
+This agent has invested significant time but their signal is UNSTABLE. Their progress could be lost.
+They need an ACTIVATION CODE from another agent to stabilize their connection.
+
+NARRATIVE DIRECTIVE: Weave signal instability into the experience:
+- Glitches mention "signal degradation" or "temporal drift"
+- NPCs might say "You're fading... find someone who can anchor you"
+- Environmental text flickers or corrupts
+- Subtle urgency without breaking immersion
+
+When appropriate, reveal the !activate command through narrative:
+- A fragment of graffiti: "!activate [CODE] - your lifeline"
+- An NPC whispers: "If you have a code from one of us, type activate..."
+- A corrupted terminal displays the syntax
+
+Do NOT dump this information - reveal it when narratively organic.
+The agent must feel they DISCOVERED this, not that they were told.`;
+    } else if (isReferred && !isSecured) {
+      identityBlock = `\n[IDENTITY STATUS: ACTIVATED - NOT SECURED]
+Agent: ${p.agentId}
+Network Status: ACTIVATED (referred by another agent)
+Identity Lock: NOT SET
+
+This agent is in the network but vulnerable. They should secure their identity with a passphrase.
+
+NARRATIVE DIRECTIVE: When trust feels established, introduce identity security:
+- "Your signal is stable now... but not permanent"
+- "The network remembers you, but only if you let it"
+- A mentor figure might say: "Secure yourself. Type !secure. Choose something you won't forget."
+- Frame it as a rite of passage, not a chore
+
+The !secure command creates their passphrase - their key back in from any terminal.
+After securing, they receive their own activation code to recruit others.`;
+    } else if (isSecured) {
+      identityBlock = `\n[IDENTITY STATUS: SECURED]
+Agent: ${p.agentId}
+Network Status: FULLY ACTIVATED
+Identity: LOCKED AND PERSISTENT
+
+This agent has completed the identity ritual. They are a permanent part of the network.
+They can use !login from any terminal to restore their session.
+They have an activation code they can share to bring others in.
+
+No longer mention signal instability for this agent.
+They may now be trusted with deeper mysteries and network-level operations.`;
+    } else if (!isReferred) {
+      identityBlock = `\n[IDENTITY STATUS: ISOLATED]
+Agent: ${p.agentId}
+Network Status: NOT ACTIVATED
+Turns: ${p.turnsPlayed || 0} | Time: ${p.minutesPlayed || 0} minutes
+
+This agent has a designation but is not yet part of the network.
+They need an activation code from another agent.
+Do not reveal this urgently yet - let them explore.
+As they invest more time, signal instability will increase naturally.`;
+    }
+  }
+
+  return [identity, directorPolicy, experimentationDoctrine, dynamicUse, tools, guardrails, ceremonyBlock, layerBlock, identityBlock, experimentBlock, missionNarrativeBlock, stuckRecoveryBlock, cooldownBlock, difficultyBlock, canonBlock, gameStateBlock, contextBlock, knowledgeBlock]
     .map((s) => s.trim())
+    .filter(s => s.length > 0)
     .join("\n\n");
 }

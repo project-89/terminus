@@ -30,7 +30,7 @@ export class CommandHandler {
   }
 
   public async processCommand(command: string) {
-    await this.terminal.print(`> ${command}`, {
+    await this.terminal.print(`\n> ${command}`, {
       color: this.terminal.options.foregroundColor,
       speed: "instant",
     });

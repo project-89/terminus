@@ -13,6 +13,7 @@ import {
 } from "./memoryStore";
 import { getProfile, ProfileRecord } from "./profileService";
 import { getMissionCatalog, MissionCatalogEntry } from "../missions/catalog";
+import { updateTrackDifficulty, type DifficultyTrack } from "./difficultyService";
 
 export type MissionDefinitionRecord = {
   id: string;
@@ -381,6 +382,28 @@ export async function submitMissionReport(params: {
     if (rewardAmount > 0) {
       await rewardService.grant(updatedRun.userId, rewardAmount, `Mission: ${updatedRun.mission.title}`, missionRunId);
     }
+
+    // Update track difficulty based on mission type
+    const missionType = updatedRun.mission.type?.toLowerCase() || "decode";
+    const trackMap: Record<string, DifficultyTrack> = {
+      decode: "logic",
+      cipher: "logic",
+      puzzle: "logic",
+      observe: "perception",
+      surveillance: "perception",
+      pattern: "perception",
+      create: "creation",
+      compose: "creation",
+      design: "creation",
+      field: "field",
+      retrieve: "field",
+      deploy: "field",
+    };
+    const track = trackMap[missionType] || "logic";
+    const taskDifficulty = 0.5; // Default mid-range, could be stored on mission
+    try {
+      await updateTrackDifficulty(updatedRun.userId, track, taskDifficulty, score >= 0.6);
+    } catch {}
 
     return {
       id: updatedRun.id,

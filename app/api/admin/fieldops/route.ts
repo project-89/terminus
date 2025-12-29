@@ -1,0 +1,107 @@
+import { NextResponse } from "next/server";
+import prisma from "@/app/lib/prisma";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    const fieldMissions = await prisma.fieldMission.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            handle: true,
+            profile: {
+              select: {
+                codename: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const byStatus = {
+      ASSIGNED: fieldMissions.filter(m => m.status === "ASSIGNED").length,
+      IN_PROGRESS: fieldMissions.filter(m => m.status === "IN_PROGRESS").length,
+      PENDING_REVIEW: fieldMissions.filter(m => m.status === "PENDING_REVIEW").length,
+      COMPLETED: fieldMissions.filter(m => m.status === "COMPLETED").length,
+      FAILED: fieldMissions.filter(m => m.status === "FAILED").length,
+      EXPIRED: fieldMissions.filter(m => m.status === "EXPIRED").length,
+    };
+
+    const byType: Record<string, number> = {};
+    for (const m of fieldMissions) {
+      byType[m.type] = (byType[m.type] || 0) + 1;
+    }
+
+    return NextResponse.json({
+      fieldMissions: fieldMissions.map(m => ({
+        id: m.id,
+        createdAt: m.createdAt,
+        updatedAt: m.updatedAt,
+        type: m.type,
+        status: m.status,
+        title: m.title,
+        briefing: m.briefing,
+        objectives: m.objectives,
+        location: m.location,
+        deadline: m.deadline,
+        evidence: m.evidence,
+        report: m.report,
+        evaluation: m.evaluation,
+        score: m.score,
+        agent: {
+          id: m.user.id,
+          handle: m.user.handle,
+          codename: m.user.profile?.codename,
+        },
+      })),
+      stats: {
+        total: fieldMissions.length,
+        byStatus,
+        byType,
+        pendingReview: byStatus.PENDING_REVIEW,
+      },
+    });
+  } catch (error: any) {
+    console.error("Admin fieldops error:", error);
+    return NextResponse.json({ error: "Failed to fetch field operations" }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { action, id, evaluation, score, status } = body;
+
+    switch (action) {
+      case "evaluate": {
+        const mission = await prisma.fieldMission.update({
+          where: { id },
+          data: {
+            evaluation,
+            score,
+            status: score >= 0.6 ? "COMPLETED" : "FAILED",
+          },
+        });
+        return NextResponse.json(mission);
+      }
+
+      case "updateStatus": {
+        const mission = await prisma.fieldMission.update({
+          where: { id },
+          data: { status },
+        });
+        return NextResponse.json(mission);
+      }
+
+      default:
+        return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+    }
+  } catch (error: any) {
+    console.error("Admin fieldops POST error:", error);
+    return NextResponse.json({ error: "Failed to process request" }, { status: 500 });
+  }
+}

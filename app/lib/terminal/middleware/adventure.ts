@@ -160,6 +160,15 @@ export const adventureMiddleware: TerminalMiddleware = async (
 
     // Update chat history with both messages
     context.setGameMessages(chatHistory);
+
+    // Check identity status periodically and show prompts
+    const identityStatus = await context.checkIdentityStatus();
+    if (identityStatus?.promptIdentityLock && identityStatus.narrative) {
+      await ctx.terminal.print(identityStatus.narrative, {
+        color: TERMINAL_COLORS.warning,
+        speed: "normal",
+      });
+    }
   } catch (error) {
     console.error("Adventure middleware error:", error);
     await ctx.terminal.print("Error processing command", {

@@ -11,7 +11,7 @@ const nextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://us.i.posthog.com https://us-assets.i.posthog.com",
               "connect-src 'self' https://us.i.posthog.com https://api.mainnet-beta.solana.com/ https://solana-mainnet.g.alchemy.com/",
-              "img-src 'self' data: blob:",
+              "img-src 'self' data: blob: https://unpkg.com",
               "style-src 'self' 'unsafe-inline'",
               "font-src 'self' data:",
             ].join("; "),

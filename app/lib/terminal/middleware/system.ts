@@ -4,8 +4,6 @@ import { TerminalContext } from "../TerminalContext";
 import { TerminalMiddleware } from "../types";
 
 const SYSTEM_COMMANDS = new Set([
-  "help",
-  "?",
   "connect",
   "disconnect",
   "identify",
@@ -21,7 +19,10 @@ const SYSTEM_COMMANDS = new Set([
   "archive",
   "dashboard",
   "ops",
+  "dev",
 ]);
+
+const isDev = process.env.NODE_ENV === "development";
 
 function parseValue(raw: string): any {
   const trimmed = raw.trim();
@@ -156,44 +157,18 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
     await ctx.terminal.print(text, { color, speed });
   };
 
-  if (commandKey === "help" || commandKey === "?" || commandKey === "help/" || commandKey === "help?" ) {
-    await print("\nAvailable Commands:", TERMINAL_COLORS.system);
-    await print("  help / ? / /help – Show this list", TERMINAL_COLORS.primary);
-    await print("  reset | restart | new – Start a new agent session", TERMINAL_COLORS.primary);
-    await print("  resume        – Resume the last session", TERMINAL_COLORS.primary);
-    await print("  mission       – Accept the next mission", TERMINAL_COLORS.primary);
-    await print("  report <text> – Submit mission evidence", TERMINAL_COLORS.primary);
-    await print("  profile       – View profile (traits, skills, prefs)", TERMINAL_COLORS.primary);
-    await print(
-      "  profile set key=value – Update (e.g. preferences.verbosity=rich)",
-      TERMINAL_COLORS.secondary
-    );
-    if (state.hasFullAccess) {
-      await print("\nPrivileged:", TERMINAL_COLORS.system);
-      await print("  dashboard     – Open Agent dashboard", TERMINAL_COLORS.primary);
-      await print("  archive       – Open Archives dashboard", TERMINAL_COLORS.primary);
-      await print("  ops list/run  – List/run operator tools", TERMINAL_COLORS.primary);
-      await print("  oracle <q>    – Ask LOGOS off-record (admin)", TERMINAL_COLORS.primary);
-      await print("  connect/disconnect/identify – Wallet ops", TERMINAL_COLORS.primary);
-      await print("  glitch / rain / sound – Terminal effects", TERMINAL_COLORS.primary);
-    }
-    ctx.handled = true;
-    return;
-  }
-
   if (commandKey === "reset" || commandKey === "restart" || commandKey === "new") {
     try {
       const result = await fetchJSON("/api/session", {
         method: "POST",
         body: { handle, reset: true },
       });
+      
+      terminalContext.clearState();
       terminalContext.setSessionId(result.sessionId);
-      terminalContext.setActiveMissionRun(undefined);
-      terminalContext.setGameMessages([]);
+      
       await ctx.terminal.clear();
-      await print(`Session reset. Handle: ${handle}.`, TERMINAL_COLORS.system);
-      // Re-render Adventure screen to replay the welcome/IF opening scene
-      await ctx.terminal.emit("screen:transition", { to: "adventure" });
+      await ctx.terminal.emit("screen:transition", { to: "adventure", options: { fresh: true } });
       ctx.handled = true;
       return;
     } catch (error: any) {
@@ -428,6 +403,83 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
       return;
     }
     await print("Usage: ops list | ops run <name> [input]", TERMINAL_COLORS.warning);
+    ctx.handled = true;
+    return;
+  }
+
+  // Dev commands - only available in development mode
+  if (commandKey === "dev") {
+    if (!isDev) {
+      await print("Command not available.", TERMINAL_COLORS.error);
+      ctx.handled = true;
+      return;
+    }
+
+    const sub = (args[0] || "help").toLowerCase();
+    const userId = typeof window !== "undefined" ? localStorage.getItem("p89_userId") : null;
+
+    if (sub === "help") {
+      await print("\n◈ DEV COMMANDS ◈", TERMINAL_COLORS.system);
+      await print("", TERMINAL_COLORS.primary);
+      await print("  dev trust <0.0-1.0>    Set trust score", TERMINAL_COLORS.primary);
+      await print("  dev layer <0-5>        Set layer directly", TERMINAL_COLORS.primary);
+      await print("  dev days <n>           Set account age (days)", TERMINAL_COLORS.primary);
+      await print("  dev points <n>         Set reward points", TERMINAL_COLORS.primary);
+      await print("  dev reset              Reset to fresh state", TERMINAL_COLORS.primary);
+      await print("  dev status             Show current dev state", TERMINAL_COLORS.primary);
+      await print("  dev graduate           Instant Layer 5 operative", TERMINAL_COLORS.primary);
+      await print("  dev referred           Toggle referred status", TERMINAL_COLORS.primary);
+      await print("  dev lock               Toggle identity lock", TERMINAL_COLORS.primary);
+      await print("", TERMINAL_COLORS.secondary);
+      await print("  These commands only work in development.", TERMINAL_COLORS.secondary);
+      ctx.handled = true;
+      return;
+    }
+
+    if (!userId) {
+      await print("No user session. Play the game first to create a user.", TERMINAL_COLORS.warning);
+      ctx.handled = true;
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/dev", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          userId, 
+          action: sub, 
+          value: args[1] ? parseValue(args[1]) : undefined 
+        }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        await print(`Error: ${data.error}`, TERMINAL_COLORS.error);
+      } else if (sub === "status") {
+        await print("\n◈ DEV STATUS ◈", TERMINAL_COLORS.system);
+        await print(`  User ID:      ${data.userId}`, TERMINAL_COLORS.primary);
+        await print(`  Agent ID:     ${data.agentId || "none"}`, TERMINAL_COLORS.primary);
+        await print(`  Trust Score:  ${(data.trustScore * 100).toFixed(1)}%`, TERMINAL_COLORS.primary);
+        await print(`  Layer:        ${data.layer} (${data.layerName})`, TERMINAL_COLORS.primary);
+        await print(`  Days Active:  ${data.daysActive}`, TERMINAL_COLORS.primary);
+        await print(`  Referred:     ${data.isReferred ? "yes" : "no"}`, TERMINAL_COLORS.primary);
+        await print(`  ID Locked:    ${data.identityLocked ? "yes" : "no"}`, TERMINAL_COLORS.primary);
+        await print(`  Points:       ${data.points}`, TERMINAL_COLORS.primary);
+      } else if (sub === "reset") {
+        await print(`✓ ${data.message}`, TERMINAL_COLORS.success);
+        terminalContext.clearState();
+        await ctx.terminal.clear();
+        await ctx.terminal.emit("screen:transition", { to: "adventure", options: { fresh: true } });
+      } else {
+        await print(`✓ ${data.message}`, TERMINAL_COLORS.success);
+        if (data.newValue !== undefined) {
+          await print(`  New value: ${data.newValue}`, TERMINAL_COLORS.secondary);
+        }
+      }
+    } catch (e: any) {
+      await print(`Dev command failed: ${e?.message || e}`, TERMINAL_COLORS.error);
+    }
     ctx.handled = true;
     return;
   }

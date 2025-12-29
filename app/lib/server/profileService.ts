@@ -55,6 +55,33 @@ export async function getProfile(userId: string): Promise<ProfileRecord> {
   }
 }
 
+export type AdminDirectives = {
+  adminDirectives: string | null;
+  assignedMissions: any[] | null;
+  codename: string | null;
+};
+
+export async function getAdminDirectives(userId: string): Promise<AdminDirectives | null> {
+  try {
+    const profile = await prisma.playerProfile.findUnique({
+      where: { userId },
+      select: {
+        adminDirectives: true,
+        assignedMissions: true,
+        codename: true,
+      },
+    });
+    if (!profile) return null;
+    return {
+      adminDirectives: profile.adminDirectives,
+      assignedMissions: profile.assignedMissions as any[] | null,
+      codename: profile.codename,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function upsertProfile(
   userId: string,
   delta: Partial<ProfileRecord>

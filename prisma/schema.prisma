@@ -14,13 +14,16 @@ datasource db {
 }
 
 model User {
-    id          String          @id @default(cuid())
-    createdAt   DateTime        @default(now())
-    updatedAt   DateTime        @updatedAt
-    email       String?         @unique
-    handle      String?         @unique
-    role        Role            @default(AGENT)
-    consentedAt DateTime?
+    id             String          @id @default(cuid())
+    createdAt      DateTime        @default(now())
+    updatedAt      DateTime        @updatedAt
+    email          String?         @unique
+    handle         String?         @unique
+    agentId        String?         @unique    // AGENT-XXXX format designation
+    passwordHash   String?                    // bcrypt hash for passphrase
+    identityLocked Boolean         @default(false)  // Has set passphrase
+    role           Role            @default(AGENT)
+    consentedAt    DateTime?
 
     sessions      Session[]
     threads       Thread[]
@@ -31,6 +34,20 @@ model User {
     rewards       Reward[]
     profile       PlayerProfile?
     experiments   Experiment[]
+    
+    knowledgeNodes KnowledgeNode[]
+    dreamEntries   DreamEntry[]
+    synchronicities Synchronicity[]
+    fieldMissions  FieldMission[]
+    
+    // Referral system
+    referralCode   String?         @unique
+    referredBy     User?           @relation("Referrals", fields: [referredById], references: [id])
+    referredById   String?
+    referrals      User[]          @relation("Referrals")
+    artifacts      Artifact[]
+    artifactScans  ArtifactScan[]
+    referralPoints Int             @default(0)
 }
 
 model Session {
@@ -117,6 +134,7 @@ model GameSession {
     status    SessionStatus  @default(OPEN)
     summary   String?
     userId    String
+    gameState Json?
     user      User           @relation(fields: [userId], references: [id])
     messages  GameMessage[]
     missionRuns MissionRun[]
@@ -156,13 +174,55 @@ model MemoryEmbedding {
 }
 
 model PlayerProfile {
-    id          String   @id @default(cuid())
-    userId      String   @unique
-    traits      Json?
-    skills      Json?
-    preferences Json?
-    updatedAt   DateTime @updatedAt
-    user        User     @relation(fields: [userId], references: [id])
+    id              String   @id @default(cuid())
+    userId          String   @unique
+    traits          Json?
+    skills          Json?
+    preferences     Json?
+    updatedAt       DateTime @updatedAt
+    user            User     @relation(fields: [userId], references: [id])
+    
+    codename        String?
+    location        Json?
+    psychProfile    Json?
+    tags            String[] @default([])
+    proclivities    Json?
+    strengths       String[] @default([])
+    weaknesses      String[] @default([])
+    interests       String[] @default([])
+    communicationStyle Json?
+    riskTolerance   Float?   @default(0.5)
+    loyaltyIndex    Float?   @default(0.5)
+    creativityIndex Float?   @default(0.5)
+    analyticalIndex Float?   @default(0.5)
+    
+    // === TRUST & LAYER SYSTEM ===
+    trustScore         Float    @default(0.0)    // 0.0 - 1.0 persistent trust
+    layer              Int      @default(0)      // Current layer (0-5)
+    layerUnlockedAt    DateTime?                 // When current layer was reached
+    lastTrustUpdate    DateTime?                 // Last time trust was recalculated
+    lastActiveAt       DateTime?                 // For decay calculation
+    trustHistory       Json?                     // Array of { timestamp, score, reason }
+    
+    // Layer ceremony tracking
+    layerCeremoniesCompleted Int[] @default([])  // Which layer ceremonies have been experienced
+    pendingCeremony    Int?                      // Layer ceremony queued but not yet delivered
+    
+    // Per-track difficulty (Elo-like)
+    trackLogic         Float    @default(0.5)    // Logic track difficulty 0-1
+    trackPerception    Float    @default(0.5)    // Perception track difficulty 0-1  
+    trackCreation      Float    @default(0.5)    // Creation track difficulty 0-1
+    trackField         Float    @default(0.5)    // Field ops track difficulty 0-1
+    
+    adminNotes      String?
+    adminDirectives String?
+    assignedMissions Json?
+    watchlist       Boolean  @default(false)
+    flagged         Boolean  @default(false)
+    flagReason      String?
+    
+    dossierGeneratedAt DateTime?
+    dossierVersion     Int      @default(0)
 }
 
 model MissionDefinition {
@@ -234,4 +294,373 @@ enum RewardType {
     CREDIT
     TOKEN
     BADGE
+    LOGOS_AWARD    // Points awarded by LOGOS during gameplay
 }
+
+// ============================================
+// KNOWLEDGE GRAPH - Puzzle & Discovery System
+// ============================================
+
+model KnowledgeNode {
+    id          String           @id @default(cuid())
+    createdAt   DateTime         @default(now())
+    updatedAt   DateTime         @updatedAt
+    userId      String
+    type        KnowledgeNodeType
+    label       String
+    data        Json?
+    solved      Boolean          @default(false)
+    solvedAt    DateTime?
+    discoveredAt DateTime?
+    
+    user        User             @relation(fields: [userId], references: [id])
+    
+    outEdges    KnowledgeEdge[]  @relation("FromNode")
+    inEdges     KnowledgeEdge[]  @relation("ToNode")
+    
+    @@unique([userId, type, label])
+    @@index([userId, type])
+    @@index([userId, solved])
+}
+
+model KnowledgeEdge {
+    id          String           @id @default(cuid())
+    createdAt   DateTime         @default(now())
+    fromId      String
+    toId        String
+    relation    EdgeRelation
+    weight      Float            @default(1.0)
+    data        Json?
+    
+    fromNode    KnowledgeNode    @relation("FromNode", fields: [fromId], references: [id], onDelete: Cascade)
+    toNode      KnowledgeNode    @relation("ToNode", fields: [toId], references: [id], onDelete: Cascade)
+    
+    @@unique([fromId, toId, relation])
+    @@index([fromId])
+    @@index([toId])
+}
+
+enum KnowledgeNodeType {
+    PUZZLE
+    CLUE
+    SOLUTION
+    DISCOVERY
+    SECRET
+    LOCATION
+    SYMBOL
+    DREAM
+    SYNCHRONICITY
+    MISSION
+    ARTIFACT
+    ROOM
+    OBJECT
+    NPC
+    EXIT
+    ACTION
+    EVENT
+}
+
+enum EdgeRelation {
+    UNLOCKS
+    REQUIRES
+    REVEALS
+    HINTS_AT
+    CONNECTS_TO
+    FOUND_AT
+    LEADS_TO
+    CONTAINS
+    DESCRIBED_AS
+    SPOKE_TO
+    GAVE_TO
+    USED_ON
+    BLOCKED_BY
+    OPENED_BY
+    DREAMED_OF
+    ECHOES
+    PRECEDED_BY
+    CONFIRMED_BY
+}
+
+// ============================================
+// DREAM JOURNAL
+// ============================================
+
+model DreamEntry {
+    id          String       @id @default(cuid())
+    createdAt   DateTime     @default(now())
+    userId      String
+    content     String
+    symbols     String[]     @default([])
+    emotions    String[]     @default([])
+    locations   String[]     @default([])
+    characters  String[]     @default([])
+    analysis    String?
+    lucidity    Int?         @default(0)
+    recurrence  Int          @default(1)
+    
+    user        User         @relation(fields: [userId], references: [id])
+    
+    @@index([userId, createdAt])
+}
+
+// ============================================
+// SYNCHRONICITY TRACKING
+// ============================================
+
+model Synchronicity {
+    id          String       @id @default(cuid())
+    createdAt   DateTime     @default(now())
+    userId      String
+    pattern     String
+    occurrences Json
+    significance Float       @default(0.5)
+    acknowledged Boolean     @default(false)
+    note        String?
+    
+    user        User         @relation(fields: [userId], references: [id])
+    
+    @@index([userId, pattern])
+}
+
+// ============================================
+// REAL-WORLD MISSIONS
+// ============================================
+
+model FieldMission {
+    id              String           @id @default(cuid())
+    createdAt       DateTime         @default(now())
+    updatedAt       DateTime         @updatedAt
+    userId          String
+    type            FieldMissionType
+    status          FieldMissionStatus @default(ASSIGNED)
+    title           String
+    briefing        String
+    objectives      Json
+    location        Json?
+    deadline        DateTime?
+    evidence        Json[]           @default([])
+    report          String?
+    evaluation      String?
+    score           Float?
+    
+    user            User             @relation(fields: [userId], references: [id])
+    
+    @@index([userId, status])
+}
+
+enum FieldMissionType {
+    OBSERVATION
+    PHOTOGRAPH
+    DOCUMENT
+    LOCATE
+    DECODE
+    CONTACT
+    RETRIEVE
+    VERIFY
+}
+
+enum FieldMissionStatus {
+    ASSIGNED
+    ACCEPTED
+    IN_PROGRESS
+    EVIDENCE_SUBMITTED
+    UNDER_REVIEW
+    COMPLETED
+    FAILED
+    EXPIRED
+}
+
+// ============================================
+// FIELD MISSION TEMPLATES (Admin-managed)
+// ============================================
+
+model FieldMissionTemplate {
+    id              String           @id @default(cuid())
+    createdAt       DateTime         @default(now())
+    updatedAt       DateTime         @updatedAt
+    type            FieldMissionType
+    difficulty      String           @default("initiate")
+    title           String
+    briefing        String
+    objectives      Json
+    location        Json?
+    deadlineHours   Int              @default(72)
+    active          Boolean          @default(true)
+    
+    @@index([difficulty, active])
+}
+
+
+// ============================================
+// ARTIFACT & REFERRAL SYSTEM
+// ============================================
+
+model Artifact {
+    id              String           @id @default(cuid())
+    createdAt       DateTime         @default(now())
+    updatedAt       DateTime         @updatedAt
+    
+    // Creator/deployer
+    userId          String
+    user            User             @relation(fields: [userId], references: [id])
+    
+    // Artifact identification
+    code            String           @unique    // Short scannable code (e.g., "P89-X7K2")
+    type            ArtifactType
+    name            String?                     // Optional name for the artifact
+    description     String?                     // What is this artifact?
+    
+    // Physical deployment
+    deployed        Boolean          @default(false)
+    deployedAt      DateTime?
+    location        Json?                       // { lat, lng, accuracy, address, zone }
+    locationName    String?                     // Human readable location
+    zone            String?                     // City/region zone
+    
+    // Content/payload
+    payload         Json?                       // QR data, message, puzzle, etc.
+    imageUrl        String?                     // Photo of deployed artifact
+    
+    // Tracking
+    scanCount       Int              @default(0)
+    lastScannedAt   DateTime?
+    active          Boolean          @default(true)
+    verified        Boolean          @default(false)  // Admin verified deployment
+    
+    // Stats
+    recruitsGenerated Int            @default(0)
+    pointsEarned    Int              @default(0)
+    
+    scans           ArtifactScan[]
+    
+    @@index([userId])
+    @@index([code])
+    @@index([type, active])
+    @@index([zone])
+}
+
+model ArtifactScan {
+    id              String           @id @default(cuid())
+    createdAt       DateTime         @default(now())
+    
+    artifactId      String
+    artifact        Artifact         @relation(fields: [artifactId], references: [id])
+    
+    // Who scanned (null if anonymous/new user)
+    scannerId       String?
+    scanner         User?            @relation(fields: [scannerId], references: [id])
+    
+    // Scan context
+    location        Json?                       // Where the scan happened
+    userAgent       String?                     // Device info
+    ipHash          String?                     // Hashed IP for dedup
+    
+    // Outcome
+    resultedInSignup Boolean         @default(false)
+    newUserId       String?                     // If scan led to new signup
+    
+    @@index([artifactId])
+    @@index([scannerId])
+}
+
+enum ArtifactType {
+    STICKER           // Physical sticker with QR
+    DEADDROP          // Hidden cache with code
+    POSTER            // Larger format poster
+    GRAFFITI          // Spray/chalk art
+    DIGITAL           // Online placement
+    CARD              // Business card sized
+    ZONE              // Entire area/zone claim
+    BEACON            // Bluetooth/NFC beacon
+    AUDIO             // Audio message/number station
+}
+
+// Referral tracking for payouts
+model ReferralPayout {
+    id              String           @id @default(cuid())
+    createdAt       DateTime         @default(now())
+    
+    userId          String
+    amount          Float                       // Amount in USD or points
+    currency        String           @default("points")  // "points", "usd", "crypto"
+    
+    // What triggered this payout
+    referralCount   Int              @default(0)
+    artifactScans   Int              @default(0)
+    bonusReason     String?
+    
+    // Payout status
+    status          PayoutStatus     @default(PENDING)
+    processedAt     DateTime?
+    transactionId   String?
+    
+    @@index([userId, status])
+}
+
+enum PayoutStatus {
+    PENDING
+    PROCESSING
+    COMPLETED
+    FAILED
+}
+
+// ============================================
+// REWARD CONFIGURATION
+// ============================================
+
+model RewardConfig {
+    id              String           @id @default(cuid())
+    createdAt       DateTime         @default(now())
+    updatedAt       DateTime         @updatedAt
+    
+    taskType        RewardTaskType   @unique
+    name            String
+    description     String?
+    
+    pointsAwarded   Int              @default(0)
+    enabled         Boolean          @default(true)
+    
+    // Multipliers and bonuses
+    firstTimeBonus  Int              @default(0)
+    streakMultiplier Float           @default(1.0)
+    
+    // Limits
+    dailyLimit      Int?
+    weeklyLimit     Int?
+    
+    // Requirements
+    minTrustLevel   Int              @default(0)
+    minLayer        Int              @default(0)
+    
+    @@index([taskType, enabled])
+}
+
+enum RewardTaskType {
+    // Referral rewards
+    DIRECT_REFERRAL           // Someone signs up with your referral code
+    ARTIFACT_SCAN             // Someone scans your artifact (no signup)
+    ARTIFACT_RECRUIT          // Someone signs up after scanning your artifact
+    ARTIFACT_DEPLOY           // You deploy an artifact
+    ARTIFACT_VERIFY           // Your artifact gets verified by admin
+    
+    // Gameplay rewards
+    SESSION_COMPLETE          // Complete a game session
+    MISSION_COMPLETE          // Complete a terminal mission
+    FIELD_MISSION_COMPLETE    // Complete a real-world field mission
+    PUZZLE_SOLVE              // Solve a puzzle
+    SECRET_DISCOVER           // Discover a secret
+    
+    // Engagement rewards  
+    DREAM_SUBMIT              // Submit a dream report
+    SYNC_REPORT               // Report a synchronicity
+    KNOWLEDGE_NODE            // Add to knowledge graph
+    
+    // Trust progression
+    LAYER_ADVANCE             // Advance to a new trust layer
+    
+    // Special
+    DAILY_LOGIN               // Daily login bonus
+    STREAK_7_DAY              // 7 day streak
+    STREAK_30_DAY             // 30 day streak
+}
+

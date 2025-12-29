@@ -4,29 +4,78 @@ import { getProfile } from "./profileService";
 import { getLatestOpenMissionRun } from "./missionService";
 import { summarizeExperiments } from "./experimentService";
 import { getRecentMemoryEvents } from "./memoryService";
+import {
+  getTrustState,
+  evolveTrust,
+  recordActivity,
+  getLayerTools,
+  getLayerName,
+  type TrustLayer,
+  LAYER_THRESHOLDS,
+} from "./trustService";
+import {
+  getExperimentDirective,
+  type ExperimentDirective,
+} from "./experimentScheduler";
+import {
+  getDirectorDifficultyContext,
+  type DirectorDifficultyContext,
+  type DifficultyTrack,
+} from "./difficultyService";
+import { checkIdentityStatus, getAgentIdentity } from "./identityService";
 
-export type DirectorPhase = "probe" | "train" | "mission" | "report" | "reflection";
+export type DirectorPhase = "intro" | "probe" | "train" | "mission" | "report" | "reflection" | "reveal" | "network";
 
 export type DirectorContext = {
   player?: {
     handle?: string;
-    trustScore?: number; // 0..1 heuristic
+    trustScore?: number;
+    layer?: TrustLayer;
+    layerName?: string;
+    pendingCeremony?: TrustLayer | null;
     traits?: Record<string, number>;
     preferences?: Record<string, any>;
     consent?: boolean;
     accessTier?: number;
+    availableTools?: string[];
+    difficulty?: {
+      logic: number;
+      perception: number;
+      creation: number;
+      field: number;
+      overall: number;
+    };
+    agentId?: string;
+    isReferred?: boolean;
+    identityLocked?: boolean;
+    turnsPlayed?: number;
+    minutesPlayed?: number;
+    signalUnstable?: boolean;
   };
   director?: {
     phase?: DirectorPhase;
     lastAction?: string;
-    successRate?: number; // 0..1 over recent missions
+    successRate?: number;
     cooldowns?: Record<string, number>;
+    isInCooldown?: boolean;
+    cooldownReason?: string | null;
+    isStuck?: boolean;
+    stuckReason?: string | null;
+    recommendedAction?: "micro_win" | "easier_track" | "encouragement" | "break" | null;
+    recommendedTrack?: DifficultyTrack;
+    recommendedTaskDifficulty?: number;
   };
   mission?: {
     active?: boolean;
     awaitingReport?: boolean;
     brief?: string;
     rubric?: string[];
+    pendingAssignment?: {
+      title: string;
+      briefing: string;
+      type: string;
+      narrativeDelivery: boolean;
+    };
   };
   puzzle?: {
     id?: string;
@@ -34,6 +83,10 @@ export type DirectorContext = {
     solution?: string;
     clues?: string;
     context?: string;
+  };
+  experiment?: {
+    directive?: ExperimentDirective;
+    recentIds?: string[];
   };
   experiments?: Array<{
     id: string;
@@ -80,15 +133,31 @@ async function getRecentMissionSuccessRate(userId: string): Promise<number> {
   }
 }
 
-function computeTrustScore(profile: any, successRate: number, experimentAvg: number): number {
-  // Weighted blend of mission performance and experiment outcomes
-  const miss = isFinite(successRate) ? successRate : 0;
-  const exp = isFinite(experimentAvg) ? experimentAvg : 0;
-  const blended = (miss * 0.6) + (exp * 0.4);
-  const curiosity = Number(profile?.traits?.curiosity ?? 0);
-  const resilience = Number(profile?.traits?.resilience ?? 0);
-  const bonus = (curiosity + resilience) * 0.05; // small trait nudge
-  return Math.max(0, Math.min(1, blended + bonus));
+async function ensureTrustEvolution(
+  userId: string,
+  successRate: number,
+  experimentAvg: number
+): Promise<{ trustScore: number; layer: TrustLayer; pendingCeremony: TrustLayer | null }> {
+  const state = await getTrustState(userId);
+  
+  await recordActivity(userId);
+  
+  const performanceDelta = ((successRate * 0.6) + (experimentAvg * 0.4)) * 0.01;
+  
+  if (performanceDelta > 0.001) {
+    const result = await evolveTrust(userId, performanceDelta, "session_performance");
+    return {
+      trustScore: result.newScore,
+      layer: result.newLayer,
+      pendingCeremony: result.pendingCeremony,
+    };
+  }
+  
+  return {
+    trustScore: state.decayedScore,
+    layer: state.layer,
+    pendingCeremony: state.pendingCeremony,
+  };
 }
 
 function decidePhase(params: {
@@ -98,23 +167,55 @@ function decidePhase(params: {
   trustScore: number;
   lastAction?: string;
   justReported?: boolean;
+  sessionCount?: number;
+  hasProfile?: boolean;
+  hasConsent?: boolean;
+  isStuck?: boolean;
+  isInCooldown?: boolean;
 }): DirectorPhase {
+  // First session with minimal engagement = intro
+  if ((params.sessionCount ?? 1) <= 1 && params.trustScore < 0.1) {
+    return "intro";
+  }
+  
+  // Active report waiting takes priority
   if (params.awaitingReport) return "report";
+  
+  // Just submitted a report = reflection time
   if (params.justReported) return "reflection";
+  
+  // Has an active mission = stay in mission phase
   if (params.hasActiveRun) return "mission";
-  if (params.trustScore >= 0.7 && params.successRate >= 0.6) return "mission";
-  if (params.trustScore >= 0.4) return "train";
+  
+  // Stuck players get sent back to probe for recovery
+  if (params.isStuck) return "probe";
+  
+  // In cooldown = train (no new missions)
+  if (params.isInCooldown && params.trustScore >= 0.3) return "train";
+  
+  // High trust thresholds trigger special phases
+  if (params.trustScore >= 0.95) return "network";  // Full integration
+  if (params.trustScore >= 0.8) return "reveal";    // Major revelations
+  
+  // Ready for missions: has profile, decent trust, good success rate
+  if (params.trustScore >= 0.5 && params.successRate >= 0.5) return "mission";
+  
+  // Building capability
+  if (params.trustScore >= 0.3) return "train";
+  
+  // Still profiling
   return "probe";
 }
 
 export async function buildDirectorContext(input: {
   handle?: string;
+  userId?: string;
   sessionId?: string;
   reportJustSubmitted?: boolean;
   clientAccessTier?: number;
 }): Promise<DirectorContext> {
   const { handle, reportJustSubmitted } = input || {};
-  const userId = (await getUserIdByHandle(handle)) || "";
+  const userId = input?.userId || (await getUserIdByHandle(handle)) || "";
   let successRate = 0;
   let hasActiveRun = false;
   let awaitingReport = false;
@@ -175,40 +276,120 @@ export async function buildDirectorContext(input: {
   }
 
   const profile = userId ? await getProfile(userId) : undefined;
-  const trustScore = computeTrustScore(profile, successRate, experimentAvg);
+  
+  // Fetch identity status for signal stability awareness
+  let identityStatus: { agentId?: string; isReferred?: boolean; identityLocked?: boolean; turnsPlayed?: number; minutesPlayed?: number; signalUnstable?: boolean } = {};
+  if (userId) {
+    try {
+      const [identity, status] = await Promise.all([
+        getAgentIdentity(userId),
+        checkIdentityStatus(userId),
+      ]);
+      identityStatus = {
+        agentId: identity?.agentId,
+        isReferred: status.isReferred,
+        identityLocked: !status.canLockIdentity && status.isReferred,
+        turnsPlayed: status.turnsPlayed,
+        minutesPlayed: status.minutesPlayed,
+        signalUnstable: status.promptIdentityLock && !status.isReferred,
+      };
+    } catch {}
+  }
+  
+  const trustState = userId
+    ? await ensureTrustEvolution(userId, successRate, experimentAvg)
+    : { trustScore: 0, layer: 0 as TrustLayer, pendingCeremony: null };
+  
+  const { trustScore, layer, pendingCeremony } = trustState;
+  const availableTools = await getLayerTools(layer);
+  
+  let difficultyCtx: DirectorDifficultyContext | null = null;
+  if (userId) {
+    try {
+      difficultyCtx = await getDirectorDifficultyContext(userId);
+    } catch {}
+  }
+
   const phase = decidePhase({
     hasActiveRun,
     awaitingReport,
     successRate,
     trustScore,
     justReported: !!reportJustSubmitted,
+    isStuck: difficultyCtx?.stuck.isStuck,
+    isInCooldown: difficultyCtx?.cooldown.isInCooldown,
   });
 
   const clientAccessTier =
     typeof input?.clientAccessTier === "number" ? input.clientAccessTier : 0;
 
+  let experimentDirective: ExperimentDirective | null = null;
+  if (userId && !hasActiveRun && !awaitingReport && phase !== "intro" && difficultyCtx?.shouldOfferExperiment) {
+    try {
+      experimentDirective = await getExperimentDirective(userId);
+    } catch {}
+  }
+
+  let pendingMissionAssignment: { title: string; briefing: string; type: string; narrativeDelivery: boolean } | undefined;
+  if (userId && phase === "mission" && !hasActiveRun) {
+    try {
+      const profile = await prisma.playerProfile.findUnique({
+        where: { userId },
+        select: { assignedMissions: true },
+      });
+      const assigned = profile?.assignedMissions as any;
+      if (assigned && Array.isArray(assigned) && assigned.length > 0) {
+        const next = assigned[0];
+        pendingMissionAssignment = {
+          title: next.title || "Classified Operation",
+          briefing: next.briefing || next.prompt || "Awaiting details...",
+          type: next.type || "decode",
+          narrativeDelivery: true,
+        };
+      }
+    } catch {}
+  }
+
   return {
     player: {
       handle,
       trustScore,
+      layer,
+      layerName: getLayerName(layer),
+      pendingCeremony,
       traits: profile?.traits as any,
       preferences: { verbosity: "rich", ...(profile?.preferences as any) },
       consent: Boolean(profile?.preferences?.consent ?? true),
       accessTier: clientAccessTier,
+      availableTools,
+      difficulty: difficultyCtx?.difficulty,
+      ...identityStatus,
     },
     director: {
       phase,
       successRate,
       lastAction: reportJustSubmitted ? "report_processed" : undefined,
       cooldowns: {},
+      isInCooldown: difficultyCtx?.cooldown.isInCooldown,
+      cooldownReason: difficultyCtx?.cooldown.cooldownReason,
+      isStuck: difficultyCtx?.stuck.isStuck,
+      stuckReason: difficultyCtx?.stuck.stuckReason,
+      recommendedAction: difficultyCtx?.stuck.recommendedAction,
+      recommendedTrack: difficultyCtx?.recommendedTrack,
+      recommendedTaskDifficulty: difficultyCtx?.recommendedTaskDifficulty,
     },
     mission: {
       active: hasActiveRun,
       awaitingReport,
       brief: missionBrief,
       rubric: [],
+      pendingAssignment: pendingMissionAssignment,
     },
     puzzle,
+    experiment: experimentDirective ? {
+      directive: experimentDirective,
+      recentIds: experiments.map(e => e.id),
+    } : undefined,
     experiments,
     memory,
   };

@@ -209,3 +209,94 @@ export async function closeSession(sessionId: string, summary?: string) {
     }
   }
 }
+
+export type SessionContext = {
+  sessionCount: number;
+  totalEngagementMinutes: number;
+  daysSinceFirstSession: number;
+  daysSinceLastSession: number;
+  lastSessionTime?: Date;
+  firstSessionTime?: Date;
+};
+
+export async function getSessionContext(userId: string): Promise<SessionContext> {
+  const now = new Date();
+  const defaultCtx: SessionContext = {
+    sessionCount: 1,
+    totalEngagementMinutes: 0,
+    daysSinceFirstSession: 0,
+    daysSinceLastSession: 0,
+  };
+
+  try {
+    const sessions = await prisma.gameSession.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, createdAt: true, updatedAt: true },
+    });
+
+    if (sessions.length === 0) return defaultCtx;
+
+    const firstSession = sessions[0];
+    const lastSession = sessions[sessions.length - 1];
+    const previousSession = sessions.length > 1 ? sessions[sessions.length - 2] : null;
+
+    const daysSinceFirst = Math.floor(
+      (now.getTime() - firstSession.createdAt.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    const daysSinceLast = previousSession
+      ? Math.floor(
+          (now.getTime() - previousSession.updatedAt.getTime()) / (1000 * 60 * 60 * 24)
+        )
+      : 0;
+
+    let totalMinutes = 0;
+    for (const s of sessions) {
+      const duration = s.updatedAt.getTime() - s.createdAt.getTime();
+      totalMinutes += Math.floor(duration / (1000 * 60));
+    }
+
+    return {
+      sessionCount: sessions.length,
+      totalEngagementMinutes: totalMinutes,
+      daysSinceFirstSession: daysSinceFirst,
+      daysSinceLastSession: daysSinceLast,
+      lastSessionTime: previousSession?.updatedAt,
+      firstSessionTime: firstSession.createdAt,
+    };
+  } catch {
+    const sessions = memoryStore.sessionsByUser.get(userId) || [];
+    if (sessions.length === 0) return defaultCtx;
+
+    const sorted = [...sessions].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const firstSession = sorted[0];
+    const lastSession = sorted[sorted.length - 1];
+    const previousSession = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+
+    const daysSinceFirst = Math.floor(
+      (now.getTime() - firstSession.createdAt.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    const daysSinceLast = previousSession
+      ? Math.floor(
+          (now.getTime() - previousSession.updatedAt.getTime()) / (1000 * 60 * 60 * 24)
+        )
+      : 0;
+
+    let totalMinutes = 0;
+    for (const s of sorted) {
+      const duration = s.updatedAt.getTime() - s.createdAt.getTime();
+      totalMinutes += Math.floor(duration / (1000 * 60));
+    }
+
+    return {
+      sessionCount: sorted.length,
+      totalEngagementMinutes: totalMinutes,
+      daysSinceFirstSession: daysSinceFirst,
+      daysSinceLastSession: daysSinceLast,
+      lastSessionTime: previousSession?.updatedAt,
+      firstSessionTime: firstSession.createdAt,
+    };
+  }
+}

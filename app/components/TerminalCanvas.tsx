@@ -7,6 +7,8 @@ import { analytics } from "@/app/lib/analytics";
 import { ScreenRouter } from "@/app/lib/terminal/ScreenRouter";
 import { TerminalContext } from "@/app/lib/terminal/TerminalContext";
 import { ShaderOverlay } from "./ShaderOverlay";
+import { ImageIntruder } from "./ImageIntruder";
+import { PointsTracker } from "./PointsTracker";
 import { toolEvents } from "@/app/lib/terminal/tools/registry";
 
 export function TerminalCanvas() {
@@ -24,6 +26,7 @@ export function TerminalCanvas() {
   const [shaderActive, setShaderActive] = useState(false);
   const [shaderCode, setShaderCode] = useState<string>("");
   const [shaderDuration, setShaderDuration] = useState<number>(5000);
+
 
   const isMobile = () => {
     return typeof window !== "undefined" && window.innerWidth < 480;
@@ -44,6 +47,7 @@ export function TerminalCanvas() {
       toolEvents.off("tool:generate_shader", handleShader);
     };
   }, []);
+
 
   // Initialize terminal once
   useEffect(() => {
@@ -518,6 +522,8 @@ export function TerminalCanvas() {
           sourceCanvas={canvasRef.current}
           onComplete={() => setShaderActive(false)} 
         />
+        <ImageIntruder />
+        <PointsTracker />
         <input
           ref={hiddenInputRef}
           type="text"

@@ -734,4 +734,23 @@ export class Terminal extends EventEmitter {
   public focus(): void {
     this.inputHandler.focus();
   }
+
+  public async prompt(prefix: string = "> "): Promise<string> {
+    return new Promise((resolve) => {
+      this.setCommandAccess(true);
+      this.inputHandler.setBuffer("");
+      
+      const originalHandler = this.commandHandler.processCommand.bind(this.commandHandler);
+      
+      const promptHandler = async (command: string) => {
+        this.commandHandler.processCommand = originalHandler;
+        this.setCommandAccess(false);
+        resolve(command);
+      };
+      
+      this.commandHandler.processCommand = promptHandler as any;
+      
+      this.render();
+    });
+  }
 }

@@ -1,29 +1,36 @@
 import prisma from "@/app/lib/prisma";
 
-// In-memory fallback store when Prisma/database is unavailable
+/**
+ * Thread API - now unified with GameSession
+ * 
+ * This provides backward compatibility for the client's threadId-based API
+ * while actually storing data in GameSession/GameMessage tables.
+ * 
+ * The "threadId" is now actually a GameSession.id
+ */
+
 type MemUser = { id: string; handle: string };
-type MemThread = {
+type MemSession = {
   id: string;
   userId: string;
-  kind: string;
+  status: string;
   accessTier: number;
 };
 type MemMessage = {
-  threadId: string;
+  sessionId: string;
   role: string;
   content: string;
   createdAt: number;
 };
 
 const mem = {
-  users: new Map<string, MemUser>(), // key: handle
-  threads: new Map<string, MemThread>(), // key: id
-  messages: new Map<string, MemMessage[]>(), // key: threadId
+  users: new Map<string, MemUser>(),
+  sessions: new Map<string, MemSession>(),
+  messages: new Map<string, MemMessage[]>(),
 };
 
 function uid() {
   try {
-    // @ts-ignore
     if (typeof crypto !== "undefined" && crypto.randomUUID)
       return crypto.randomUUID();
   } catch {}
@@ -39,30 +46,51 @@ export async function GET(req: Request) {
       headers: { "Content-Type": "application/json" },
     });
   }
+  
   try {
-    const thread = await prisma.thread.findUnique({ where: { id: threadId } });
-    if (!thread) {
+    const session = await prisma.gameSession.findUnique({ 
+      where: { id: threadId },
+      include: { user: true }
+    });
+    if (!session) {
       throw new Error("not found");
     }
-    const messages = await prisma.message.findMany({
-      where: { threadId },
+    const messages = await prisma.gameMessage.findMany({
+      where: { gameSessionId: threadId },
       orderBy: { createdAt: "asc" },
     });
-    return new Response(JSON.stringify({ thread, messages }), {
+    
+    return new Response(JSON.stringify({ 
+      thread: {
+        id: session.id,
+        userId: session.userId,
+        kind: "ADVENTURE",
+        accessTier: 0,
+      },
+      messages: messages.map(m => ({
+        id: m.id,
+        threadId: m.gameSessionId,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt,
+      }))
+    }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
   } catch {
-    // Fallback to memory store
-    const thread = mem.threads.get(threadId);
-    if (!thread) {
+    const session = mem.sessions.get(threadId);
+    if (!session) {
       return new Response(JSON.stringify({ error: "not found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
     }
     const messages = mem.messages.get(threadId) || [];
-    return new Response(JSON.stringify({ thread, messages }), {
+    return new Response(JSON.stringify({ 
+      thread: session,
+      messages 
+    }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -73,36 +101,39 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const handle = (body?.handle as string) || "anonymous";
 
-  // Ensure a user exists
   try {
     let user = await prisma.user.findUnique({ where: { handle } });
     if (!user) {
       user = await prisma.user.create({ data: { handle } });
     }
-    const thread = await prisma.thread.create({
-      data: { userId: user.id, kind: "ADVENTURE", accessTier: 0 },
+    
+    const session = await prisma.gameSession.create({
+      data: { 
+        userId: user.id, 
+        status: "OPEN",
+      },
     });
-    return new Response(JSON.stringify({ threadId: thread.id }), {
+    
+    return new Response(JSON.stringify({ threadId: session.id }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
   } catch (e) {
-    // Fallback to memory store
     let user = mem.users.get(handle);
     if (!user) {
       user = { id: uid(), handle };
       mem.users.set(handle, user);
     }
-    const threadId = uid();
-    const thread: MemThread = {
-      id: threadId,
+    const sessionId = uid();
+    const session: MemSession = {
+      id: sessionId,
       userId: user.id,
-      kind: "ADVENTURE",
+      status: "OPEN",
       accessTier: 0,
     };
-    mem.threads.set(threadId, thread);
-    mem.messages.set(threadId, []);
-    return new Response(JSON.stringify({ threadId }), {
+    mem.sessions.set(sessionId, session);
+    mem.messages.set(sessionId, []);
+    return new Response(JSON.stringify({ threadId: sessionId }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -120,10 +151,11 @@ export async function PATCH(req: Request) {
       }
     );
   }
+  
   try {
-    await prisma.message.createMany({
+    await prisma.gameMessage.createMany({
       data: messages.map((m: any) => ({
-        threadId,
+        gameSessionId: threadId,
         role: m.role,
         content: m.content,
       })),
@@ -133,12 +165,11 @@ export async function PATCH(req: Request) {
       headers: { "Content-Type": "application/json" },
     });
   } catch {
-    // Fallback to memory store
     const existing = mem.messages.get(threadId) || [];
     const now = Date.now();
     for (const m of messages) {
       existing.push({
-        threadId,
+        sessionId: threadId,
         role: m.role,
         content: m.content,
         createdAt: now,

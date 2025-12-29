@@ -59,11 +59,11 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        const profile = await getProfile(session.playerId);
+        const profile = await getProfile(session.userId);
         const directorContext = await buildDirectorContext(session.id);
         const activeMission = await prisma.missionRun.findFirst({
           where: {
-            playerId: session.playerId,
+            userId: session.userId,
             status: { in: ["ACCEPTED", "SUBMITTED", "REVIEWING"] }
           },
           include: { mission: true }
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        const mission = await getNextMission(session.playerId);
+        const mission = await getNextMission(session.userId);
         if (!mission) {
           return NextResponse.json({
             success: true,
@@ -109,15 +109,19 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        const missionRun = await acceptMission(session.playerId, mission.id, session.id);
+        const missionRun = await acceptMission({
+          userId: session.userId,
+          missionId: mission.id,
+          sessionId: session.id
+        });
         
         // Record mission acceptance
         await recordMemoryEvent({
-          playerId: session.playerId,
+          userId: session.userId,
           sessionId: session.id,
-          kind: "mission_accepted",
+          type: "MISSION",
           content: `Accepted mission: ${mission.title}`,
-          tags: ["mission", mission.type, mission.track]
+          tags: ["mission", mission.type, ...(mission.tags || [])]
         });
 
         return NextResponse.json({
@@ -129,7 +133,7 @@ export async function POST(req: NextRequest) {
               title: mission.title,
               prompt: mission.prompt,
               type: mission.type,
-              track: mission.track
+              track: mission.tags?.find((t: string) => ['logic', 'perception', 'creation', 'field'].includes(t)) || 'general'
             }
           },
           output: `[MISSION ACTIVATED]\n` +
@@ -137,7 +141,7 @@ export async function POST(req: NextRequest) {
                  `${mission.title}\n\n` +
                  `${mission.prompt}\n\n` +
                  `Type: ${mission.type}\n` +
-                 `Track: ${mission.track}\n` +
+                 `Tags: ${mission.tags?.join(', ') || 'none'}\n` +
                  `Run ID: ${missionRun.id}`
         });
 
@@ -159,7 +163,7 @@ export async function POST(req: NextRequest) {
         // Find active mission run
         const activeRun = await prisma.missionRun.findFirst({
           where: {
-            playerId: session.playerId,
+            userId: session.userId,
             status: { in: ["ACCEPTED", "SUBMITTED", "REVIEWING"] }
           },
           include: { mission: true }
@@ -172,21 +176,21 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        const result = await submitMissionReport(
-          activeRun.id,
-          args,
-          session.id
-        );
+        const result = await submitMissionReport({
+          missionRunId: activeRun.id,
+          payload: args
+        });
 
         return NextResponse.json({
-          success: result.success,
+          success: true,
           data: {
             score: result.score,
             status: result.status,
             reward: result.reward
           },
-          output: `[REPORT ${result.success ? "ACCEPTED" : "REJECTED"}]\n` +
-                 (result.score ? `Score: ${result.score}/100\n` : "") +
+          output: `[REPORT ACCEPTED]\n` +
+                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                 (result.score ? `Score: ${Math.round(result.score * 100)}/100\n` : "") +
                  (result.feedback ? `Feedback: ${result.feedback}\n` : "") +
                  (result.reward ? `Reward: ${result.reward.amount} ${result.reward.type}` : "")
         });
@@ -199,7 +203,7 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        const playerProfile = await getProfile(session.playerId);
+        const playerProfile = await getProfile(session.userId);
         if (!playerProfile) {
           return NextResponse.json({
             success: true,
@@ -219,13 +223,14 @@ export async function POST(req: NextRequest) {
 
       case "reset":
         const newHandle = handle || `agent_${Date.now()}`;
+        let user = await prisma.user.findUnique({ where: { handle: newHandle } });
+        if (!user) {
+          user = await prisma.user.create({ data: { handle: newHandle } });
+        }
         const newSession = await prisma.gameSession.create({
           data: {
-            handle: newHandle,
-            playerId: session?.playerId || (await prisma.user.create({
-              data: { handle: newHandle }
-            })).id,
-            status: "ACTIVE"
+            userId: user.id,
+            status: "OPEN"
           }
         });
 
@@ -233,11 +238,11 @@ export async function POST(req: NextRequest) {
           success: true,
           data: {
             sessionId: newSession.id,
-            handle: newSession.handle
+            handle: newHandle
           },
           output: `[NEW SESSION INITIALIZED]\n` +
                  `Session ID: ${newSession.id}\n` +
-                 `Handle: ${newSession.handle}\n` +
+                 `Handle: ${newHandle}\n` +
                  `\nThe Logos awaits your commands.`
         });
 

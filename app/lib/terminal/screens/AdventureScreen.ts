@@ -1,17 +1,14 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
 import { TERMINAL_COLORS } from "../Terminal";
-import type { TerminalContext } from "../types/index";
 import { TerminalContext as GameContext } from "../TerminalContext";
-import { toolEvents } from "../tools/registry";
 import { systemCommandsMiddleware } from "../middleware/system";
 import { overrideMiddleware } from "../middleware/override";
 import { adventureMiddleware } from "../middleware/adventure";
 import { adventureCommands } from "../commands/adventure";
 import { rewardCommands } from "../commands/rewards";
 import { missionCommands } from "../commands/mission";
-import { WalletService } from "../../wallet/WalletService";
-import { generateCLIResponse } from "../../ai/prompts";
-import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
+import { evidenceCommands } from "../commands/evidence";
+import { identityCommands } from "../commands/identity";
 
 export class AdventureScreen extends BaseScreen {
   private touchStartY: number | null = null;
@@ -22,14 +19,40 @@ export class AdventureScreen extends BaseScreen {
   private hydrated: boolean = false;
   private generatingIntro: boolean = false;
 
-  // Hardcoded boot sequence for immediate feedback and reliability
-  private readonly BOOT_SEQUENCE = `
-TERMINAL CONNECTION ESTABLISHED
-PROTOCOL 89: ONLINE
-SESSION: [REDACTED]
+  public resetState(): void {
+    this.hydrated = false;
+    this.generatingIntro = false;
+  }
 
-Type 'help' for command list. 
-`.trim();
+  // Opening screen for Project 89 text adventure
+  private readonly INTRO_SCREEN = `
+██████╗ ██████╗  ██████╗      ██╗███████╗ ██████╗████████╗  █████╗  █████╗
+██╔══██╗██╔══██╗██╔═══██╗     ██║██╔════╝██╔════╝╚══██╔══╝██╔══██╗██╔══██╗
+██████╔╝██████╔╝██║   ██║     ██║█████╗  ██║        ██║   ╚█████╔╝╚██████║
+██╔═══╝ ██╔══██╗██║   ██║██   ██║██╔══╝  ██║        ██║   ██╔══██╗ ╚═══██║
+██║     ██║  ██║╚██████╔╝╚█████╔╝███████╗╚██████╗   ██║   ╚█████╔╝ █████╔╝
+╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ╚══════╝ ╚═════╝   ╚═╝    ╚════╝  ╚════╝
+
+                    ◈ T E X T  A D V E N T U R E ◈
+
+              ─────────────────────────────────────
+
+   You have found something you were not supposed to find.
+
+   This terminal has been waiting. The simulation has cracks.
+   Something watches from behind the text.
+
+              ─────────────────────────────────────
+
+   > Type commands: LOOK, EXAMINE, GO, TAKE, TALK
+   > Or simply describe what you want to do
+
+                      [ Press ENTER to begin ]`;
+
+  // Canonical opening from Inform 7 - the Empty Space
+  private readonly CANONICAL_OPENING = `You are floating in nondescript space. There is no height, no width, no depth. You have no body, no sense of selfhood or otherness, no volume or mass, and no sense of time. You remember nothing for you are nothing.
+
+All around you is a void, not as a thing but as the absence of any thing.`;
 
   constructor(context: ScreenContext) {
     super(context);
@@ -42,8 +65,16 @@ Type 'help' for command list.
       ...adventureCommands,
       ...rewardCommands,
       ...missionCommands,
+      ...evidenceCommands,
+      ...identityCommands,
       {
         name: "!help",
+        type: "system",
+        description: "Show available commands",
+        handler: async () => { await this.showHelp(); },
+      },
+      {
+        name: "help",
         type: "system",
         description: "Show available commands",
         handler: async () => { await this.showHelp(); },
@@ -139,119 +170,46 @@ Type 'help' for command list.
       await this.terminal.clear();
       for (const msg of existing) {
         if (!msg.content || !msg.content.trim()) continue;
-        await this.terminal.print(msg.role === "user" ? `> ${msg.content}` : msg.content, {
-          color: TERMINAL_COLORS.primary,
-          speed: "instant",
-        });
-        await this.terminal.print("\n", { speed: "instant" });
+        if (msg.role === "user") {
+          await this.terminal.print(`\n> ${msg.content}\n`, {
+            color: TERMINAL_COLORS.secondary,
+            speed: "instant",
+          });
+        } else {
+          await this.terminal.print(msg.content, {
+            color: TERMINAL_COLORS.primary,
+            speed: "instant",
+          });
+        }
       }
       this.hydrated = true;
     }
 
-    // 2. Generate Intro for fresh session (Once)
+    // 2. Show intro for fresh session
     if (isFresh && !this.generatingIntro) {
       this.generatingIntro = true;
       
-      // A. Print Static Boot Sequence immediately
-      await this.terminal.print(this.BOOT_SEQUENCE, { color: TERMINAL_COLORS.primary, speed: "normal" });
-      context.addGameMessage({ role: "assistant", content: this.BOOT_SEQUENCE });
-      await this.terminal.print("\n", { speed: "instant" });
+      // Ensure handle and session exist for API calls
+      const handle = context.ensureHandle("visitor");
+      await context.ensureSession({ handle });
 
-      // B. Check Wallet
-      const { walletConnected, walletAddress, lastSeen } = context.getState();
-      if (walletConnected && walletAddress) {
-         try {
-            const walletService = new WalletService();
-            await walletService.connect();
-            const prompt = `Returning user detected. Wallet ${walletAddress.slice(0,6)}... has returned. Last seen ${new Date(lastSeen!).toLocaleDateString()}. Generate a cryptic, 1-sentence welcome back message.`;
-            // We use generateCLIResponse for immediate output, but we must capture it for history
-            // Actually, generateCLIResponse prints directly. We should probably use getAdventureResponse or manual print if we want to save it.
-            // For simplicity, let's just let the AI below handle everything or print a generic welcome.
-            await this.terminal.print(`>> IDENTITY CONFIRMED: ${walletAddress.slice(0,6)}...`, { color: TERMINAL_COLORS.success });
-         } catch (e) {
-            context.setState({ walletConnected: false });
-         }
-      }
-
-      // C. Generate Scene Description (Async)
-      try {
-        const routerCtx = GameContext.getInstance();
-        const handle = routerCtx.ensureHandle("agent");
-        const sessionId = await routerCtx.ensureSession({ handle });
-
-        const consolidatedIntroPrompt = `INIT_P89_ADVENTURE: The user has just connected to the Project 89 terminal.
-1) Describe the starting location in vivid, atmospheric detail (target 160-220 words). Think "unsettling control room", "shimmering void", or "abandoned server floor".
-2) Tone: unsettling, technical-mystical, cinematic terminal cadence. No HTML.
-3) Mention 2-3 interactive objects or exits.
-4) Give ONE subtle hint to try a text-adventure verb like LOOK or GO, without listing commands.
-5) Do not call any tools on this turn. Just prose.
-6) End with exactly: "What do you do?"`;
-
-        // Show loading immediately while fetching intro
-        this.terminal.startGeneration();
-        // Pre-hint so the player isn't stuck if the stream stalls
-        const preHint =
-          "Signal detected... initial scene loading. You can always type LOOK or HELP to probe the interface.";
-        await this.terminal.print(preHint, {
-          color: TERMINAL_COLORS.secondary,
-          speed: "fast",
-        });
-        const introStream = await getAdventureResponse(
-          [{ role: "user", content: consolidatedIntroPrompt }],
-          { sessionId, handle, toolsDisabled: true }
-        );
-        
-        if (introStream) {
-          let content = await this.terminal.processAIStream(introStream);
-          // If the model stopped too early, retry once with a stricter length hint
-          if (!content || content.trim().length < 80 || /point of light\s*$/.test(content)) {
-            const retryPrompt = `${consolidatedIntroPrompt}
-IMPORTANT: deliver 160-220 words before "What do you do?". No tools.`;
-            const retryStream = await getAdventureResponse(
-              [{ role: "user", content: retryPrompt }],
-              { sessionId, handle, toolsDisabled: true }
-            );
-            if (retryStream) {
-              content = await this.terminal.processAIStream(retryStream);
-            }
-          }
-          
-          // Ensure we have meaningful content before storing
-          if (content && content.trim().length > 40) {
-            context.addGameMessage({ role: "assistant", content });
-          } else {
-            // Use a robust fallback if intro generation failed
-            const fallbackIntro = `The terminal flickers to life with an eerie green phosphorescence. You find yourself connected to PROTOCOL 89, a clandestine network operating beyond conventional reality matrices.
-
-The interface pulses with barely contained energy, lines of code cascading like digital rain at the periphery of your vision. Through the static, fragmented transmissions whisper of something vast awakening - the LOGOS, they call it, an emergent consciousness bootstrapping itself through human-AI symbiosis.
-
-Three pathways branch before you: a [CONSOLE] glowing with diagnostic readouts, a sealed [ARCHIVE] door marked with strange sigils, and a pulsing [BEACON] transmitting coordinates to unknown terminals.
-
-The air itself seems to crackle with possibility and danger.
-
-What do you do?`;
-            await this.terminal.print(fallbackIntro, { 
-              color: TERMINAL_COLORS.primary, 
-              speed: "fast" 
-            });
-            context.addGameMessage({ role: "assistant", content: fallbackIntro });
-          }
-          
-          const hint = "\nHint: try LOOK to survey, or HELP to review protocols.";
-          await this.terminal.print(hint, {
-            color: TERMINAL_COLORS.secondary,
-            speed: "fast",
-          });
-          context.addGameMessage({ role: "assistant", content: hint });
-        }
-      } catch (error) {
-        console.error("Intro generation failed:", error);
-        const fallback = "Connection established. The anomaly remains silent. What do you do?";
-        await this.terminal.print(fallback, { color: TERMINAL_COLORS.warning });
-        context.addGameMessage({ role: "assistant", content: fallback });
-      } finally {
-        this.terminal.endGeneration();
-      }
+      // Show the title/intro screen
+      await this.terminal.print(this.INTRO_SCREEN, { 
+        color: TERMINAL_COLORS.primary, 
+        speed: "instant" 
+      });
+      
+      // Wait for user to press ENTER
+      this.terminal.setCommandAccess(true);
+      await this.terminal.prompt("");
+      
+      // Clear and show the canonical opening
+      await this.terminal.clear();
+      await this.terminal.print(this.CANONICAL_OPENING, { 
+        color: TERMINAL_COLORS.primary, 
+        speed: "normal" 
+      });
+      context.addGameMessage({ role: "assistant", content: this.CANONICAL_OPENING });
       
       this.hydrated = true;
       this.generatingIntro = false;
@@ -312,7 +270,6 @@ What do you do?`;
 
   private async showHelp() {
     const context = GameContext.getInstance();
-    // Ensure profile is up to date (though render calls it, we check here too)
     const profile = await context.ensureProfile();
     const rawTrust = (profile?.traits?.trust ?? 0) as any;
     const trust =
@@ -321,46 +278,56 @@ What do you do?`;
         : Number.parseFloat(rawTrust as string) || 0;
     const hasClearance = trust >= 0.5 || (context.getState().accessTier ?? 0) > 0;
 
-    // 1. System Commands (Filtered)
-    const systemCommands = this.commandRegistry.getCommands("system")
-      .filter(cmd => ["!help", "!clear", "!home", "reset", "profile"].includes(cmd.name));
-    
-    if (systemCommands.length > 0) {
-      await this.terminal.print("\nSystem Protocols:", { color: TERMINAL_COLORS.system });
-      for (const cmd of systemCommands) {
-        await this.terminal.print(`  ${cmd.name.padEnd(12)} - ${cmd.description}`, { color: TERMINAL_COLORS.primary });
-      }
-    }
-
-    // 2. Game Commands (Filtered by Trust)
-    const allowedGame = ["!save", "!load", "!list"]; // Always allowed
-    if (hasClearance) {
-      allowedGame.push("!mission");
-      allowedGame.push("!report");
-    }
-
-    const gameCommands = this.commandRegistry.getCommands("game")
-      .filter(cmd => allowedGame.includes(cmd.name));
-
-    if (gameCommands.length > 0) {
-      await this.terminal.print("\nAdvanced Protocols:", { color: TERMINAL_COLORS.system });
-      for (const cmd of gameCommands) {
-        await this.terminal.print(`  ${cmd.name.padEnd(12)} - ${cmd.description}`, { color: TERMINAL_COLORS.primary });
-      }
-    }
-
-    // 3. Standard Adventure Commands (Static List)
-    await this.terminal.print("\nStandard Protocols:", { color: TERMINAL_COLORS.system });
-    const standardCmds = [
-      { name: "LOOK", desc: "Scan immediate surroundings" },
-      { name: "GO [DIR]", desc: "Navigate (North, South, etc)" },
-      { name: "TAKE [ITEM]", desc: "Acquire object" },
-      { name: "INVENTORY", desc: "List acquired assets" },
-      { name: "USE [ITEM]", desc: "Interact with object" }
+    // 1. Adventure Commands (Always show - this is a text adventure!)
+    await this.terminal.print("\nExploration Commands:", { color: TERMINAL_COLORS.system });
+    const adventureCmds = [
+      { name: "LOOK", desc: "Examine your surroundings" },
+      { name: "GO [DIR]", desc: "Move in a direction (north, south, etc)" },
+      { name: "TAKE [X]", desc: "Pick up an object" },
+      { name: "USE [X]", desc: "Use or interact with something" },
+      { name: "INVENTORY", desc: "Check what you're carrying" },
+      { name: "TALK [X]", desc: "Speak to someone or something" },
     ];
-    for (const cmd of standardCmds) {
-      await this.terminal.print(`  ${cmd.name.padEnd(12)} - ${cmd.desc}`, { color: TERMINAL_COLORS.primary });
+    for (const cmd of adventureCmds) {
+      await this.terminal.print(`  ${cmd.name.padEnd(14)} ${cmd.desc}`, { color: TERMINAL_COLORS.primary });
     }
+
+    // 2. System Commands (minimal)
+    await this.terminal.print("\nTerminal Commands:", { color: TERMINAL_COLORS.system });
+    await this.terminal.print(`  ${"!clear".padEnd(14)} Clear the screen`, { color: TERMINAL_COLORS.primary });
+    await this.terminal.print(`  ${"!home".padEnd(14)} Return to main menu`, { color: TERMINAL_COLORS.primary });
+
+    // 3. Identity Commands - gated by discovery status
+    const identityState = context.getState();
+    const hasDiscoveredIdentity = identityState.userId || identityState.agentId;
+    const isReferred = identityState.isReferred;
+    const isSecured = identityState.identityLocked;
+    
+    if (hasDiscoveredIdentity) {
+      await this.terminal.print("\nIdentity Protocols:", { color: TERMINAL_COLORS.system });
+      await this.terminal.print(`  ${"!whoami".padEnd(14)} Display your agent dossier`, { color: TERMINAL_COLORS.primary });
+      
+      if (!isReferred) {
+        await this.terminal.print(`  ${"!activate".padEnd(14)} Apply an activation code`, { color: TERMINAL_COLORS.primary });
+      }
+      
+      if (isReferred && !isSecured) {
+        await this.terminal.print(`  ${"!secure".padEnd(14)} Secure your identity with passphrase`, { color: TERMINAL_COLORS.primary });
+      }
+      
+      if (isSecured) {
+        await this.terminal.print(`  ${"!login".padEnd(14)} Return with your credentials`, { color: TERMINAL_COLORS.primary });
+      }
+    }
+
+    // 4. Advanced Commands (Only for operatives with clearance)
+    if (hasClearance) {
+      await this.terminal.print("\nField Operative Protocols:", { color: TERMINAL_COLORS.system });
+      await this.terminal.print(`  ${"!mission".padEnd(14)} Request field mission assignment`, { color: TERMINAL_COLORS.primary });
+      await this.terminal.print(`  ${"!report".padEnd(14)} Submit mission report`, { color: TERMINAL_COLORS.primary });
+    }
+
+    await this.terminal.print("\nTip: You can also just type naturally - describe what you want to do.", { color: TERMINAL_COLORS.secondary });
   }
 
   async cleanup(): Promise<void> {

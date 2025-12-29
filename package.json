@@ -19,6 +19,7 @@
     "@apollo/server": "^4.10.0",
     "@as-integrations/next": "^3.0.0",
     "@google-cloud/storage": "^7.14.0",
+    "@google/genai": "1.33.0",
     "@graphql-tools/schema": "^10.0.2",
     "@modelcontextprotocol/sdk": "1.22.0",
     "@prisma/client": "^5.10.2",
@@ -29,6 +30,7 @@
     "@solana/web3.js": "^1.95.4",
     "@types/marked": "^6.0.0",
     "ai": "^3.4.33",
+    "bcryptjs": "3.0.3",
     "elevenlabs": "^0.18.1",
     "get-audio-duration": "^4.0.1",
     "graphql": "^16.8.1",
@@ -39,6 +41,9 @@
     "prisma": "^5.10.2",
     "react": "^18",
     "react-dom": "^18",
+    "react-globe.gl": "2.37.0",
+    "sharp": "0.34.5",
+    "three": "0.182.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {

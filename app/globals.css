@@ -82,3 +82,29 @@ video::-webkit-media-controls-panel {
 .terminal-font {
   font-family: 'Berkeley Mono', monospace;
 }
+
+@keyframes point-popup {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.8);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1.05);
+  }
+  25% {
+    transform: translateY(0) scale(1);
+  }
+  85% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+}
+
+.animate-point-popup {
+  animation: point-popup 3s ease-out forwards;
+}

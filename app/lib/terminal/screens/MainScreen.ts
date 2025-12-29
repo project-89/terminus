@@ -25,15 +25,18 @@ export class MainScreen extends BaseScreen {
   }
 
   async handleCommand(ctx: TerminalContext): Promise<void> {
+    // Run base middleware chain first (override, system commands, navigation)
+    await super.handleCommand(ctx);
+    
+    // If already handled by middleware, return
+    if (ctx.handled) return;
+    
+    // Handle MainScreen-specific routing
     const raw = String(ctx.command || "").trim();
-    const command = this.commandRegistry.getCommand(raw);
-    if (command) {
-      await command.handler(ctx);
-      return;
-    }
     const lower = raw.toLowerCase();
     const toRoute = async (route: string) =>
       (this.terminal as any).emit("screen:transition", { to: route });
+    
     if (lower === "1" || lower.includes("hyperstition")) {
       await toRoute("hyperstition");
       ctx.handled = true;

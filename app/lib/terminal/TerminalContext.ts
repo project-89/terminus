@@ -16,6 +16,11 @@ export interface TerminalState {
     skills: Record<string, any>;
     preferences: Record<string, any>;
   };
+  userId?: string;
+  agentId?: string;
+  isReferred?: boolean;
+  identityLocked?: boolean;
+  lastIdentityCheck?: number;
 }
 
 export class TerminalContext {
@@ -98,6 +103,7 @@ export class TerminalContext {
       activeMissionRunId: undefined,
       expectingReport: false,
       profile: undefined,
+      gameMessages: [],
     };
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("terminalState");
@@ -123,6 +129,10 @@ export class TerminalContext {
 
   setExpectingReport(flag: boolean) {
     this.setState({ expectingReport: flag });
+  }
+
+  setThreadId(threadId?: string) {
+    this.setState({ threadId });
   }
 
   getGameMessages(): { role: string; content: string }[] {
@@ -218,6 +228,78 @@ export class TerminalContext {
         console.error("Failed to ensure session", finalError);
         return undefined;
       }
+    }
+  }
+
+  async ensureIdentity(): Promise<{ userId: string; agentId: string } | undefined> {
+    if (this.state.userId && this.state.agentId) {
+      return { userId: this.state.userId, agentId: this.state.agentId };
+    }
+
+    const savedUserId = typeof window !== "undefined" ? localStorage.getItem("p89_userId") : null;
+    const savedAgentId = typeof window !== "undefined" ? localStorage.getItem("p89_agentId") : null;
+    
+    if (savedUserId && savedAgentId) {
+      this.setState({ userId: savedUserId, agentId: savedAgentId });
+      return { userId: savedUserId, agentId: savedAgentId };
+    }
+
+    try {
+      const res = await fetch("/api/identity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create" }),
+      });
+      if (!res.ok) throw new Error("Identity creation failed");
+      const data = await res.json();
+      const { id, agentId } = data.identity;
+      
+      if (typeof window !== "undefined") {
+        localStorage.setItem("p89_userId", id);
+        localStorage.setItem("p89_agentId", agentId);
+      }
+      
+      this.setState({ userId: id, agentId });
+      return { userId: id, agentId };
+    } catch (e) {
+      console.error("Failed to create identity", e);
+      return undefined;
+    }
+  }
+
+  async checkIdentityStatus(): Promise<{ promptIdentityLock: boolean; narrative: string | null; isReferred: boolean; identityLocked: boolean } | undefined> {
+    const now = Date.now();
+    if (this.state.lastIdentityCheck && now - this.state.lastIdentityCheck < 60000) {
+      return undefined;
+    }
+
+    const identity = await this.ensureIdentity();
+    if (!identity) return undefined;
+
+    try {
+      const res = await fetch("/api/identity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "check", userId: identity.userId }),
+      });
+      if (!res.ok) return undefined;
+      const data = await res.json();
+      
+      this.setState({
+        lastIdentityCheck: now,
+        isReferred: data.status?.isReferred ?? false,
+        identityLocked: !data.status?.canLockIdentity && data.status?.isReferred,
+      });
+      
+      return {
+        promptIdentityLock: data.status?.promptIdentityLock ?? false,
+        narrative: data.narrative ?? null,
+        isReferred: data.status?.isReferred ?? false,
+        identityLocked: !data.status?.canLockIdentity && data.status?.isReferred,
+      };
+    } catch (e) {
+      console.warn("Identity check failed", e);
+      return undefined;
     }
   }
 }
