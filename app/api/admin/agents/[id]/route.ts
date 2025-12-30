@@ -91,7 +91,7 @@ export async function GET(
     }
 
     const gameSessions = agent.gameSessions || [];
-    const totalMinutes = gameSessions.reduce((acc, s) => {
+    const totalMinutes = gameSessions.reduce((acc: number, s) => {
       if (s.createdAt && s.updatedAt) {
         const duration = new Date(s.updatedAt).getTime() - new Date(s.createdAt).getTime();
         return acc + duration / 60000;
@@ -124,12 +124,12 @@ export async function GET(
     const completedMissions = agent.missionRuns.filter(m => m.status === "COMPLETED").length;
     const avgScore = agent.missionRuns
       .filter(m => typeof m.score === "number")
-      .reduce((acc, m, _, arr) => acc + (m.score || 0) / arr.length, 0);
+      .reduce((acc: number, m, _, arr) => acc + (m.score || 0) / arr.length, 0);
 
     const trustScore = computeTrustScore(agent, avgScore);
 
-    const totalMessages = gameSessions.reduce((acc, s) => acc + s.messages.length, 0);
-    const totalRewards = agent.rewards.reduce((acc, r) => acc + r.amount, 0);
+    const totalMessages = gameSessions.reduce((acc: number, s) => acc + s.messages.length, 0);
+    const totalRewards = agent.rewards.reduce((acc: number, r) => acc + r.amount, 0);
 
     return NextResponse.json({
       id: agent.id,
@@ -229,7 +229,7 @@ export async function GET(
       dreams: {
         total: agent.dreamEntries.length,
         avgLucidity: agent.dreamEntries.length > 0
-          ? agent.dreamEntries.reduce((acc, d) => acc + (d.lucidity || 0), 0) / agent.dreamEntries.length
+          ? agent.dreamEntries.reduce((acc: number, d) => acc + (d.lucidity || 0), 0) / agent.dreamEntries.length
           : 0,
         symbolFrequency: dreamSymbols,
         emotionFrequency: dreamEmotions,

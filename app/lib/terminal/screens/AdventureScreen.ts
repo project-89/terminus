@@ -97,6 +97,18 @@ All around you is a void, not as a thing but as the absence of any thing.`;
         description: "Return to home screen",
         handler: async () => { await this.terminal.emit("screen:transition", { to: "home" }); },
       },
+      {
+        name: "!archive",
+        type: "system",
+        description: "Access recovered data fragments",
+        handler: async () => { await this.terminal.emit("screen:transition", { to: "archive" }); },
+      },
+      {
+        name: "archive",
+        type: "system",
+        description: "Access recovered data fragments",
+        handler: async () => { await this.terminal.emit("screen:transition", { to: "archive" }); },
+      },
     ]);
 
     this.setupTouchHandling();

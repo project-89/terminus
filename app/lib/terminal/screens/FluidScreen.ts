@@ -1,179 +1,46 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
 import { TERMINAL_COLORS } from "../Terminal";
 import { FluidAscii } from "../effects/fluidAscii";
-import { analytics } from "../../analytics";
-import { AdventureScreen } from "./AdventureScreen";
-import { ArchiveScreen } from "./ArchiveScreen";
 import { TerminalContext } from "../types";
-
-interface MenuItem {
-  text: string;
-  route: string;
-  description?: string;
-}
+import { TerminalContext as GameContext } from "../TerminalContext";
 
 export class FluidScreen extends BaseScreen {
   private fluidEffect: FluidAscii;
-  private logoCanvas: HTMLCanvasElement;
-  private logoCtx: CanvasRenderingContext2D;
-  private statusCanvas: HTMLCanvasElement;
-  private statusCtx: CanvasRenderingContext2D;
-  private canvasWidth: number = 0; // CSS pixel width
-  private canvasHeight: number = 0; // CSS pixel height
+  private overlayCanvas: HTMLCanvasElement;
+  private overlayCtx: CanvasRenderingContext2D;
+  private canvasWidth: number = 0;
+  private canvasHeight: number = 0;
   private isTransitioning: boolean = false;
-  private statusMessages = [
-    "Reality Status: [SUPPRESSED]",
-    "Detecting anomalies...",
-    "Scanning for agents...",
-    "Coherence at risk...",
-    "Pattern recognition active",
-    "Signal interference detected",
-  ];
-  private statistics = [
-    "Active Agents: ███████",
-    "Reality Coherence: 89.3%",
-    "Known Glitches: [REDACTED]",
-    "Quantum Stability: 12.8%",
-    "Timeline Branches: ∞",
-    "Simulation Layer: ████",
-  ];
-  private watermarks = [
-    "The simulation has cracks. Look closer.",
-    "They are watching.",
-    "89898989898989",
-    "Reality is thin here.",
-    "Do you see the pattern?",
-  ];
-  private currentStatusIndex = 0;
-  private currentStatIndex = 0;
-  private currentWatermarkIndex = 0;
-
-  private logo = `
-██████╗ ██████╗  ██████╗      ██╗███████╗ ██████╗████████╗     █████╗  █████╗ 
-██╔══██╗██╔══██╗██╔═══██╗     ██║██╔════╝██╔════╝╚══██╔══╝    ██╔══██╗██╔══██╗
-██████╔╝██████╔╝██║   ██║     ██║█████╗  ██║        ██║       ╚█████╔╝╚██████║
-██╔═══╝ ██╔══██╗██║   ██║██   ██║██╔══╝  ██║        ██║       ██╔══██╗ ╚═══██║
-██║     ██║  ██║╚██████╔╝╚█████╔╝███████╗╚██████╗   ██║       ╚█████╔╝ █████╔╝
-╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ╚══════╝ ╚═════╝   ╚═╝        ╚════╝  ╚════╝ `;
-
-  private mobileLogo = `
-██████╗  █████╗  █████╗ 
-██╔══██╗██╔══██╗██╔══██╗
-██████╔╝╚█████╔╝╚██████║
-██╔═══╝ ██╔══██╗ ╚═══██║
-██║     ╚█████╔╝ █████╔╝
-╚═╝      ╚════╝  ╚════╝ `;
-
-  private menuItems: MenuItem[] = [
-    {
-      text: "ENTER THE SIMULATION",
-      route: "adventure",
-      description: "Begin your journey into Project 89's reality matrix",
-    },
-    {
-      text: "ARCHIVE ACCESS",
-      route: "archive",
-      description: "Browse recovered data fragments and logs",
-    },
-    {
-      text: "CLASSIC TERMINAL",
-      route: "classic",
-      description: "Access the original terminal interface",
-    },
-    {
-      text: "MEMETIC TOKEN",
-      route: "token",
-      description: "Access the Project 89 memetic token interface",
-    },
-  ];
-
-  private selectedMenuItem: number = 0;
-  private menuVisible: boolean = false;
-
-  // Define handlers as class properties to keep references
-  private handleKeyDown = (e: KeyboardEvent) => {
-    if (!this.menuVisible || this.isTransitioning) return;
-
-    switch (e.key) {
-      case "ArrowUp":
-        e.preventDefault();
-        this.selectedMenuItem =
-          (this.selectedMenuItem - 1 + this.menuItems.length) %
-          this.menuItems.length;
-        this.renderMenu();
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        this.selectedMenuItem =
-          (this.selectedMenuItem + 1) % this.menuItems.length;
-        this.renderMenu();
-        break;
-      case "Enter":
-        e.preventDefault();
-        this.selectMenuItem().catch(console.error);
-        break;
-    }
-  };
-
-  private handleMouseMove = (e: MouseEvent) => {
-    if (!this.menuVisible) return;
-
-    const rect = this.logoCanvas.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-
-    // Calculate which menu item was hovered
-    const menuStartY =
-      (this.logoCanvas.height - this.logo.split("\n").length * 20) / 2 +
-      this.logoCanvas.height * 0.15 +
-      80; // Below logo
-    const itemIndex = Math.floor((y - menuStartY) / 40);
-
-    if (itemIndex >= 0 && itemIndex < this.menuItems.length) {
-      this.selectedMenuItem = itemIndex;
-      this.renderMenu();
-    }
-  };
-
-  private handleClick = (e: MouseEvent) => {
-    if (!this.menuVisible) return;
-
-    const rect = this.logoCanvas.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-
-    const menuStartY =
-      (this.logoCanvas.height - this.logo.split("\n").length * 20) / 2 +
-      this.logoCanvas.height * 0.15 +
-      80;
-    const itemIndex = Math.floor((y - menuStartY) / 40);
-
-    if (itemIndex >= 0 && itemIndex < this.menuItems.length) {
-      this.selectedMenuItem = itemIndex;
-      this.selectMenuItem();
-    }
-  };
-
-  // Add an array to store interval references
   private messageIntervals: NodeJS.Timeout[] = [];
+  private showingPrompt: boolean = false;
+  private promptOpacity: number = 0;
+  private promptFadeInterval: NodeJS.Timeout | null = null;
+  private hasInteracted: boolean = false;
 
-  // Add property to store document touch handler reference
-  private documentTouchHandler = (e: TouchEvent) => {};
+  private whispers = [
+    "something is watching",
+    "the simulation has cracks",
+    "do you see the pattern?",
+    "reality is thin here",
+    "you were not supposed to find this",
+    "they left this for you",
+    "the void remembers",
+    "look closer",
+  ];
+  private currentWhisperIndex = 0;
+  private whisperOpacity = 0;
 
   constructor(context: ScreenContext) {
     super(context);
 
-    // Get parent and dimensions
     const parent = this.terminal.canvas.parentElement!;
     parent.style.touchAction = "none";
     parent.style.pointerEvents = "auto";
 
     const rect = parent.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-
-    // Store CSS dimensions
     this.canvasWidth = rect.width;
     this.canvasHeight = rect.height;
 
-    // Create canvas for fluid effect
     const fluidCanvas = document.createElement("canvas");
     fluidCanvas.className = "pointer-events-none";
     fluidCanvas.style.position = "absolute";
@@ -185,84 +52,44 @@ export class FluidScreen extends BaseScreen {
     fluidCanvas.style.zIndex = "10";
     parent.appendChild(fluidCanvas);
 
-    // Create canvas for logo
-    this.logoCanvas = document.createElement("canvas");
-    this.logoCanvas.style.position = "absolute";
-    this.logoCanvas.style.top = "0";
-    this.logoCanvas.style.left = "0";
-    this.logoCanvas.style.width = `${rect.width}px`;
-    this.logoCanvas.style.height = `${rect.height}px`;
-    this.logoCanvas.style.pointerEvents = "auto";
-    this.logoCanvas.style.zIndex = "20";
-    parent.appendChild(this.logoCanvas);
+    this.overlayCanvas = document.createElement("canvas");
+    this.overlayCanvas.style.position = "absolute";
+    this.overlayCanvas.style.top = "0";
+    this.overlayCanvas.style.left = "0";
+    this.overlayCanvas.style.width = `${rect.width}px`;
+    this.overlayCanvas.style.height = `${rect.height}px`;
+    this.overlayCanvas.style.pointerEvents = "auto";
+    this.overlayCanvas.style.zIndex = "20";
+    this.overlayCanvas.style.cursor = "pointer";
+    parent.appendChild(this.overlayCanvas);
 
-    // Create canvas for status messages
-    this.statusCanvas = document.createElement("canvas");
-    this.statusCanvas.className = "pointer-events-none";
-    this.statusCanvas.style.position = "absolute";
-    this.statusCanvas.style.top = "0";
-    this.statusCanvas.style.left = "0";
-    this.statusCanvas.style.width = `${rect.width}px`;
-    this.statusCanvas.style.height = `${rect.height}px`;
-    this.statusCanvas.style.pointerEvents = "none";
-    this.statusCanvas.style.zIndex = "30";
-    parent.appendChild(this.statusCanvas);
+    this.overlayCtx = this.overlayCanvas.getContext("2d")!;
+    this.setupCanvas();
 
-    this.logoCtx = this.logoCanvas.getContext("2d")!;
-    this.statusCtx = this.statusCanvas.getContext("2d")!;
-    this.setupCanvases();
-
-    // Ensure sizes are correct on next frame (in case initial rect was 0)
     requestAnimationFrame(() => this.handleResize());
-
-    // Attach resize listener
     window.addEventListener("resize", this.handleResize);
 
     this.fluidEffect = new FluidAscii(fluidCanvas);
     this.fluidEffect.updateConfig({
-      backgroundOpacity: 0.4,
-      starPulseChance: 0.01,
-      starPulseIntensity: 1,
-      baseColor: "rgba(47, 183, 195, 0.4)",
-      pulseLength: 3000,
+      backgroundOpacity: 0.5,
+      starPulseChance: 0.015,
+      starPulseIntensity: 1.2,
+      baseColor: "rgba(47, 183, 195, 0.35)",
+      pulseLength: 4000,
       pulseEasing: "softPulse",
-      maxPulsingStars: 5,
+      maxPulsingStars: 8,
     });
 
-    // Start cycling messages
-    this.startMessageCycles();
-
-    // Add event listeners for menu interaction
-    this.addMenuListeners();
+    this.addEventListeners();
   }
 
-  private setupCanvases() {
+  private setupCanvas() {
     const dpr = window.devicePixelRatio || 1;
-
-    // CSS dimensions already stored, now set internal dimensions
-    this.logoCanvas.width = this.canvasWidth * dpr;
-    this.logoCanvas.height = this.canvasHeight * dpr;
-    this.statusCanvas.width = this.canvasWidth * dpr;
-    this.statusCanvas.height = this.canvasHeight * dpr;
-
-    // Scale context to match DPR - after this, use CSS pixel dimensions for all drawing
-    this.logoCtx.scale(dpr, dpr);
-    this.statusCtx.scale(dpr, dpr);
-
-    // Make sure canvas can receive touch events
-    this.logoCanvas.style.touchAction = "none";
-    this.logoCanvas.style.pointerEvents = "auto";
-
-    this.logoCtx.font = "16px monospace";
-    this.logoCtx.textBaseline = "top";
-    this.logoCtx.fillStyle = TERMINAL_COLORS.primary;
-
-    this.statusCtx.font = "14px monospace";
-    this.statusCtx.textBaseline = "top";
-    this.statusCtx.fillStyle = TERMINAL_COLORS.primary;
+    this.overlayCanvas.width = this.canvasWidth * dpr;
+    this.overlayCanvas.height = this.canvasHeight * dpr;
+    this.overlayCtx.scale(dpr, dpr);
   }
 
-  // Recompute sizes when container changes
   protected handleResize = () => {
     const parent = this.terminal.canvas.parentElement;
     if (!parent) return;
@@ -273,328 +100,166 @@ export class FluidScreen extends BaseScreen {
     this.canvasWidth = rect.width;
     this.canvasHeight = rect.height;
 
-    // Update CSS sizes
-    this.logoCanvas.style.width = `${rect.width}px`;
-    this.logoCanvas.style.height = `${rect.height}px`;
-    this.statusCanvas.style.width = `${rect.width}px`;
-    this.statusCanvas.style.height = `${rect.height}px`;
+    this.overlayCanvas.style.width = `${rect.width}px`;
+    this.overlayCanvas.style.height = `${rect.height}px`;
 
-    // Update internal sizes
-    this.setupCanvases();
-
-    // Redraw
-    this.renderLogo();
-    this.renderStatus();
+    this.setupCanvas();
+    this.renderOverlay();
   };
 
-  private startMessageCycles() {
-    // Cycle status messages
-    const statusInterval = setInterval(() => {
-      this.currentStatusIndex =
-        (this.currentStatusIndex + 1) % this.statusMessages.length;
-      this.renderStatus();
-    }, 3000);
-    this.messageIntervals.push(statusInterval);
-
-    // Cycle statistics
-    const statsInterval = setInterval(() => {
-      this.currentStatIndex =
-        (this.currentStatIndex + 1) % this.statistics.length;
-      this.renderStatus();
-    }, 5000);
-    this.messageIntervals.push(statsInterval);
-
-    // Cycle watermarks
-    // const watermarkInterval = setInterval(() => {
-    //   this.currentWatermarkIndex =
-    //     (this.currentWatermarkIndex + 1) % this.watermarks.length;
-    //   this.renderWatermark();
-    // }, 8000);
-    // this.messageIntervals.push(watermarkInterval);
-
-    // Occasional glitch effect
-    const glitchInterval = setInterval(() => {
-      this.glitchText();
-    }, 10000);
-    this.messageIntervals.push(glitchInterval);
-  }
-
-  private renderStatus() {
-    this.statusCtx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
-
-    // Draw prompt and status at bottom (use stored CSS dimensions)
-    const bottomPadding = 40;
-
-    this.statusCtx.fillStyle = TERMINAL_COLORS.primary;
-    this.statusCtx.globalAlpha = 0.8;
-    this.statusCtx.fillText(
-      `> ${this.statusMessages[this.currentStatusIndex]}`,
-      20,
-      this.canvasHeight - bottomPadding
-    );
-
-    // Draw statistics in top-right corner
-    this.statusCtx.globalAlpha = 0.6;
-    this.statusCtx.fillText(
-      this.statistics[this.currentStatIndex],
-      this.canvasWidth - 300,
-      20
-    );
-  }
-
-  private renderWatermark() {
-    this.statusCtx.save();
-    this.statusCtx.globalAlpha = 0.1;
-    this.statusCtx.font = "24px monospace";
-
-    const watermark = this.watermarks[this.currentWatermarkIndex];
-    const metrics = this.statusCtx.measureText(watermark);
-
-    // Draw watermark at a slight angle (use stored CSS dimensions)
-    this.statusCtx.translate(this.canvasWidth / 2, this.canvasHeight / 2);
-    this.statusCtx.rotate(-0.2);
-    this.statusCtx.fillText(watermark, -metrics.width / 2, 0);
-    this.statusCtx.restore();
-  }
-
-  private glitchText() {
-    const glitchDuration = 200;
-    const originalAlpha = this.statusCtx.globalAlpha;
-    const originalStyle = this.statusCtx.fillStyle;
-
-    const glitchInterval = setInterval(() => {
-      this.statusCtx.globalAlpha = Math.random();
-      this.statusCtx.fillStyle = Math.random() > 0.5 ? "#ff0000" : "#00ff00";
-      this.renderStatus();
-    }, 50);
-
-    setTimeout(() => {
-      clearInterval(glitchInterval);
-      this.statusCtx.globalAlpha = originalAlpha;
-      this.statusCtx.fillStyle = originalStyle;
-      this.renderStatus();
-    }, glitchDuration);
-  }
-
-  private addMenuListeners() {
-    // Use the class property handlers
+  private addEventListeners() {
+    this.overlayCanvas.addEventListener("click", this.handleInteraction);
+    this.overlayCanvas.addEventListener("touchend", this.handleInteraction);
     window.addEventListener("keydown", this.handleKeyDown);
-    this.logoCanvas.addEventListener("mousemove", this.handleMouseMove);
-    this.logoCanvas.addEventListener("click", this.handleClick);
-
-    // Add touch events with logging
-    this.logoCanvas.addEventListener("touchstart", this.handleTouchStart, {
-      passive: false,
-    });
-    this.logoCanvas.addEventListener("touchmove", this.handleTouchMove, {
-      passive: false,
-    });
-    this.logoCanvas.addEventListener("touchend", this.handleTouchEnd, {
-      passive: true,
-    });
-
-    // Use the stored handler reference
-    document.addEventListener("touchstart", this.documentTouchHandler);
   }
 
-  private handleTouchStart = (e: TouchEvent) => {
-    e.preventDefault(); // Prevent scrolling
-    if (!this.menuVisible) {
-      return;
-    }
-
-    const touch = e.touches[0];
-    const rect = this.logoCanvas.getBoundingClientRect();
-    const y = touch.clientY - rect.top;
-
-    // Calculate which menu item was touched
-    const menuStartY = this.getMenuStartY();
-    const menuItemHeight = this.isMobile() ? 60 : 40;
-    const itemIndex = Math.floor((y - menuStartY) / menuItemHeight);
-
-    if (itemIndex >= 0 && itemIndex < this.menuItems.length) {
-      this.selectedMenuItem = itemIndex;
-      this.renderMenu();
-    }
-  };
-
-  private handleTouchEnd = (e: TouchEvent) => {
-    // No preventDefault needed here
-    if (!this.menuVisible) return;
-
-    this.selectMenuItem().catch(console.error);
-  };
-
-  private handleTouchMove = (e: TouchEvent) => {
+  private handleInteraction = (e: Event) => {
     e.preventDefault();
+    if (this.isTransitioning) return;
+    this.enterSimulation();
+  };
 
-    if (!this.menuVisible) return;
-
-    const touch = e.touches[0];
-    const rect = this.logoCanvas.getBoundingClientRect();
-    const y = touch.clientY - rect.top;
-
-    const menuStartY = this.getMenuStartY();
-    const menuItemHeight = this.isMobile() ? 60 : 40;
-    const itemIndex = Math.floor((y - menuStartY) / menuItemHeight);
-
-    if (itemIndex >= 0 && itemIndex < this.menuItems.length) {
-      this.selectedMenuItem = itemIndex;
-      this.renderMenu();
+  private handleKeyDown = (e: KeyboardEvent) => {
+    if (this.isTransitioning) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      this.enterSimulation();
     }
   };
 
-  private getMenuStartY(): number {
-    const logoLines = this.isMobile()
-      ? this.mobileLogo.trim().split("\n")
-      : this.logo.trim().split("\n");
-    const logoHeight = logoLines.length * 20;
-    return (this.canvasHeight - logoHeight) / 2 + this.canvasHeight * 0.15 + 80;
-  }
-
-  private isMobile(): boolean {
-    return window.innerWidth < 480;
-  }
-
-  private renderMenu() {
-    // Use the same menu start Y calculation as touch events
-    const menuStartY = this.getMenuStartY();
-    const menuItemHeight = this.isMobile() ? 60 : 40; // Increased touch target size on mobile
-
-    // Clear only the menu area (use stored CSS dimensions)
-    this.logoCtx.clearRect(
-      0,
-      menuStartY - 20, // Clear a bit above menu start
-      this.canvasWidth,
-      this.canvasHeight - menuStartY // Clear to bottom
-    );
-
-    if (!this.menuVisible) return;
-
-    // Render menu items
-    this.menuItems.forEach((item, index) => {
-      const isSelected = index === this.selectedMenuItem;
-      const itemY = menuStartY + index * menuItemHeight;
-
-      // Style for selected item
-      this.logoCtx.fillStyle = isSelected ? "#ffffff" : TERMINAL_COLORS.primary;
-      this.logoCtx.font = isSelected ? "bold 16px monospace" : "16px monospace";
-
-      // Draw selection indicator
-      if (isSelected) {
-        this.logoCtx.fillText(">", this.canvasWidth / 2 - 100, itemY);
-      }
-
-      // Draw menu item
-      this.logoCtx.fillText(item.text, this.canvasWidth / 2 - 80, itemY);
-
-      // Draw description only if not mobile
-      if (isSelected && item.description && !this.isMobile()) {
-        this.logoCtx.font = "12px monospace";
-        this.logoCtx.fillStyle = "rgba(47, 183, 195, 0.7)";
-        this.logoCtx.fillText(
-          item.description,
-          this.canvasWidth / 2 - 80,
-          itemY + 20
-        );
-      }
-    });
-  }
-
-  private async selectMenuItem() {
+  private async enterSimulation() {
     if (this.isTransitioning) return;
     this.isTransitioning = true;
+    this.hasInteracted = true;
 
-    const selectedItem = this.menuItems[this.selectedMenuItem];
+    this.fluidEffect.stop();
 
-    if (selectedItem.route === "classic") {
-      // Open classic terminal in new tab
-      window.open("https://terminal-classic.netlify.app/", "_blank");
-      this.isTransitioning = false;
-      return;
-    }
+    await this.fadeOut();
+    await this.transition("adventure");
+  }
 
-    if (selectedItem.route === "token") {
-      // Open token interface in new tab
-      window.open("https://token.project89.org", "_blank");
-      this.isTransitioning = false;
-      return;
-    }
-
-    try {
-      await this.transition(selectedItem.route);
-    } catch (error) {
-      console.error("Error during transition:", error);
-    } finally {
-      this.isTransitioning = false;
-    }
+  private fadeOut(): Promise<void> {
+    return new Promise((resolve) => {
+      let opacity = 0;
+      const fade = setInterval(() => {
+        opacity += 0.05;
+        this.overlayCtx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
+        this.overlayCtx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+        if (opacity >= 1) {
+          clearInterval(fade);
+          resolve();
+        }
+      }, 30);
+    });
   }
 
   async render(): Promise<void> {
     this.isTransitioning = true;
 
-    // Start the fluid effect
     this.fluidEffect.start();
-
-    // Render the logo once
-    this.menuVisible = false;
-    this.renderLogo();
-
-    // Shorter wait or no wait at all
-    await this.wait(500);
-
-    // Show menu without re-rendering logo
-    this.menuVisible = true;
-    this.renderMenu();
-
-    // Start transforming to solar system without awaiting
     this.fluidEffect.transformToSolarSystem().catch(console.error);
 
-    // Mark as not transitioning
+    await this.wait(800);
+
+    this.startWhispers();
+    this.startPromptFade();
+
     this.isTransitioning = false;
   }
 
-  private renderLogo() {
-    const logo = this.isMobile() ? this.mobileLogo : this.logo;
-    const logoLines = logo.trim().split("\n");
-    const lineHeight = this.isMobile() ? 16 : 20; // Smaller line height for mobile
+  private startWhispers() {
+    const whisperCycle = () => {
+      this.fadeInWhisper();
+      setTimeout(() => {
+        this.fadeOutWhisper();
+      }, 3000);
+    };
 
-    // Calculate centering with 15% upward shift (use stored CSS dimensions)
-    const totalHeight = logoLines.length * lineHeight;
-    const startY =
-      (this.canvasHeight - totalHeight) / 2 - this.canvasHeight * 0.15;
+    setTimeout(whisperCycle, 2000);
+    
+    const interval = setInterval(() => {
+      this.currentWhisperIndex = (this.currentWhisperIndex + 1) % this.whispers.length;
+      whisperCycle();
+    }, 7000);
+    
+    this.messageIntervals.push(interval);
+  }
 
-    // Render each line
-    logoLines.forEach((line, index) => {
-      const lineWidth = this.logoCtx.measureText(line).width;
-      const x = (this.canvasWidth - lineWidth) / 2;
-      const y = startY + index * lineHeight;
-      this.logoCtx.fillText(line, x, y);
-    });
+  private fadeInWhisper() {
+    const fadeIn = setInterval(() => {
+      this.whisperOpacity = Math.min(1, this.whisperOpacity + 0.05);
+      this.renderOverlay();
+      if (this.whisperOpacity >= 0.6) {
+        clearInterval(fadeIn);
+      }
+    }, 50);
+  }
+
+  private fadeOutWhisper() {
+    const fadeOut = setInterval(() => {
+      this.whisperOpacity = Math.max(0, this.whisperOpacity - 0.03);
+      this.renderOverlay();
+      if (this.whisperOpacity <= 0) {
+        clearInterval(fadeOut);
+      }
+    }, 50);
+  }
+
+  private startPromptFade() {
+    setTimeout(() => {
+      this.showingPrompt = true;
+      this.promptFadeInterval = setInterval(() => {
+        this.promptOpacity = 0.3 + Math.sin(Date.now() / 1000) * 0.2;
+        this.renderOverlay();
+      }, 50);
+    }, 4000);
+  }
+
+  private renderOverlay() {
+    this.overlayCtx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
+
+    if (this.whisperOpacity > 0) {
+      const whisper = this.whispers[this.currentWhisperIndex];
+      this.overlayCtx.save();
+      this.overlayCtx.font = "italic 18px 'Courier New', monospace";
+      this.overlayCtx.fillStyle = `rgba(47, 183, 195, ${this.whisperOpacity * 0.7})`;
+      this.overlayCtx.textAlign = "center";
+      this.overlayCtx.textBaseline = "middle";
+      
+      const y = this.canvasHeight * 0.35;
+      this.overlayCtx.fillText(whisper, this.canvasWidth / 2, y);
+      this.overlayCtx.restore();
+    }
+
+    if (this.showingPrompt && !this.hasInteracted) {
+      this.overlayCtx.save();
+      this.overlayCtx.font = "14px 'Courier New', monospace";
+      this.overlayCtx.fillStyle = `rgba(47, 183, 195, ${this.promptOpacity})`;
+      this.overlayCtx.textAlign = "center";
+      this.overlayCtx.textBaseline = "middle";
+      
+      const promptY = this.canvasHeight * 0.75;
+      this.overlayCtx.fillText("[ press any key or click to enter ]", this.canvasWidth / 2, promptY);
+      this.overlayCtx.restore();
+    }
   }
 
   async cleanup(): Promise<void> {
     await super.cleanup();
 
-    // Remove event listeners
     window.removeEventListener("keydown", this.handleKeyDown);
-    this.logoCanvas.removeEventListener("mousemove", this.handleMouseMove);
-    this.logoCanvas.removeEventListener("click", this.handleClick);
-    this.logoCanvas.removeEventListener("touchstart", this.handleTouchStart);
-    this.logoCanvas.removeEventListener("touchmove", this.handleTouchMove);
-    this.logoCanvas.removeEventListener("touchend", this.handleTouchEnd);
+    window.removeEventListener("resize", this.handleResize);
+    this.overlayCanvas.removeEventListener("click", this.handleInteraction);
+    this.overlayCanvas.removeEventListener("touchend", this.handleInteraction);
 
-    // Remove document touch handler
-    document.removeEventListener("touchstart", this.documentTouchHandler);
-
-    // Stop animations and effects
     this.fluidEffect.stop();
 
-    // Clear all intervals
     this.messageIntervals.forEach(clearInterval);
     this.messageIntervals = [];
+    if (this.promptFadeInterval) {
+      clearInterval(this.promptFadeInterval);
+    }
 
-    // Remove canvases
     const parent = this.terminal.canvas.parentElement;
     const canvases = parent?.querySelectorAll("canvas");
     canvases?.forEach((canvas) => {
@@ -603,7 +268,6 @@ export class FluidScreen extends BaseScreen {
       }
     });
 
-    // Clear terminal
     await this.terminal.clear();
   }
 
@@ -616,9 +280,5 @@ export class FluidScreen extends BaseScreen {
       ctx.handled = true;
       return;
     }
-
-    // Rest of your command handling logic
-    const command = ctx.command;
-    // ... use command as before ...
   }
 }
