@@ -210,7 +210,7 @@ export default function Globe({ agents, onAgentClick, showLegend = true }: Globe
               {hoveredAgent.stats?.daysSinceLast === 0 ? (
                 <span className="text-green-400">● ONLINE NOW</span>
               ) : hoveredAgent.stats?.daysSinceLast !== null ? (
-                `Last active ${hoveredAgent.stats.daysSinceLast}d ago`
+                `Last active ${hoveredAgent.stats?.daysSinceLast}d ago`
               ) : "No activity recorded"}
             </div>
             <div className="text-xs text-cyan-700 mt-2 pt-2 border-t border-cyan-800">CLICK FOR FULL DOSSIER →</div>

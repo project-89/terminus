@@ -67,7 +67,7 @@ export async function GET() {
         totalPointsAwarded: stats._sum.referralPoints || 0,
         usersWithPoints: topEarners.length,
       },
-      topEarners: topEarners.map((u) => ({
+      topEarners: topEarners.map((u: any) => ({
         id: u.id,
         handle: u.handle,
         codename: u.profile?.codename,

@@ -49,7 +49,7 @@ export async function GET() {
       .map(([theme, count]) => ({ theme, count }));
 
     return NextResponse.json({
-      experiments: experiments.map(exp => ({
+      experiments: experiments.map((exp: any) => ({
         id: exp.id,
         createdAt: exp.createdAt,
         hypothesis: exp.hypothesis,
@@ -62,7 +62,7 @@ export async function GET() {
           handle: exp.user.handle,
           codename: exp.user.profile?.codename,
         },
-        events: exp.events.map(e => ({
+        events: exp.events.map((e: any) => ({
           id: e.id,
           createdAt: e.createdAt,
           observation: e.observation,
@@ -77,7 +77,7 @@ export async function GET() {
         resultCounts,
         topThemes,
         avgEventsPerExperiment: experiments.length > 0 
-          ? experiments.reduce((acc, e) => acc + e.events.length, 0) / experiments.length 
+          ? experiments.reduce((acc: any, e: any) => acc + e.events.length, 0) / experiments.length 
           : 0,
       },
     });

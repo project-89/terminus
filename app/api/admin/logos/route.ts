@@ -143,7 +143,7 @@ async function getNetworkStats() {
     totalAgents,
     activeMissions,
     sessionsLast24h: recentActivity,
-    topPerformers: topPerformers.map(u => ({ handle: u.handle, points: u.referralPoints })),
+    topPerformers: topPerformers.map((u: any) => ({ handle: u.handle, points: u.referralPoints })),
   };
 }
 
@@ -185,7 +185,7 @@ async function queryAgents(params: z.infer<typeof queryAgentsParams>) {
     },
   });
 
-  return agents.map(a => ({
+  return agents.map((a: any) => ({
     id: a.id,
     handle: a.handle,
     role: a.role,
@@ -260,9 +260,9 @@ async function analyzeAgent(params: z.infer<typeof analyzeAgentParams>) {
   }
 
   if (params.aspects.includes("performance")) {
-    const completed = agent.missionRuns.filter(m => m.status === "COMPLETED");
+    const completed = agent.missionRuns.filter((m: any) => m.status === "COMPLETED");
     const avgScore = completed.length > 0
-      ? completed.reduce((sum, m) => sum + (m.score || 0), 0) / completed.length
+      ? completed.reduce((sum: any, m: any) => sum + (m.score || 0), 0) / completed.length
       : 0;
     
     analysis.performance = {
@@ -271,7 +271,7 @@ async function analyzeAgent(params: z.infer<typeof analyzeAgentParams>) {
       completedMissions: completed.length,
       averageScore: avgScore,
       points: agent.referralPoints,
-      recentMissions: agent.missionRuns.slice(0, 5).map(m => ({
+      recentMissions: agent.missionRuns.slice(0, 5).map((m: any) => ({
         title: m.mission.title,
         status: m.status,
         score: m.score,
@@ -282,13 +282,13 @@ async function analyzeAgent(params: z.infer<typeof analyzeAgentParams>) {
   if (params.aspects.includes("dreams")) {
     analysis.dreams = {
       totalEntries: agent.dreamEntries.length,
-      recentDreams: agent.dreamEntries.map(d => ({
+      recentDreams: agent.dreamEntries.map((d: any) => ({
         symbols: d.symbols,
         emotions: d.emotions,
         lucidity: d.lucidity,
         recurrence: d.recurrence,
       })),
-      synchronicities: agent.synchronicities.map(s => ({
+      synchronicities: agent.synchronicities.map((s: any) => ({
         pattern: s.pattern,
         significance: s.significance,
       })),
@@ -296,9 +296,9 @@ async function analyzeAgent(params: z.infer<typeof analyzeAgentParams>) {
   }
 
   if (params.aspects.includes("patterns")) {
-    const memories = agent.memoryEvents.map(m => m.content).join(" ");
+    const memories = agent.memoryEvents.map((m: any) => m.content).join(" ");
     analysis.patterns = {
-      allMemories: agent.memoryEvents.map(m => ({
+      allMemories: agent.memoryEvents.map((m: any) => ({
         type: m.type,
         content: m.content,
         tags: m.tags,
@@ -437,7 +437,7 @@ async function searchMemories(params: z.infer<typeof searchMemoriesParams>) {
     },
   });
 
-  const scored = memories.map(m => {
+  const scored = memories.map((m: any) => {
     let similarity = 0;
     if (m.embeddings.length > 0) {
       const stored = m.embeddings[0].vector as number[];
@@ -455,9 +455,9 @@ async function searchMemories(params: z.infer<typeof searchMemoriesParams>) {
     return { memory: m, similarity };
   });
 
-  scored.sort((a, b) => b.similarity - a.similarity);
+  scored.sort((a: any, b: any) => b.similarity - a.similarity);
 
-  return scored.slice(0, params.limit).map(({ memory, similarity }) => ({
+  return scored.slice(0, params.limit).map(({ memory, similarity }: any) => ({
     id: memory.id,
     type: memory.type,
     content: memory.content,
@@ -549,7 +549,7 @@ export async function POST(req: Request) {
 Total Agents: ${stats.totalAgents}
 Active Missions: ${stats.activeMissions}
 Sessions (24h): ${stats.sessionsLast24h}
-Top Performers: ${stats.topPerformers.map(p => `${p.handle}: ${p.points}pts`).join(", ")}
+Top Performers: ${stats.topPerformers.map((p: any) => `${p.handle}: ${p.points}pts`).join(", ")}
 Current Time: ${new Date().toISOString()}
 
 [TOOL USAGE DIRECTIVE]

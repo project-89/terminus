@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 export default function ArtifactScanPage() {
   const params = useParams();
   const router = useRouter();
-  const code = params.code as string;
+  const code = params?.code as string;
   
   const [artifact, setArtifact] = useState<any>(null);
   const [loading, setLoading] = useState(true);

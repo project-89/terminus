@@ -74,8 +74,8 @@ export async function GET(req: NextRequest) {
     });
 
     const activeMissions = missionRuns
-      .filter(m => ["ACCEPTED", "SUBMITTED", "REVIEWING"].includes(m.status))
-      .map(m => ({
+      .filter((m: any) => ["ACCEPTED", "SUBMITTED", "REVIEWING"].includes(m.status))
+      .map((m: any) => ({
         id: m.id,
         title: m.mission?.title || "Unknown Mission",
         type: m.mission?.type || "unknown",
@@ -83,14 +83,14 @@ export async function GET(req: NextRequest) {
         createdAt: m.createdAt.toISOString(),
       }));
 
-    const completedMissions = missionRuns.filter(m => m.status === "COMPLETED").length;
+    const completedMissions = missionRuns.filter((m: any) => m.status === "COMPLETED").length;
 
     const availableMissions = await prisma.missionDefinition.findMany({
       where: {
         active: true,
         NOT: {
           id: {
-            in: missionRuns.map(m => m.mission?.id).filter(Boolean) as string[],
+            in: missionRuns.map((m: any) => m.mission?.id).filter(Boolean) as string[],
           },
         },
       },
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
       ? Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24))
       : 0;
 
-    const recruits = user.referrals.map(r => ({
+    const recruits = user.referrals.map((r: any) => ({
       agentId: r.agentId || "UNKNOWN",
       layer: r.profile?.layer || 0,
       active: r.profile?.lastActiveAt 
@@ -138,7 +138,7 @@ export async function GET(req: NextRequest) {
         daysActive,
       },
       activeMissions,
-      availableMissions: availableMissions.map(m => ({
+      availableMissions: availableMissions.map((m: any) => ({
         id: m.id,
         title: m.title,
         type: m.type,

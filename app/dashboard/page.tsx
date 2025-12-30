@@ -224,7 +224,7 @@ function OverviewLayout({ stats, agents, time, uptime, activeTab, setActiveTab }
             <div className="text-cyan-700 text-sm tracking-widest mb-2">NETWORK ACTIVITY (24H)</div>
             <div className="flex gap-0.5 h-12 items-end bg-cyan-950/30 p-1 border border-cyan-900/50">
               {Object.entries(stats.sessions.byHour).map(([hour, count]) => {
-                const max = Math.max(...Object.values(stats.sessions.byHour), 1);
+                const max = Math.max(...Object.values(stats.sessions.byHour) as number[], 1);
                 const h = ((count as number) / max) * 100;
                 return (
                   <div key={hour} className="flex-1 flex flex-col justify-end">

@@ -28,15 +28,15 @@ const DEFAULT_SAFETY_SETTINGS = [
 
 const MODEL_FALLBACKS: Record<ModelKey, ModelConfig> = {
   cli: {
-    model: process.env.PROJECT89_CLI_MODEL ?? "gemini-2.0-flash",
+    model: process.env.PROJECT89_CLI_MODEL ?? "gemini-3-flash-preview",
     options: { safetySettings: DEFAULT_SAFETY_SETTINGS },
   },
   adventure: {
-    model: process.env.PROJECT89_ADVENTURE_MODEL ?? "gemini-2.0-flash",
+    model: process.env.PROJECT89_ADVENTURE_MODEL ?? "gemini-3-flash-preview",
     options: { safetySettings: DEFAULT_SAFETY_SETTINGS },
   },
   content: {
-    model: process.env.PROJECT89_CONTENT_MODEL ?? "gemini-2.0-flash",
+    model: process.env.PROJECT89_CONTENT_MODEL ?? "gemini-3-flash-preview",
     options: {
       safetySettings: DEFAULT_SAFETY_SETTINGS,
       structuredOutputs: true,

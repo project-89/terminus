@@ -78,7 +78,7 @@ Handle: ${user?.handle || "Classified"}
 Codename: ${profile?.codename || "None assigned"}
 Trust Layer: ${trustState.layer} (${(trustState.decayedScore * 100).toFixed(1)}%)
 Direct Recruits: ${user?.referrals?.length || 0}
-Recent Missions: ${missionRuns.map(m => `${m.mission?.title || "Unknown"} (${m.status})`).join(", ") || "None"}
+Recent Missions: ${missionRuns.map((m: any) => `${m.mission?.title || "Unknown"} (${m.status})`).join(", ") || "None"}
 `;
 
     const model = getModel("adventure");

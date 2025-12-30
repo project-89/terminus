@@ -234,7 +234,7 @@ export async function getArtifactMap(bounds?: {
   });
 
   if (bounds) {
-    return artifacts.filter(a => {
+    return artifacts.filter((a: any) => {
       const loc = a.location as { lat: number; lng: number } | null;
       if (!loc) return false;
       return (
@@ -257,7 +257,7 @@ export async function getZoneStats() {
     _sum: { scanCount: true, recruitsGenerated: true },
   });
 
-  return zones.map(z => ({
+  return zones.map((z: any) => ({
     zone: z.zone,
     artifactCount: z._count.id,
     totalScans: z._sum.scanCount || 0,

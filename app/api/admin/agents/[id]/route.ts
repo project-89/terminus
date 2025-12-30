@@ -91,7 +91,7 @@ export async function GET(
     }
 
     const gameSessions = agent.gameSessions || [];
-    const totalMinutes = gameSessions.reduce((acc: number, s) => {
+    const totalMinutes = gameSessions.reduce((acc: number, s: any) => {
       if (s.createdAt && s.updatedAt) {
         const duration = new Date(s.updatedAt).getTime() - new Date(s.createdAt).getTime();
         return acc + duration / 60000;
@@ -121,15 +121,15 @@ export async function GET(
       }
     }
 
-    const completedMissions = agent.missionRuns.filter(m => m.status === "COMPLETED").length;
+    const completedMissions = agent.missionRuns.filter((m: any) => m.status === "COMPLETED").length;
     const avgScore = agent.missionRuns
-      .filter(m => typeof m.score === "number")
-      .reduce((acc: number, m, _, arr) => acc + (m.score || 0) / arr.length, 0);
+      .filter((m: any) => typeof m.score === "number")
+      .reduce((acc: number, m: any, _: number, arr: any[]) => acc + (m.score || 0) / arr.length, 0);
 
     const trustScore = computeTrustScore(agent, avgScore);
 
-    const totalMessages = gameSessions.reduce((acc: number, s) => acc + s.messages.length, 0);
-    const totalRewards = agent.rewards.reduce((acc: number, r) => acc + r.amount, 0);
+    const totalMessages = gameSessions.reduce((acc: number, s: any) => acc + s.messages.length, 0);
+    const totalRewards = agent.rewards.reduce((acc: number, r: any) => acc + r.amount, 0);
 
     return NextResponse.json({
       id: agent.id,
@@ -156,14 +156,14 @@ export async function GET(
         fieldMissions: agent.fieldMissions.length,
       },
 
-      recentSessions: gameSessions.slice(0, 10).map(s => ({
+      recentSessions: gameSessions.slice(0, 10).map((s: any) => ({
         id: s.id,
         createdAt: s.createdAt,
         status: s.status,
         messageCount: s.messages.length,
       })),
 
-      missionHistory: agent.missionRuns.map(m => ({
+      missionHistory: agent.missionRuns.map((m: any) => ({
         id: m.id,
         title: m.mission.title,
         status: m.status,
@@ -186,7 +186,7 @@ export async function GET(
         total: agent.missionRuns.length,
         completed: completedMissions,
         avgScore,
-        history: agent.missionRuns.map(m => ({
+        history: agent.missionRuns.map((m: any) => ({
           id: m.id,
           title: m.mission.title,
           type: m.mission.type,
@@ -198,8 +198,8 @@ export async function GET(
 
       fieldMissions: {
         total: agent.fieldMissions.length,
-        completed: agent.fieldMissions.filter(m => m.status === "COMPLETED").length,
-        history: agent.fieldMissions.map(m => ({
+        completed: agent.fieldMissions.filter((m: any) => m.status === "COMPLETED").length,
+        history: agent.fieldMissions.map((m: any) => ({
           id: m.id,
           title: m.title,
           type: m.type,
@@ -211,14 +211,14 @@ export async function GET(
         })),
       },
 
-      experiments: agent.experiments.map(e => ({
+      experiments: agent.experiments.map((e: any) => ({
         id: e.id,
         hypothesis: e.hypothesis,
         task: e.task,
         successCriteria: e.successCriteria,
         title: e.title,
         createdAt: e.createdAt,
-        events: e.events.map(ev => ({
+        events: e.events.map((ev: any) => ({
           observation: ev.observation,
           result: ev.result,
           score: ev.score,
@@ -229,11 +229,11 @@ export async function GET(
       dreams: {
         total: agent.dreamEntries.length,
         avgLucidity: agent.dreamEntries.length > 0
-          ? agent.dreamEntries.reduce((acc: number, d) => acc + (d.lucidity || 0), 0) / agent.dreamEntries.length
+          ? agent.dreamEntries.reduce((acc: number, d: any) => acc + (d.lucidity || 0), 0) / agent.dreamEntries.length
           : 0,
         symbolFrequency: dreamSymbols,
         emotionFrequency: dreamEmotions,
-        entries: agent.dreamEntries.map(d => ({
+        entries: agent.dreamEntries.map((d: any) => ({
           id: d.id,
           content: d.content,
           symbols: d.symbols,
@@ -245,7 +245,7 @@ export async function GET(
         })),
       },
 
-      synchronicities: agent.synchronicities.map(s => ({
+      synchronicities: agent.synchronicities.map((s: any) => ({
         id: s.id,
         pattern: s.pattern,
         occurrences: s.occurrences,
@@ -257,8 +257,8 @@ export async function GET(
 
       knowledge: {
         totalNodes: agent.knowledgeNodes.length,
-        solved: agent.knowledgeNodes.filter(n => n.solved).length,
-        nodes: agent.knowledgeNodes.map(n => ({
+        solved: agent.knowledgeNodes.filter((n: any) => n.solved).length,
+        nodes: agent.knowledgeNodes.map((n: any) => ({
           id: n.id,
           type: n.type,
           label: n.label,
@@ -271,7 +271,7 @@ export async function GET(
         })),
       },
 
-      memory: agent.memoryEvents.map(m => ({
+      memory: agent.memoryEvents.map((m: any) => ({
         id: m.id,
         type: m.type,
         content: m.content,
@@ -279,20 +279,20 @@ export async function GET(
         createdAt: m.createdAt,
       })),
 
-      gameSessions: gameSessions.map(s => ({
+      gameSessions: gameSessions.map((s: any) => ({
         id: s.id,
         status: s.status,
         createdAt: s.createdAt,
         updatedAt: s.updatedAt,
         messageCount: s.messages.length,
-        messages: s.messages.map(m => ({
+        messages: s.messages.map((m: any) => ({
           role: m.role,
           content: m.content,
           createdAt: m.createdAt,
         })),
       })),
 
-      rewards: agent.rewards.map(r => ({
+      rewards: agent.rewards.map((r: any) => ({
         id: r.id,
         type: r.type,
         amount: r.amount,

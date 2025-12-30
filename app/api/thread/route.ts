@@ -67,7 +67,7 @@ export async function GET(req: Request) {
         kind: "ADVENTURE",
         accessTier: 0,
       },
-      messages: messages.map(m => ({
+      messages: messages.map((m: any) => ({
         id: m.id,
         threadId: m.gameSessionId,
         role: m.role,

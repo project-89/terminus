@@ -63,10 +63,10 @@ export async function GET() {
       .slice(0, 10)
       .map(([emotion, count]) => ({ emotion, count }));
 
-    const recurringDreams = dreams.filter(d => d.recurrence > 1);
+    const recurringDreams = dreams.filter((d: any) => d.recurrence > 1);
 
     return NextResponse.json({
-      dreams: dreams.map(d => ({
+      dreams: dreams.map((d: any) => ({
         id: d.id,
         createdAt: d.createdAt,
         content: d.content,

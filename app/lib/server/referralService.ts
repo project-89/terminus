@@ -72,11 +72,11 @@ export async function getReferralStats(userId: string) {
     }),
   ]);
 
-  const totalScans = artifacts.reduce((sum, a) => sum + a.scanCount, 0);
-  const totalRecruits = artifacts.reduce((sum, a) => sum + a.recruitsGenerated, 0);
-  const deployedCount = artifacts.filter(a => a.deployed).length;
+  const totalScans = artifacts.reduce((sum: any, a: any) => sum + a.scanCount, 0);
+  const totalRecruits = artifacts.reduce((sum: any, a: any) => sum + a.recruitsGenerated, 0);
+  const deployedCount = artifacts.filter((a: any) => a.deployed).length;
 
-  const zoneStats = artifacts.reduce((acc, a) => {
+  const zoneStats = artifacts.reduce((acc: any, a: any) => {
     if (a.zone) {
       acc[a.zone] = (acc[a.zone] || 0) + 1;
     }
@@ -241,17 +241,17 @@ export async function getLeaderboard(limit = 20) {
     }),
   ]);
 
-  const deployerStats = topDeployers.map(u => ({
+  const deployerStats = topDeployers.map((u: any) => ({
     id: u.id,
     handle: u.handle,
     codename: u.profile?.codename,
     artifactsDeployed: u.artifacts.length,
-    totalScans: u.artifacts.reduce((sum, a) => sum + a.scanCount, 0),
-    totalRecruits: u.artifacts.reduce((sum, a) => sum + a.recruitsGenerated, 0),
-  })).sort((a, b) => b.totalScans - a.totalScans);
+    totalScans: u.artifacts.reduce((sum: any, a: any) => sum + a.scanCount, 0),
+    totalRecruits: u.artifacts.reduce((sum: any, a: any) => sum + a.recruitsGenerated, 0),
+  })).sort((a: any, b: any) => b.totalScans - a.totalScans);
 
   return {
-    topRecruiters: topRecruiters.map(u => ({
+    topRecruiters: topRecruiters.map((u: any) => ({
       id: u.id,
       handle: u.handle,
       codename: u.profile?.codename,
@@ -259,7 +259,7 @@ export async function getLeaderboard(limit = 20) {
       referrals: u._count.referrals,
     })),
     topDeployers: deployerStats,
-    topZones: topZones.map(z => ({
+    topZones: topZones.map((z: any) => ({
       zone: z.zone,
       artifactCount: z._count.id,
       totalScans: z._sum.scanCount || 0,

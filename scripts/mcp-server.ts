@@ -9,9 +9,9 @@ const AGENT_HANDLE = process.env.P89_HANDLE || `mcp_agent_${Math.floor(Math.rand
 
 // State (In-memory session management for the connected MCP client)
 let sessionState = {
-  sessionId: null as string | null,
+  sessionId: undefined as string | undefined,
   handle: AGENT_HANDLE,
-  missionRunId: null as string | null,
+  missionRunId: undefined as string | undefined,
   lastResponse: "",
   messageHistory: [] as Array<{role: string, content: string}>,
   currentMission: null as any,
@@ -63,7 +63,7 @@ server.tool(
       });
       
       sessionState.sessionId = sessionData.sessionId;
-      sessionState.missionRunId = null;
+      sessionState.missionRunId = undefined;
 
       // 2. Get the opening narrative
       sessionState.messageHistory = [];
@@ -348,7 +348,7 @@ server.tool(
               
               // Clear current mission
               sessionState.currentMission = null;
-              sessionState.missionRunId = null;
+              sessionState.missionRunId = undefined;
           } else {
               resultText += `Status: REJECTED\n`;
               resultText += `Reason: ${reportRes.message || "Insufficient evidence"}\n`;
@@ -411,9 +411,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  // Only log errors before connection is established
-  if (!server.connected) {
-    console.error("Fatal error in main():", error);
-  }
+  console.error("Fatal error in main():", error);
   process.exit(1);
 });

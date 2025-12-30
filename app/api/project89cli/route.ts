@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionById, getActiveSessionByHandle } from "@/app/lib/server/sessionService";
 import { getNextMission, acceptMission } from "@/app/lib/server/missionService";
 import { submitMissionReport } from "@/app/lib/server/missionService";
-import { getProfile, updateProfile } from "@/app/lib/server/profileService";
+import { getProfile, upsertProfile } from "@/app/lib/server/profileService";
 import { buildDirectorContext } from "@/app/lib/server/directorService";
 import { recordMemoryEvent } from "@/app/lib/server/memoryService";
 import prisma from "@/app/lib/prisma";
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
         }
 
         const profile = await getProfile(session.userId);
-        const directorContext = await buildDirectorContext(session.id);
+        const directorContext = await buildDirectorContext({ sessionId: session.id, userId: session.userId });
         const activeMission = await prisma.missionRun.findFirst({
           where: {
             userId: session.userId,
@@ -74,8 +74,8 @@ export async function POST(req: NextRequest) {
           data: {
             sessionId: session.id,
             handle: session.handle,
-            trustLevel: directorContext.trustScore || 0,
-            phase: directorContext.currentPhase,
+            trustLevel: directorContext.player?.trustScore || 0,
+            phase: directorContext.director?.phase,
             profile: profile ? {
               traits: profile.traits,
               skills: profile.skills
@@ -88,8 +88,8 @@ export async function POST(req: NextRequest) {
           },
           output: `[SESSION: ${session.id}]\n` +
                  `Handle: ${session.handle}\n` +
-                 `Trust: ${directorContext.trustScore || 0}\n` +
-                 `Phase: ${directorContext.currentPhase}\n` +
+                 `Trust: ${directorContext.player?.trustScore || 0}\n` +
+                 `Phase: ${directorContext.director?.phase}\n` +
                  (activeMission ? `\nActive Mission: ${activeMission.mission.title}` : "")
         });
 

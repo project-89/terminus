@@ -23,12 +23,12 @@ export async function GET() {
     });
 
     const byStatus = {
-      ASSIGNED: fieldMissions.filter(m => m.status === "ASSIGNED").length,
-      IN_PROGRESS: fieldMissions.filter(m => m.status === "IN_PROGRESS").length,
-      PENDING_REVIEW: fieldMissions.filter(m => m.status === "PENDING_REVIEW").length,
-      COMPLETED: fieldMissions.filter(m => m.status === "COMPLETED").length,
-      FAILED: fieldMissions.filter(m => m.status === "FAILED").length,
-      EXPIRED: fieldMissions.filter(m => m.status === "EXPIRED").length,
+      ASSIGNED: fieldMissions.filter((m: any) => m.status === "ASSIGNED").length,
+      IN_PROGRESS: fieldMissions.filter((m: any) => m.status === "IN_PROGRESS").length,
+      PENDING_REVIEW: fieldMissions.filter((m: any) => m.status === "PENDING_REVIEW").length,
+      COMPLETED: fieldMissions.filter((m: any) => m.status === "COMPLETED").length,
+      FAILED: fieldMissions.filter((m: any) => m.status === "FAILED").length,
+      EXPIRED: fieldMissions.filter((m: any) => m.status === "EXPIRED").length,
     };
 
     const byType: Record<string, number> = {};
@@ -37,7 +37,7 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      fieldMissions: fieldMissions.map(m => ({
+      fieldMissions: fieldMissions.map((m: any) => ({
         id: m.id,
         createdAt: m.createdAt,
         updatedAt: m.updatedAt,

@@ -60,19 +60,19 @@ export async function GET() {
 
     const stats = {
       totalArtifacts: artifacts.length,
-      deployedArtifacts: artifacts.filter(a => a.deployed).length,
-      verifiedArtifacts: artifacts.filter(a => a.verified).length,
-      totalScans: artifacts.reduce((sum, a) => sum + a.scanCount, 0),
-      totalRecruits: artifacts.reduce((sum, a) => sum + a.recruitsGenerated, 0),
+      deployedArtifacts: artifacts.filter((a: any) => a.deployed).length,
+      verifiedArtifacts: artifacts.filter((a: any) => a.verified).length,
+      totalScans: artifacts.reduce((sum: any, a: any) => sum + a.scanCount, 0),
+      totalRecruits: artifacts.reduce((sum: any, a: any) => sum + a.recruitsGenerated, 0),
       activeZones: zoneStats.length,
-      byType: artifacts.reduce((acc, a) => {
+      byType: artifacts.reduce((acc: any, a: any) => {
         acc[a.type] = (acc[a.type] || 0) + 1;
         return acc;
       }, {} as Record<string, number>),
     };
 
     return NextResponse.json({
-      artifacts: artifacts.map(a => ({
+      artifacts: artifacts.map((a: any) => ({
         id: a.id,
         code: a.code,
         type: a.type,
@@ -94,13 +94,13 @@ export async function GET() {
           codename: a.user.profile?.codename,
         },
       })),
-      zoneStats: zoneStats.map(z => ({
+      zoneStats: zoneStats.map((z: any) => ({
         zone: z.zone,
         artifactCount: z._count.id,
         totalScans: z._sum.scanCount || 0,
         totalRecruits: z._sum.recruitsGenerated || 0,
       })),
-      recentScans: recentScans.map(s => ({
+      recentScans: recentScans.map((s: any) => ({
         id: s.id,
         createdAt: s.createdAt,
         artifactCode: s.artifact.code,
@@ -112,16 +112,16 @@ export async function GET() {
         resultedInSignup: s.resultedInSignup,
         location: s.location,
       })),
-      topDeployers: topDeployers.map(u => ({
+      topDeployers: topDeployers.map((u: any) => ({
         id: u.id,
         handle: u.handle,
         codename: u.profile?.codename,
         points: u.referralPoints,
         artifactCount: u._count.artifacts,
         referralCount: u._count.referrals,
-        deployedCount: u.artifacts.filter(a => a.deployed).length,
-        totalScans: u.artifacts.reduce((sum, a) => sum + a.scanCount, 0),
-        totalRecruits: u.artifacts.reduce((sum, a) => sum + a.recruitsGenerated, 0),
+        deployedCount: u.artifacts.filter((a: any) => a.deployed).length,
+        totalScans: u.artifacts.reduce((sum: any, a: any) => sum + a.scanCount, 0),
+        totalRecruits: u.artifacts.reduce((sum: any, a: any) => sum + a.recruitsGenerated, 0),
       })),
       stats,
     });

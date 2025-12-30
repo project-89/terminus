@@ -65,7 +65,7 @@ export async function GET() {
       .slice(0, 10);
 
     return NextResponse.json({
-      nodes: nodes.map(n => ({
+      nodes: nodes.map((n: any) => ({
         id: n.id,
         createdAt: n.createdAt,
         type: n.type,
@@ -80,7 +80,7 @@ export async function GET() {
           codename: n.user.profile?.codename,
         },
       })),
-      edges: edges.map(e => ({
+      edges: edges.map((e: any) => ({
         id: e.id,
         from: e.fromId,
         to: e.toId,

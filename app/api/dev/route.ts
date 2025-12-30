@@ -201,7 +201,7 @@ export async function POST(req: NextRequest) {
         });
         await prisma.reward.deleteMany({ where: { userId } });
         const sessions = await prisma.gameSession.findMany({ where: { userId }, select: { id: true } });
-        const sessionIds = sessions.map(s => s.id);
+        const sessionIds = sessions.map((s: any) => s.id);
         if (sessionIds.length > 0) {
           await prisma.gameMessage.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
           await prisma.gameSession.deleteMany({ where: { userId } });

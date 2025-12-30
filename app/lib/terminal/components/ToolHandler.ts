@@ -1129,7 +1129,7 @@ export class ToolHandler {
 
           if (params.passed) {
             const terminalContext = TerminalContext.getInstance();
-            terminalContext.setActiveMissionRun(null);
+            terminalContext.setActiveMissionRun(undefined);
             
             this.terminal.effects.startMatrixRain(0.5);
             setTimeout(() => this.terminal.effects.stopMatrixRain(), 2000);

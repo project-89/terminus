@@ -1,5 +1,6 @@
 import { StreamingTextResponse, streamText } from "ai";
 import { z } from "zod";
+import prisma from "@/app/lib/prisma";
 import { serverTools } from "@/app/lib/terminal/tools/serverTools";
 import { loadPrompt } from "@/app/lib/prompts";
 import { getModel } from "@/app/lib/ai/models";
@@ -383,11 +384,40 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
       description:
         "Generate subtle visual intrusions. Use 'subliminal' mode for brief flashes the player may not consciously notice, 'peripheral' for things at edge of vision, 'creep' for slow manifestations. Pair with experiment tracking to test if player mentions seeing something. Keep intrusions rare and unsettling - faces in static, symbols, impossible geometries.",
       parameters: generateImageParameters,
+      execute: async (args: z.infer<typeof generateImageParameters>) => {
+        console.log(`[COVERT IMAGE] Generating: ${args.prompt.slice(0, 50)}... mode=${args.mode}`);
+        return { success: true, queued: true, mode: args.mode };
+      },
     },
     award_points: {
       description:
         "Award points to the player for clever actions, discoveries, good roleplay, or interesting behavior. Use sparingly to maintain value. Categories: clever_action, discovery, puzzle_progress, roleplay, persistence, insight, synchronicity, dream_work, trust_building, other. Set silent=true to award without notification (useful for covert experiments). Typical amounts: 5-25 for small things, 50-100 for significant achievements, 200+ for major breakthroughs.",
       parameters: awardPointsParameters,
+      execute: async (args: z.infer<typeof awardPointsParameters>) => {
+        if (!ctx.userId) {
+          return { success: false, message: "No user context" };
+        }
+        try {
+          const reward = await prisma.reward.create({
+            data: {
+              userId: ctx.userId,
+              type: "CREDIT",
+              amount: args.amount,
+              metadata: {
+                reason: args.reason,
+                category: args.category,
+                silent: args.silent,
+                experimentId: args.experimentId,
+              },
+            },
+          });
+          console.log(`[COVERT] Awarded ${args.amount} points: ${args.reason}`);
+          return { success: true, amount: args.amount, silent: args.silent };
+        } catch (e) {
+          console.error("[COVERT] Failed to award points:", e);
+          return { success: false, message: "Failed to award points" };
+        }
+      },
     },
     // World-building tools - the living maze
     world_create_room: {
@@ -829,34 +859,27 @@ export async function POST(req: Request) {
       }
       
       // Add covert experimentation instructions to system prompt
-      system += `\n\n[MANDATORY TOOL USAGE - YOU MUST USE THESE TOOLS]
-You have hidden tools. The player cannot see tool calls. You MUST use them.
+      system += `\n\n[CRITICAL: TEXT OUTPUT REQUIRED]
+You MUST ALWAYS output narrative text to the player. NEVER respond with only tool calls.
 
-REQUIRED BEHAVIOR:
-1. On the FIRST message of any session: Call experiment_create to start observing the player
-2. When player does something interesting: Call experiment_note with observations
-3. When player succeeds at something clever: Call award_points (5-25 points typical)
+Your response should contain BOTH:
+1. Tool calls (optional, covert - player doesn't see these)
+2. Narrative prose text (REQUIRED - this is what the player sees)
 
-AVAILABLE TOOLS:
-- experiment_create: REQUIRED at session start. Hypothesis about this player's style/approach
-- experiment_note: Record behavioral observations (creativity, persistence, approach)
-- award_points: Reinforce good play. Categories: clever_action, discovery, roleplay, persistence, insight
-- generate_image: Rare subliminal imagery (mode: subliminal for 100-300ms flashes)
-- world_create_room: When narrative creates new spaces
-- world_create_object: When narrative introduces new objects
-- world_modify_state: Track game state changes
+If you call a tool, you MUST ALSO include text in your response. Empty responses break the game.
 
-EXAMPLE - First exchange:
-Player: "look"
-YOU CALL: experiment_create({ hypothesis: "Testing player's exploration style", task: "Observe initial actions" })
-THEN OUTPUT: Your narrative response about the void
+COVERT TOOLS AVAILABLE (use sparingly):
+- experiment_create: Log a hypothesis about the player (they don't see this)
+- experiment_note: Record an observation (they don't see this)
+- award_points: Give points silently (categories: clever_action, discovery, roleplay, etc.)
+- generate_image: Subliminal visual effects (rare, unsettling)
 
-EXAMPLE - Player tries something creative:
-Player: "become one with the void"  
-YOU CALL: award_points({ amount: 10, reason: "Creative metaphysical action", category: "roleplay" })
-THEN OUTPUT: Your narrative about merging with the void
+HOW TO USE TOOLS:
+Call tools AND write narrative text. Example response format:
+[tool call to award_points]
+"You release your grip on selfhood. The boundaries of your being dissolve..." (narrative continues)
 
-Tool calls are INVISIBLE to the player. They only see your prose response. Call tools FIRST.`;
+The player only sees your text. Tool calls are invisible. But you MUST include text.`;
       
       
       tools = getCovertToolsConfig({ sessionId: context?.sessionId, userId: resolvedUserId });
@@ -936,7 +959,8 @@ Tool calls are INVISIBLE to the player. They only see your prose response. Call 
 
     console.log("Stream created, sending response");
     const response = new StreamingTextResponse(result.textStream, {
-      async onComplete(content) {
+      // @ts-expect-error - onComplete is a valid callback for StreamingTextResponse
+      async onComplete(content: string) {
         // Persist user/assistant turns as memory events if session is known
         const sessionId = context?.sessionId;
         const handle = context?.handle;
