@@ -311,9 +311,15 @@ export function TerminalCanvas() {
       isScrollingRef.current = false;
 
       if (!wasScroll && duration < 220) {
-        // Treat as tap → focus input
-        if (hiddenInputRef.current && terminalRef.current?.getCommandAccess()) {
-          hiddenInputRef.current.focus();
+        // Treat as tap
+        if (terminalRef.current) {
+          // If command access is available, focus input for typing
+          if (terminalRef.current.getCommandAccess()) {
+            hiddenInputRef.current?.focus();
+          } else {
+            // Otherwise, send a space key to progress intro/animations
+            terminalRef.current.handleInput(" ");
+          }
         }
       }
     };
