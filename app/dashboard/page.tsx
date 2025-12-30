@@ -14,6 +14,95 @@ const Globe = dynamic(() => import("./components/Globe"), {
   ),
 });
 
+const ADMIN_AUTH_KEY = "p89_admin_auth";
+
+function AccessGate({ onAuthenticated }: { onAuthenticated: () => void }) {
+  const router = useRouter();
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setChecking(true);
+    setError("");
+    
+    try {
+      const res = await fetch("/api/admin/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        localStorage.setItem(ADMIN_AUTH_KEY, btoa(code + ":" + Date.now()));
+        onAuthenticated();
+      } else {
+        setError("ACCESS DENIED - REDIRECTING TO TERMINAL...");
+        setCode("");
+        setRedirecting(true);
+        setTimeout(() => router.push("/"), 1500);
+      }
+    } catch {
+      setError("CONNECTION FAILED");
+    }
+    setChecking(false);
+  };
+
+  return (
+    <div className="h-screen bg-black flex items-center justify-center font-mono">
+      <div className="w-full max-w-md p-8">
+        <div className="border-2 border-red-800 bg-black/80 p-8">
+          <div className="text-center mb-8">
+            <div className="text-red-500 text-xs tracking-[0.5em] mb-2">RESTRICTED ACCESS</div>
+            <div className="text-cyan-400 text-2xl tracking-[0.3em]">PROJECT 89</div>
+            <div className="text-cyan-700 text-xs mt-2">DIRECTOR CONSOLE</div>
+          </div>
+          
+          <form onSubmit={handleSubmit}>
+            <div className="mb-6">
+              <label className="block text-cyan-600 text-xs tracking-widest mb-2">ENTER ACCESS CODE</label>
+              <input
+                type="password"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                disabled={redirecting}
+                className="w-full bg-black border-2 border-cyan-800 p-3 text-cyan-300 text-center tracking-[0.5em] focus:border-cyan-500 focus:outline-none font-mono text-lg disabled:opacity-50"
+                placeholder="••••••••"
+                autoFocus
+              />
+            </div>
+            
+            {error && (
+              <div className="text-red-500 text-center text-sm mb-4 animate-pulse">{error}</div>
+            )}
+            
+            <button
+              type="submit"
+              disabled={checking || !code || redirecting}
+              className="w-full bg-cyan-900/30 border-2 border-cyan-600 p-3 text-cyan-400 tracking-widest hover:bg-cyan-900/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {checking ? "AUTHENTICATING..." : "AUTHENTICATE"}
+            </button>
+          </form>
+          
+          <div className="mt-8 text-center">
+            <div className="text-red-900 text-xs">UNAUTHORIZED ACCESS WILL BE LOGGED</div>
+            <button 
+              onClick={() => router.push("/")}
+              className="mt-4 text-cyan-700 text-xs hover:text-cyan-500 transition"
+            >
+              ← RETURN TO TERMINAL
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type Tab = "overview" | "agents" | "missions" | "fieldops" | "experiments" | "dreams" | "knowledge" | "artifacts" | "rewards" | "sessions";
 
 type Agent = {
@@ -44,6 +133,7 @@ type Stats = {
 const LAYER_COLORS = ["#555", "#0af", "#0fa", "#fa0", "#f55", "#f0f"];
 
 export default function DashboardPage() {
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [stats, setStats] = useState<Stats | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -60,6 +150,22 @@ export default function DashboardPage() {
   const [showLogos, setShowLogos] = useState(false);
 
   useEffect(() => {
+    const stored = localStorage.getItem(ADMIN_AUTH_KEY);
+    if (stored) {
+      try {
+        const decoded = atob(stored);
+        const timestamp = parseInt(decoded.split(":").pop() || "0");
+        const hoursSinceAuth = (Date.now() - timestamp) / (1000 * 60 * 60);
+        if (hoursSinceAuth < 24) {
+          setAuthenticated(true);
+          return;
+        }
+      } catch {}
+    }
+    setAuthenticated(false);
+  }, []);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       setTime(new Date());
       setUptime(u => u + 1);
@@ -68,6 +174,7 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (!authenticated) return;
     Promise.all([
       fetch("/api/admin/stats").then(r => r.json()),
       fetch("/api/admin/agents").then(r => r.json()),
@@ -90,7 +197,7 @@ export default function DashboardPage() {
       setRewards(rewardsData);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, []);
+  }, [authenticated]);
 
   const formatUptime = (s: number) => {
     const h = Math.floor(s / 3600).toString().padStart(2, '0');
@@ -98,6 +205,18 @@ export default function DashboardPage() {
     const sec = (s % 60).toString().padStart(2, '0');
     return `${h}:${m}:${sec}`;
   };
+
+  if (authenticated === null) {
+    return (
+      <div className="h-screen bg-black flex items-center justify-center font-mono">
+        <div className="text-cyan-600 animate-pulse">INITIALIZING...</div>
+      </div>
+    );
+  }
+
+  if (!authenticated) {
+    return <AccessGate onAuthenticated={() => setAuthenticated(true)} />;
+  }
 
   if (loading) {
     return (

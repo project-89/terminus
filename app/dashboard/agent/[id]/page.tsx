@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 
+const ADMIN_AUTH_KEY = "p89_admin_auth";
+
 interface AgentDossier {
   id: string;
   handle: string | null;
@@ -114,6 +116,7 @@ function Section({ title, children, className = "" }: { title: string; children:
 export default function AgentDossierPage() {
   const params = useParams();
   const router = useRouter();
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [dossier, setDossier] = useState<AgentDossier | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"profile" | "missions" | "admin">("profile");
@@ -128,8 +131,24 @@ export default function AgentDossierPage() {
   const agentId = params?.id as string | undefined;
 
   useEffect(() => {
-    if (agentId) {
-      Promise.all([
+    const stored = localStorage.getItem(ADMIN_AUTH_KEY);
+    if (stored) {
+      try {
+        const decoded = atob(stored);
+        const timestamp = parseInt(decoded.split(":").pop() || "0");
+        const hoursSinceAuth = (Date.now() - timestamp) / (1000 * 60 * 60);
+        if (hoursSinceAuth < 24) {
+          setAuthenticated(true);
+          return;
+        }
+      } catch {}
+    }
+    router.push("/dashboard");
+  }, [router]);
+
+  useEffect(() => {
+    if (!authenticated || !agentId) return;
+    Promise.all([
         fetch(`/api/admin/agents/${agentId}`).then((r) => r.json()),
         fetch(`/api/admin/missions`).then((r) => r.json()),
       ])
@@ -144,8 +163,7 @@ export default function AgentDossierPage() {
           console.error(err);
           setLoading(false);
         });
-    }
-  }, [agentId]);
+  }, [authenticated, agentId]);
 
   const updateProfile = useCallback(async (updates: Record<string, any>) => {
     if (!dossier) return;
@@ -625,6 +643,66 @@ export default function AgentDossierPage() {
               >
                 {saving ? "SAVING..." : "SAVE CHANGES"}
               </button>
+
+              <Section title="TRUST OVERRIDE" className="mt-6">
+                <div className="text-xs text-yellow-500 mb-3">
+                  Manually override trust score and access layer
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-cyan-600">LAYER</span>
+                      <span className="text-cyan-400">{LAYER_NAMES[dossier.layer]} (L{dossier.layer})</span>
+                    </div>
+                    <div className="flex gap-1">
+                      {[0, 1, 2, 3, 4, 5].map((l) => (
+                        <button
+                          key={l}
+                          onClick={() => {
+                            const newTrust = l === 0 ? 0 : l === 1 ? 0.2 : l === 2 ? 0.4 : l === 3 ? 0.6 : l === 4 ? 0.8 : 0.98;
+                            updateProfile({ layer: l, trustScore: newTrust });
+                            setDossier((prev) => prev ? { ...prev, layer: l, trustScore: newTrust } : null);
+                          }}
+                          disabled={saving}
+                          className={`flex-1 py-2 text-xs font-bold border transition ${
+                            dossier.layer === l
+                              ? "border-2"
+                              : "border-cyan-800 opacity-50 hover:opacity-100"
+                          }`}
+                          style={{ 
+                            backgroundColor: dossier.layer === l ? LAYER_COLORS[l] + "40" : "transparent",
+                            borderColor: LAYER_COLORS[l],
+                            color: LAYER_COLORS[l]
+                          }}
+                        >
+                          L{l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-cyan-600">TRUST SCORE</span>
+                      <span className="text-cyan-400">{(dossier.trustScore * 100).toFixed(0)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={dossier.trustScore * 100}
+                      onChange={(e) => {
+                        const newTrust = parseInt(e.target.value) / 100;
+                        setDossier((prev) => prev ? { ...prev, trustScore: newTrust } : null);
+                      }}
+                      onMouseUp={(e) => {
+                        const newTrust = parseInt((e.target as HTMLInputElement).value) / 100;
+                        updateProfile({ trustScore: newTrust });
+                      }}
+                      className="w-full accent-cyan-500"
+                    />
+                  </div>
+                </div>
+              </Section>
             </div>
 
             <div className="col-span-6">

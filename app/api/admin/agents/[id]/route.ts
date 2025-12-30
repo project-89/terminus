@@ -332,11 +332,16 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const adminSecret = request.headers.get("x-admin-secret");
+  if (process.env.ADMIN_SECRET && adminSecret !== process.env.ADMIN_SECRET) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
 
   try {
     const body = await request.json();
-    const { adminNotes, adminDirectives, watchlist, flagged, flagReason, assignedMissions, tags } = body;
+    const { adminNotes, adminDirectives, watchlist, flagged, flagReason, assignedMissions, tags, trustScore, layer } = body;
 
     const user = await prisma.user.findUnique({
       where: { id },
@@ -355,6 +360,8 @@ export async function PATCH(
     if (flagReason !== undefined) updateData.flagReason = flagReason;
     if (assignedMissions !== undefined) updateData.assignedMissions = assignedMissions;
     if (tags !== undefined) updateData.tags = tags;
+    if (trustScore !== undefined) updateData.trustScore = Math.max(0, Math.min(1, trustScore));
+    if (layer !== undefined) updateData.layer = Math.max(0, Math.min(5, layer));
 
     const profile = await prisma.playerProfile.upsert({
       where: { userId: id },
