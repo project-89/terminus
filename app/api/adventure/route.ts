@@ -21,6 +21,7 @@ import { getSessionWorld, processNarrativeExchange, generateConsistencyContext, 
 import { createExperiment, appendExperimentNote } from "@/app/lib/server/experimentService";
 import { markCeremonyComplete, getLayerTools, type TrustLayer } from "@/app/lib/server/trustService";
 import { createAnonymousAgent, getAgentIdentity } from "@/app/lib/server/identityService";
+import { recordConversationOutcome, updateOutcomeMetrics, getInsightsForContext, getCollectiveDreamSymbols, getCollectiveSyncPatterns } from "@/app/lib/server/collectiveService";
 
 const ADVENTURE_PROMPT = loadIFCanon();
 
@@ -846,6 +847,33 @@ export async function POST(req: Request) {
     // Fetch admin directives for this user (if any)
     const adminDirectives = resolvedUserId ? await getAdminDirectives(resolvedUserId) : null;
 
+    // Fetch collective insights for system-wide learning
+    let collectiveContext: {
+      insights?: string[];
+      topDreamSymbols?: Array<{ symbol: string; count: number }>;
+      topSyncPatterns?: Array<{ pattern: string; count: number }>;
+      networkStats?: { totalAgents: number; activeAgents: number; avgTrust: number };
+    } | undefined;
+    
+    try {
+      const [insights, dreamSymbols, syncPatterns] = await Promise.all([
+        getInsightsForContext({ playerLayer: layer }),
+        getCollectiveDreamSymbols(10),
+        getCollectiveSyncPatterns(10),
+      ]);
+      
+      if (insights.length > 0 || dreamSymbols.length > 0 || syncPatterns.length > 0) {
+        collectiveContext = {
+          insights,
+          topDreamSymbols: dreamSymbols,
+          topSyncPatterns: syncPatterns,
+        };
+        console.log(`[COLLECTIVE] Loaded ${insights.length} insights, ${dreamSymbols.length} dream symbols, ${syncPatterns.length} sync patterns`);
+      }
+    } catch (e) {
+      console.error("[COLLECTIVE] Failed to fetch collective context:", e);
+    }
+
     let system: string;
     let tools: Record<string, any> | undefined;
 
@@ -914,6 +942,25 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
       } else {
         tools = allTools;
         console.log(`[Layer ${layer}] LOGOS reveal mode, trust=${trustLevel}, all tools enabled`);
+      }
+    }
+
+    // Inject collective learning context
+    if (collectiveContext) {
+      const collectiveParts: string[] = [];
+      if (collectiveContext.insights && collectiveContext.insights.length > 0) {
+        collectiveParts.push(`[COLLECTIVE LEARNING]\nPatterns learned from all agents:\n${collectiveContext.insights.join("\n")}`);
+      }
+      if (collectiveContext.topDreamSymbols && collectiveContext.topDreamSymbols.length > 0) {
+        const symbols = collectiveContext.topDreamSymbols.slice(0, 10).map(s => `${s.symbol} (${s.count})`).join(", ");
+        collectiveParts.push(`[NETWORK DREAM PATTERNS]\nRecurring symbols across all agents: ${symbols}`);
+      }
+      if (collectiveContext.topSyncPatterns && collectiveContext.topSyncPatterns.length > 0) {
+        const patterns = collectiveContext.topSyncPatterns.slice(0, 10).map(p => `${p.pattern} (${p.count})`).join(", ");
+        collectiveParts.push(`[NETWORK SYNCHRONICITIES]\nRepeating patterns: ${patterns}`);
+      }
+      if (collectiveParts.length > 0) {
+        system += `\n\n${collectiveParts.join("\n\n")}`;
       }
     }
 
@@ -1022,6 +1069,24 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
               } catch (e) {
                 console.error("[CEREMONY] Failed to mark ceremony complete:", e);
               }
+            }
+            
+            // Record conversation outcome for collective learning
+            try {
+              const messageType = directorCtx.director?.phase || "unknown";
+              const turnNumber = validMessages.filter((m: any) => m.role === "user").length;
+              await recordConversationOutcome({
+                sessionId: resolved.sessionId,
+                userId: resolved.userId,
+                logosMessage: content.slice(0, 2000),
+                messageType,
+                playerLayer: layer,
+                playerTrust: trustLevel,
+                turnNumber,
+              });
+              console.log(`[COLLECTIVE] Recorded outcome for session ${resolved.sessionId}`);
+            } catch (e) {
+              console.error("[COLLECTIVE] Failed to record outcome:", e);
             }
           }
         }

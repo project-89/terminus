@@ -664,3 +664,124 @@ enum RewardTaskType {
     STREAK_30_DAY             // 30 day streak
 }
 
+// ============================================
+// COLLECTIVE INTELLIGENCE - System Learning
+// ============================================
+
+// Stores patterns LOGOS has learned across all players
+model CollectiveInsight {
+    id              String           @id @default(cuid())
+    createdAt       DateTime         @default(now())
+    updatedAt       DateTime         @updatedAt
+    
+    type            InsightType
+    category        String           // e.g., "engagement", "narrative", "psychology"
+    pattern         String           // What was learned
+    confidence      Float            @default(0.5)  // 0-1 confidence in this insight
+    sampleSize      Int              @default(1)    // How many observations
+    
+    // The insight content
+    content         Json             // Flexible structure for different insight types
+    
+    // Tracking effectiveness
+    timesApplied    Int              @default(0)
+    successRate     Float?           // When applied, how often successful
+    lastApplied     DateTime?
+    
+    // Versioning for evolution
+    version         Int              @default(1)
+    supersededBy    String?          // ID of newer insight that replaced this
+    active          Boolean          @default(true)
+    
+    @@index([type, active])
+    @@index([category])
+    @@index([confidence])
+}
+
+enum InsightType {
+    EFFECTIVE_PROMPT      // Prompts/approaches that work well
+    PLAYER_ARCHETYPE      // Common player personality patterns
+    ENGAGEMENT_PATTERN    // What keeps players engaged
+    NARRATIVE_BEAT        // Story moments that resonate
+    MISSION_DESIGN        // What makes missions effective
+    TRUST_ACCELERATOR     // What builds trust faster
+    DREAM_SYMBOL          // Recurring dream symbols across players
+    SYNC_PATTERN          // Common synchronicity patterns
+    FAILURE_MODE          // What causes disengagement
+    RECOVERY_TACTIC       // How to re-engage lost players
+}
+
+// Aggregate stats computed periodically
+model CollectiveStats {
+    id              String           @id @default(cuid())
+    computedAt      DateTime         @default(now())
+    period          String           // "daily", "weekly", "monthly", "all_time"
+    
+    // Player metrics
+    totalPlayers    Int
+    activePlayers   Int              // Active in period
+    newPlayers      Int
+    churned         Int
+    
+    // Layer distribution
+    layerDistribution Json           // { "0": count, "1": count, ... }
+    avgTrustScore   Float
+    avgSessionLength Float           // minutes
+    
+    // Engagement
+    totalSessions   Int
+    totalMessages   Int
+    avgMessagesPerSession Float
+    
+    // Content effectiveness
+    topEngagingTopics Json           // Topics that generate most engagement
+    topDreamSymbols   Json           // Most common dream symbols
+    topSyncPatterns   Json           // Most reported synchronicities
+    
+    // Mission metrics
+    missionCompletionRate Float
+    avgMissionScore   Float
+    
+    // Model for trend analysis
+    previousPeriodId  String?
+    
+    @@index([period, computedAt])
+}
+
+// Track what LOGOS says and outcomes - for learning what works
+model ConversationOutcome {
+    id              String           @id @default(cuid())
+    createdAt       DateTime         @default(now())
+    
+    sessionId       String
+    userId          String
+    
+    // What LOGOS said
+    logosMessage    String           @db.Text
+    messageType     String           // "narrative", "question", "mission", "ceremony", etc.
+    
+    // Context at time of message
+    playerLayer     Int
+    playerTrust     Float
+    turnNumber      Int
+    
+    // Outcome metrics
+    playerResponded Boolean          @default(false)
+    responseLength  Int?             // Characters in response
+    responseTime    Int?             // Seconds until response
+    sentiment       Float?           // -1 to 1 sentiment of response
+    engagement      Float?           // 0-1 engagement score
+    
+    // Did this lead to positive outcomes?
+    ledToTrustGain  Boolean          @default(false)
+    ledToMission    Boolean          @default(false)
+    ledToChurn      Boolean          @default(false)  // Player left after this
+    
+    // For pattern matching
+    contentHash     String?          // Hash of message for grouping similar messages
+    
+    @@index([messageType])
+    @@index([playerLayer])
+    @@index([engagement])
+}
+

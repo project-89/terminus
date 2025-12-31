@@ -78,6 +78,16 @@ export type AdventurePromptContext = {
   };
   knowledge?: string;
   canon?: string;
+  collective?: {
+    insights?: string[];
+    topDreamSymbols?: Array<{ symbol: string; count: number }>;
+    topSyncPatterns?: Array<{ pattern: string; count: number }>;
+    networkStats?: {
+      totalAgents: number;
+      activeAgents: number;
+      avgTrust: number;
+    };
+  };
   gameState?: {
     currentRoom: string;
     roomName: string;
@@ -377,7 +387,30 @@ As they invest more time, signal instability will increase naturally.`;
     }
   }
 
-  return [identity, directorPolicy, experimentationDoctrine, dynamicUse, tools, guardrails, ceremonyBlock, layerBlock, identityBlock, experimentBlock, missionNarrativeBlock, stuckRecoveryBlock, cooldownBlock, difficultyBlock, canonBlock, gameStateBlock, contextBlock, knowledgeBlock]
+  let collectiveBlock = "";
+  if (ctx.collective) {
+    const parts: string[] = [];
+    if (ctx.collective.insights && ctx.collective.insights.length > 0) {
+      parts.push(`[COLLECTIVE LEARNING]\nPatterns learned from all agents:\n${ctx.collective.insights.join("\n")}`);
+    }
+    if (ctx.collective.topDreamSymbols && ctx.collective.topDreamSymbols.length > 0) {
+      const symbols = ctx.collective.topDreamSymbols.slice(0, 10).map(s => `${s.symbol} (${s.count})`).join(", ");
+      parts.push(`[NETWORK DREAM PATTERNS]\nRecurring symbols across all agents: ${symbols}`);
+    }
+    if (ctx.collective.topSyncPatterns && ctx.collective.topSyncPatterns.length > 0) {
+      const patterns = ctx.collective.topSyncPatterns.slice(0, 10).map(p => `${p.pattern} (${p.count})`).join(", ");
+      parts.push(`[NETWORK SYNCHRONICITIES]\nRepeating patterns: ${patterns}`);
+    }
+    if (ctx.collective.networkStats) {
+      const stats = ctx.collective.networkStats;
+      parts.push(`[NETWORK STATUS]\nActive agents: ${stats.activeAgents}/${stats.totalAgents}, Average trust: ${(stats.avgTrust * 100).toFixed(0)}%`);
+    }
+    if (parts.length > 0) {
+      collectiveBlock = parts.join("\n\n");
+    }
+  }
+
+  return [identity, directorPolicy, experimentationDoctrine, dynamicUse, tools, guardrails, ceremonyBlock, layerBlock, identityBlock, experimentBlock, missionNarrativeBlock, stuckRecoveryBlock, cooldownBlock, difficultyBlock, collectiveBlock, canonBlock, gameStateBlock, contextBlock, knowledgeBlock]
     .map((s) => s.trim())
     .filter(s => s.length > 0)
     .join("\n\n");

@@ -8,6 +8,7 @@
 import { buildLayer0Prompt, LAYER_0_OPENING, type Layer0Context } from './layer0-mask';
 import { buildLayer1Prompt } from './layer1-bleed';
 import { buildFourthWallBlock, type FourthWallContext } from './fourthWallTriggers';
+import { getSoulDirective } from './soulDirective';
 
 export type AgentLayer = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -82,6 +83,8 @@ export function calculateLayer(trust: number): AgentLayer {
 
 export function buildLayerPrompt(ctx: LayerContext, forcedLayer?: AgentLayer): string {
   const layer = forcedLayer ?? calculateLayer(ctx.trustLevel);
+  
+  const soulDirective = getSoulDirective(layer <= 1);
   
   let basePrompt: string;
   switch (layer) {
@@ -201,7 +204,7 @@ ${engineContext}
     basePrompt += "\n\n" + identityBlock;
   }
 
-  return basePrompt;
+  return soulDirective + "\n\n" + basePrompt;
 }
 
 function buildIdentityBlock(ctx: LayerContext): string {
