@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-const fs = require('fs');
-const path = require('path');
+const { execSync } = require('child_process');
 
 const databaseUrl = process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL;
 
@@ -9,17 +8,19 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-if (!process.env.DATABASE_URL && process.env.NETLIFY_DATABASE_URL) {
-  console.log('Setting DATABASE_URL from NETLIFY_DATABASE_URL');
-  process.env.DATABASE_URL = process.env.NETLIFY_DATABASE_URL;
+process.env.DATABASE_URL = databaseUrl;
+console.log('DATABASE_URL configured from:', process.env.DATABASE_URL ? 'DATABASE_URL' : 'NETLIFY_DATABASE_URL');
+
+const args = process.argv.slice(2);
+if (args.length > 0) {
+  const command = args.join(' ');
+  console.log(`Running: ${command}`);
+  try {
+    execSync(command, { 
+      stdio: 'inherit',
+      env: { ...process.env, DATABASE_URL: databaseUrl }
+    });
+  } catch (error) {
+    process.exit(error.status || 1);
+  }
 }
-
-const envPath = path.join(__dirname, '..', '.env.local');
-const envContent = `DATABASE_URL="${databaseUrl}"\n`;
-
-if (!fs.existsSync(envPath)) {
-  fs.writeFileSync(envPath, envContent);
-  console.log('Created .env.local with DATABASE_URL');
-}
-
-console.log('Database URL configured successfully');
