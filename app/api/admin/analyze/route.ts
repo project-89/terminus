@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { streamText, StreamingTextResponse } from "ai";
+import { streamText } from "ai";
 import { getModel } from "@/app/lib/ai/models";
 
 const ANALYST_MODEL = getModel("content");
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
 - Context: answering operator questions about agents, missions, and experiments.
 - If asked about unknown data, acknowledge limits; do not hallucinate specifics.`;
 
-  const result = await streamText({
+  const result = streamText({
     model: ANALYST_MODEL,
     messages: [
       { role: "system", content: system },
@@ -35,5 +35,5 @@ export async function POST(req: Request) {
     temperature: 0.4,
   });
 
-  return new StreamingTextResponse(result.textStream);
+  return result.toTextStreamResponse();
 }

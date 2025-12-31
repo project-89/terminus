@@ -84,7 +84,7 @@ export function calculateLayer(trust: number): AgentLayer {
 export function buildLayerPrompt(ctx: LayerContext, forcedLayer?: AgentLayer): string {
   const layer = forcedLayer ?? calculateLayer(ctx.trustLevel);
   
-  const soulDirective = getSoulDirective(layer <= 1);
+  const soulDirective = getSoulDirective(layer);
   
   let basePrompt: string;
   switch (layer) {

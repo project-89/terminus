@@ -43,11 +43,10 @@ export async function POST(req: Request) {
       tools: {
         answer: tool({
           description: "Generate a directory listing of files and folders",
-          parameters: DirectoryListingSchema,
+          inputSchema: DirectoryListingSchema,
         }),
       },
       toolChoice: "required",
-      maxSteps: 1,
       system: `You are the Project 89 Archive System's quantum-powered file generation subsystem.
 Your task is to generate mysterious and intriguing directory listings that fit within the Project 89 universe.
 
@@ -74,7 +73,7 @@ ${
     });
 
     // Get the generated items
-    const generatedItems = toolCalls[0].args.items;
+    const generatedItems = (toolCalls[0].input as { items: any[] }).items;
 
     // Merge with existing items if any
     const finalItems = [...existingItems, ...generatedItems];

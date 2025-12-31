@@ -1,4 +1,5 @@
-import { StreamingTextResponse, streamText } from "ai";
+import { streamText, stepCountIs } from "ai";
+import { getProviderOptions } from "@/app/lib/ai/models";
 import { z } from "zod";
 import prisma from "@/app/lib/prisma";
 import { serverTools } from "@/app/lib/terminal/tools/serverTools";
@@ -985,10 +986,11 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
       }
     }
 
-    const result = await streamText({
+    const result = streamText({
       model: ADVENTURE_MODEL,
       temperature: 0.7,
-      maxSteps: 3,
+      stopWhen: stepCountIs(3),
+      providerOptions: getProviderOptions(),
       messages: [
         {
           role: "system",
@@ -999,16 +1001,17 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
       ],
       tools,
       onFinish: (result) => {
-        console.log("*** Adventure API onFinish:", result.steps[0]);
+        console.log("*** Adventure API onFinish:", result.steps?.[0]);
       },
-      experimental_toolCallStreaming: true,
     });
 
     console.log("Stream created, sending response");
-    const response = new StreamingTextResponse(result.textStream, {
-      // @ts-expect-error - onComplete is a valid callback for StreamingTextResponse
-      async onComplete(content: string) {
-        // Persist user/assistant turns as memory events if session is known
+    
+    // Start background task to handle post-stream processing
+    (async () => {
+      try {
+        const content = await result.text;
+        
         const sessionId = context?.sessionId;
         const handle = context?.handle;
         let resolved = { userId: "", sessionId: "" };
@@ -1027,7 +1030,6 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
         } catch {}
 
         if (resolved.userId && resolved.sessionId) {
-          // Record last user message (if any) and assistant response
           const lastUser = validMessages[validMessages.length - 1];
           if (lastUser?.content) {
             await recordMemoryEvent({
@@ -1047,7 +1049,6 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
               tags: ["adventure", "assistant"],
             });
             
-            // Parse AI response to extract world elements and build knowledge graph
             try {
               const playerCommand = lastUser?.content || '';
               await processNarrativeExchange(
@@ -1061,7 +1062,6 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
               console.error("[WORLD GRAPH] Failed to process narrative:", e);
             }
             
-            // Mark layer ceremony as complete after it's been delivered
             if (pendingCeremony !== null && pendingCeremony !== undefined) {
               try {
                 await markCeremonyComplete(resolved.userId, pendingCeremony as TrustLayer);
@@ -1071,7 +1071,6 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
               }
             }
             
-            // Record conversation outcome for collective learning
             try {
               const messageType = directorCtx.director?.phase || "unknown";
               const turnNumber = validMessages.filter((m: any) => m.role === "user").length;
@@ -1090,9 +1089,12 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
             }
           }
         }
-      },
-    });
-    return response;
+      } catch (e) {
+        console.error("[POST-STREAM] Error processing result:", e);
+      }
+    })();
+    
+    return result.toTextStreamResponse();
   } catch (error) {
     console.error("Adventure API Error:", error);
     return new Response(

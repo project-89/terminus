@@ -1,4 +1,4 @@
-import { StreamingTextResponse, streamText, type CoreMessage } from "ai";
+import { streamText, type ModelMessage } from "ai";
 import { loadOpsTools } from "@/app/lib/opsTools/loader";
 import { getModel } from "@/app/lib/ai/models";
 
@@ -35,13 +35,13 @@ export async function POST(req: Request) {
     const model = getModel("content");
 
     const system = `${tool.title}\n\n${tool.description || ""}\n\n${tool.content}`.trim();
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "system", content: system },
-      ...(input ? ([{ role: "user", content: input }] as CoreMessage[]) : []),
+      ...(input ? ([{ role: "user", content: input }] as ModelMessage[]) : []),
     ];
 
-    const result = await streamText({ model, messages, temperature: tool.temperature ?? 0.4 });
-    return new StreamingTextResponse(result.textStream);
+    const result = streamText({ model, messages, temperature: tool.temperature ?? 0.4 });
+    return result.toTextStreamResponse();
   }
 
   return new Response(JSON.stringify({ error: "unknown action" }), {

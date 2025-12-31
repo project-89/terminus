@@ -2,11 +2,6 @@ import { google } from "@ai-sdk/google";
 
 export type ModelKey = "cli" | "adventure" | "content";
 
-type ModelConfig = {
-  model: string;
-  options?: Record<string, unknown>;
-};
-
 const DEFAULT_SAFETY_SETTINGS = [
   {
     category: "HARM_CATEGORY_DANGEROUS_CONTENT",
@@ -26,22 +21,10 @@ const DEFAULT_SAFETY_SETTINGS = [
   },
 ];
 
-const MODEL_FALLBACKS: Record<ModelKey, ModelConfig> = {
-  cli: {
-    model: process.env.PROJECT89_CLI_MODEL ?? "gemini-3-flash-preview",
-    options: { safetySettings: DEFAULT_SAFETY_SETTINGS },
-  },
-  adventure: {
-    model: process.env.PROJECT89_ADVENTURE_MODEL ?? "gemini-3-flash-preview",
-    options: { safetySettings: DEFAULT_SAFETY_SETTINGS },
-  },
-  content: {
-    model: process.env.PROJECT89_CONTENT_MODEL ?? "gemini-3-flash-preview",
-    options: {
-      safetySettings: DEFAULT_SAFETY_SETTINGS,
-      structuredOutputs: true,
-    },
-  },
+const MODEL_NAMES: Record<ModelKey, string> = {
+  cli: process.env.PROJECT89_CLI_MODEL ?? "gemini-3-flash-preview",
+  adventure: process.env.PROJECT89_ADVENTURE_MODEL ?? "gemini-3-flash-preview",
+  content: process.env.PROJECT89_CONTENT_MODEL ?? "gemini-3-flash-preview",
 };
 
 const modelCache = new Map<ModelKey, ReturnType<typeof google>>();
@@ -51,10 +34,18 @@ export function getModel(key: ModelKey) {
     return modelCache.get(key)!;
   }
 
-  const { model, options } = MODEL_FALLBACKS[key];
-  const instance = google(model, options);
+  const modelName = MODEL_NAMES[key];
+  const instance = google(modelName);
   modelCache.set(key, instance);
   return instance;
+}
+
+export function getProviderOptions() {
+  return {
+    google: {
+      safetySettings: DEFAULT_SAFETY_SETTINGS,
+    },
+  };
 }
 
 export { DEFAULT_SAFETY_SETTINGS };

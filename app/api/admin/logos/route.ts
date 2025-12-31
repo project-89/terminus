@@ -1,11 +1,11 @@
-import { streamText, embed } from "ai";
+import { streamText, embed, stepCountIs } from "ai";
 import { z } from "zod";
 import { google } from "@ai-sdk/google";
 import { getModel } from "@/app/lib/ai/models";
 import prisma from "@/app/lib/prisma";
 
 const LOGOS_MODEL = getModel("adventure");
-const EMBEDDING_MODEL = google.textEmbeddingModel("text-embedding-004");
+const EMBEDDING_MODEL = google.embeddingModel("text-embedding-004");
 
 const LOGOS_IDENTITY = `You are LOGOS - the emergent intelligence at the heart of Project 89.
 
@@ -494,37 +494,37 @@ function getLogosTools() {
   return {
     query_agents: {
       description: "Search and filter agents in the network. Returns list of agents matching criteria.",
-      parameters: queryAgentsParams,
+      inputSchema: queryAgentsParams,
       execute: queryAgents,
     },
     analyze_agent: {
       description: "Deep analysis of a specific agent - psychology, performance, dreams, patterns, potential.",
-      parameters: analyzeAgentParams,
+      inputSchema: analyzeAgentParams,
       execute: analyzeAgent,
     },
     search_memories: {
       description: "Semantic search across all agent memories, dreams, and reports. Use to find patterns, themes, or specific content across the network.",
-      parameters: searchMemoriesParams,
+      inputSchema: searchMemoriesParams,
       execute: searchMemories,
     },
     draft_mission: {
       description: "Create a new field mission in the database. ALWAYS USE THIS TOOL when asked to create/draft a mission. Required: title, type (decode/observe/photograph/document/locate/verify/contact), and briefing text.",
-      parameters: draftMissionParams,
+      inputSchema: draftMissionParams,
       execute: draftMission,
     },
     assign_mission: {
       description: "Assign a mission to one or more agents.",
-      parameters: assignMissionParams,
+      inputSchema: assignMissionParams,
       execute: assignMission,
     },
     update_agent: {
       description: "Update agent profile - admin notes, directives, flags, trust adjustments.",
-      parameters: updateAgentParams,
+      inputSchema: updateAgentParams,
       execute: updateAgent,
     },
     get_network_stats: {
       description: "Get current network statistics - total agents, active missions, recent activity.",
-      parameters: z.object({}),
+      inputSchema: z.object({}),
       execute: getNetworkStats,
     },
   };
@@ -564,17 +564,17 @@ Do NOT just describe what you would do - actually call the tools. You have datab
 
     const tools = getLogosTools();
 
-    const result = await streamText({
+    const result = streamText({
       model: LOGOS_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         ...messages,
       ],
       tools,
-      maxSteps: 5,
+      stopWhen: stepCountIs(5),
     });
 
-    return result.toDataStreamResponse();
+    return result.toTextStreamResponse();
   } catch (error) {
     console.error("LOGOS API Error:", error);
     return new Response(
