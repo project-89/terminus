@@ -132,10 +132,21 @@ type Stats = {
 
 const LAYER_COLORS = ["#555", "#0af", "#0fa", "#fa0", "#f55", "#f0f"];
 
+const DEFAULT_STATS: Stats = {
+  agents: { total: 0, active24h: 0, activeWeek: 0, byLayer: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } },
+  sessions: { total: 0, today: 0, thisWeek: 0, byHour: Object.fromEntries([...Array(24)].map((_, i) => [i, 0])) },
+  missions: { total: 0, completed: 0, active: 0 },
+  fieldMissions: { total: 0, completed: 0 },
+  experiments: { total: 0 },
+  dreams: { total: 0, topSymbols: [] },
+  synchronicities: { total: 0 },
+  knowledge: { totalNodes: 0 },
+};
+
 export default function DashboardPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<Stats>(DEFAULT_STATS);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [missions, setMissions] = useState<any[]>([]);
   const [fieldMissions, setFieldMissions] = useState<any[]>([]);
@@ -175,26 +186,33 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!authenticated) return;
+    const safeFetch = async (url: string) => {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) return null;
+        return await r.json();
+      } catch { return null; }
+    };
     Promise.all([
-      fetch("/api/admin/stats").then(r => r.json()),
-      fetch("/api/admin/agents").then(r => r.json()),
-      fetch("/api/admin/missions").then(r => r.json()),
-      fetch("/api/admin/fieldops").then(r => r.json()),
-      fetch("/api/admin/experiments").then(r => r.json()),
-      fetch("/api/admin/dreams").then(r => r.json()),
-      fetch("/api/admin/knowledge").then(r => r.json()),
-      fetch("/api/admin/artifacts").then(r => r.json()),
-      fetch("/api/admin/rewards").then(r => r.json()),
+      safeFetch("/api/admin/stats"),
+      safeFetch("/api/admin/agents"),
+      safeFetch("/api/admin/missions"),
+      safeFetch("/api/admin/fieldops"),
+      safeFetch("/api/admin/experiments"),
+      safeFetch("/api/admin/dreams"),
+      safeFetch("/api/admin/knowledge"),
+      safeFetch("/api/admin/artifacts"),
+      safeFetch("/api/admin/rewards"),
     ]).then(([statsData, agentsData, missionsData, fieldOpsData, experimentsData, dreamsData, knowledgeData, artifactsData, rewardsData]) => {
-      setStats(statsData);
-      setAgents(agentsData.agents || []);
-      setMissions(missionsData.missions || []);
-      setFieldMissions(fieldOpsData.fieldMissions || []);
-      setExperiments(experimentsData.experiments || []);
-      setDreams(dreamsData.dreams || []);
-      setKnowledge(knowledgeData);
-      setArtifacts(artifactsData);
-      setRewards(rewardsData);
+      if (statsData && !statsData.error) setStats(statsData);
+      setAgents(agentsData?.agents || []);
+      setMissions(missionsData?.missions || []);
+      setFieldMissions(fieldOpsData?.fieldMissions || []);
+      setExperiments(experimentsData?.experiments || []);
+      setDreams(dreamsData?.dreams || []);
+      if (knowledgeData) setKnowledge(knowledgeData);
+      if (artifactsData) setArtifacts(artifactsData);
+      if (rewardsData) setRewards(rewardsData);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [authenticated]);
