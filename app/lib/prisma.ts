@@ -1,4 +1,8 @@
-// This is a workaround for Netlify builds
+// Set DATABASE_URL from NETLIFY_DATABASE_URL if not already set (for Netlify runtime)
+if (!process.env.DATABASE_URL && process.env.NETLIFY_DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.NETLIFY_DATABASE_URL;
+}
+
 let PrismaClientClass: any;
 let prismaInstance: any;
 
