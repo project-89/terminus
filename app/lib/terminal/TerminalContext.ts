@@ -75,7 +75,10 @@ export class TerminalContext {
       const res = await fetch("/api/thread", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle }),
+        body: JSON.stringify({ 
+          handle,
+          userId: this.state.userId,
+        }),
       });
       if (!res.ok) {
         throw new Error(`Thread create failed: ${res.status}`);

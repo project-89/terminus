@@ -100,9 +100,19 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const handle = (body?.handle as string) || "anonymous";
+  const providedUserId = body?.userId as string | undefined;
 
   try {
-    let user = await prisma.user.findUnique({ where: { handle } });
+    let user;
+    
+    if (providedUserId) {
+      user = await prisma.user.findUnique({ where: { id: providedUserId } });
+    }
+    
+    if (!user) {
+      user = await prisma.user.findUnique({ where: { handle } });
+    }
+    
     if (!user) {
       user = await prisma.user.create({ data: { handle } });
     }
@@ -119,10 +129,11 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "application/json" },
     });
   } catch (e) {
-    let user = mem.users.get(handle);
+    console.error("[Thread API] DB error, falling back to memory:", e);
+    let user = mem.users.get(providedUserId || handle);
     if (!user) {
-      user = { id: uid(), handle };
-      mem.users.set(handle, user);
+      user = { id: providedUserId || uid(), handle };
+      mem.users.set(user.id, user);
     }
     const sessionId = uid();
     const session: MemSession = {

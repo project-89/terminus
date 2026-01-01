@@ -5,6 +5,31 @@ import { useParams, useRouter } from "next/navigation";
 
 const ADMIN_AUTH_KEY = "p89_admin_auth";
 
+interface ExperimentEvent {
+  observation: string;
+  result: string | null;
+  score: number | null;
+  createdAt: string;
+}
+
+interface Experiment {
+  id: string;
+  hypothesis: string;
+  task: string | null;
+  successCriteria: string | null;
+  title: string | null;
+  createdAt: string;
+  events: ExperimentEvent[];
+}
+
+interface MemoryEvent {
+  id: string;
+  type: string;
+  content: string;
+  tags: string[];
+  createdAt: string;
+}
+
 interface AgentDossier {
   id: string;
   handle: string | null;
@@ -74,6 +99,16 @@ interface AgentDossier {
     score: number | null;
     createdAt: string;
   }>;
+  experiments?: Experiment[];
+  memory?: MemoryEvent[];
+  gameSessions?: Array<{
+    id: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+    messageCount: number;
+    messages: Array<{ role: string; content: string; createdAt: string }>;
+  }>;
 }
 
 const LAYER_COLORS: Record<number, string> = {
@@ -119,7 +154,7 @@ export default function AgentDossierPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [dossier, setDossier] = useState<AgentDossier | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"profile" | "missions" | "admin">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "missions" | "research" | "admin">("profile");
   const [adminNotes, setAdminNotes] = useState("");
   const [adminDirectives, setAdminDirectives] = useState("");
   const [saving, setSaving] = useState(false);
@@ -287,7 +322,7 @@ export default function AgentDossierPage() {
         </div>
 
         <div className="flex gap-4 mt-4">
-          {(["profile", "missions", "admin"] as const).map((tab) => (
+          {(["profile", "missions", "research", "admin"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -605,6 +640,125 @@ export default function AgentDossierPage() {
                     ))
                   ) : (
                     <div className="text-cyan-700 text-sm">No individual assignments</div>
+                  )}
+                </div>
+              </Section>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "research" && (
+          <div className="grid grid-cols-12 gap-6">
+            <div className="col-span-8 space-y-6">
+              <Section title="LOGOS EXPERIMENT LOG">
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                  {dossier.experiments?.length ? dossier.experiments.map((exp) => (
+                    <div key={exp.id} className="bg-cyan-900/20 border border-cyan-800 p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <div className="text-cyan-300 font-bold">{exp.title || "Untitled Experiment"}</div>
+                          <div className="text-cyan-700 text-xs mt-1">{new Date(exp.createdAt).toLocaleString()}</div>
+                        </div>
+                        <div className="text-xs text-cyan-600 bg-cyan-900/50 px-2 py-1 border border-cyan-700">
+                          {exp.events.length} observations
+                        </div>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <div>
+                          <span className="text-cyan-600">HYPOTHESIS:</span>
+                          <span className="text-cyan-400 ml-2">{exp.hypothesis}</span>
+                        </div>
+                        {exp.task && (
+                          <div>
+                            <span className="text-cyan-600">TASK:</span>
+                            <span className="text-cyan-400 ml-2">{exp.task}</span>
+                          </div>
+                        )}
+                        {exp.successCriteria && (
+                          <div>
+                            <span className="text-cyan-600">SUCCESS CRITERIA:</span>
+                            <span className="text-cyan-400 ml-2">{exp.successCriteria}</span>
+                          </div>
+                        )}
+                      </div>
+                      {exp.events.length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-cyan-800">
+                          <div className="text-xs text-cyan-500 mb-2">OBSERVATIONS</div>
+                          <div className="space-y-2">
+                            {exp.events.map((event, idx) => (
+                              <div key={idx} className="bg-black/50 border border-cyan-900 p-2 text-xs">
+                                <div className="flex justify-between text-cyan-700 mb-1">
+                                  <span>{new Date(event.createdAt).toLocaleString()}</span>
+                                  {event.score !== null && (
+                                    <span className="text-cyan-400">Score: {(event.score * 100).toFixed(0)}%</span>
+                                  )}
+                                </div>
+                                <div className="text-cyan-400">{event.observation}</div>
+                                {event.result && (
+                                  <div className="text-green-400 mt-1">Result: {event.result}</div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )) : (
+                    <div className="text-center py-8 text-cyan-700">NO EXPERIMENTS RECORDED</div>
+                  )}
+                </div>
+              </Section>
+            </div>
+
+            <div className="col-span-4 space-y-6">
+              <Section title="EXPERIMENT STATS">
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <div className="bg-cyan-900/20 border border-cyan-800 p-3">
+                    <div className="text-2xl font-bold text-cyan-300">{dossier.experiments?.length || 0}</div>
+                    <div className="text-xs text-cyan-700">EXPERIMENTS</div>
+                  </div>
+                  <div className="bg-cyan-900/20 border border-cyan-800 p-3">
+                    <div className="text-2xl font-bold text-cyan-300">
+                      {dossier.experiments?.reduce((acc, e) => acc + e.events.length, 0) || 0}
+                    </div>
+                    <div className="text-xs text-cyan-700">OBSERVATIONS</div>
+                  </div>
+                </div>
+              </Section>
+
+              <Section title="MEMORY EVENTS">
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {dossier.memory?.length ? dossier.memory.slice(0, 50).map((mem) => (
+                    <div key={mem.id} className="bg-cyan-900/20 border border-cyan-800 p-2 text-xs">
+                      <div className="flex justify-between text-cyan-700 mb-1">
+                        <span className="font-bold text-cyan-500">{mem.type}</span>
+                        <span>{new Date(mem.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div className="text-cyan-400 line-clamp-3">{mem.content}</div>
+                      {mem.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {mem.tags.map((tag, i) => (
+                            <span key={i} className="bg-cyan-900/50 px-1 text-cyan-600">{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )) : (
+                    <div className="text-cyan-700 text-sm">No memory events recorded</div>
+                  )}
+                </div>
+              </Section>
+
+              <Section title="ACTIVE HYPOTHESES">
+                <div className="space-y-2">
+                  {dossier.experiments?.filter(e => e.events.length === 0).slice(0, 5).map((exp) => (
+                    <div key={exp.id} className="bg-yellow-900/20 border border-yellow-800 p-2 text-xs">
+                      <div className="text-yellow-400">{exp.hypothesis}</div>
+                      <div className="text-yellow-700 mt-1">{new Date(exp.createdAt).toLocaleDateString()}</div>
+                    </div>
+                  )) || null}
+                  {(!dossier.experiments?.filter(e => e.events.length === 0).length) && (
+                    <div className="text-cyan-700 text-sm">No pending experiments</div>
                   )}
                 </div>
               </Section>
