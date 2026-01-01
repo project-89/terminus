@@ -22,7 +22,7 @@ async function ensureUser(handle: string = "anonymous"): Promise<{ id: string; h
     const created = await prisma.user.create({ data: { handle } });
     return { id: created.id, handle: created.handle || handle };
   } catch (error) {
-    // Fallback to memory store
+    console.error("[sessionService] Database error in ensureUser, falling back to memory:", error);
     let memUser = memoryStore.users.get(handle);
     if (!memUser) {
       memUser = { id: uid(), handle } satisfies MemoryUser;

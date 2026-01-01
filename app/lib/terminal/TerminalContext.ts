@@ -240,8 +240,21 @@ export class TerminalContext {
     const savedAgentId = typeof window !== "undefined" ? localStorage.getItem("p89_agentId") : null;
     
     if (savedUserId && savedAgentId) {
-      this.setState({ userId: savedUserId, agentId: savedAgentId });
-      return { userId: savedUserId, agentId: savedAgentId };
+      try {
+        const verifyRes = await fetch(`/api/identity?userId=${savedUserId}`);
+        if (verifyRes.ok) {
+          const data = await verifyRes.json();
+          if (data.identity) {
+            this.setState({ userId: savedUserId, agentId: savedAgentId });
+            return { userId: savedUserId, agentId: savedAgentId };
+          }
+        }
+        localStorage.removeItem("p89_userId");
+        localStorage.removeItem("p89_agentId");
+      } catch {
+        localStorage.removeItem("p89_userId");
+        localStorage.removeItem("p89_agentId");
+      }
     }
 
     try {
