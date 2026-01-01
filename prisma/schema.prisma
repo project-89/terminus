@@ -221,6 +221,8 @@ model PlayerProfile {
     flagged         Boolean  @default(false)
     flagReason      String?
     
+    dashboardEnabled Boolean  @default(false)  // Allow agent to view their own dashboard
+    
     dossierGeneratedAt DateTime?
     dossierVersion     Int      @default(0)
 }

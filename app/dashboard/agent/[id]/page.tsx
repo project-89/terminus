@@ -70,6 +70,7 @@ interface AgentDossier {
     watchlist: boolean;
     flagged: boolean;
     flagReason: string | null;
+    dashboardEnabled: boolean;
     dossierGeneratedAt: string | null;
     dossierVersion: number;
     traits: { [key: string]: any } | null;
@@ -862,6 +863,16 @@ export default function AgentDossierPage() {
             <div className="col-span-6">
               <Section title="AGENT FLAGS">
                 <div className="space-y-4">
+                  <div 
+                    className="flex items-center justify-between p-3 bg-green-900/20 border border-green-800 cursor-pointer hover:bg-green-900/30 transition"
+                    onClick={() => updateProfile({ dashboardEnabled: !profile?.dashboardEnabled })}
+                  >
+                    <div>
+                      <div className="text-green-400 font-bold">OPERATIVE DASHBOARD</div>
+                      <div className="text-xs text-green-700">Allow access to /operative hub</div>
+                    </div>
+                    <div className={`w-4 h-4 rounded-full ${profile?.dashboardEnabled ? "bg-green-400 shadow-[0_0_10px_rgba(0,255,0,0.5)]" : "bg-gray-700"}`} />
+                  </div>
                   <div className="flex items-center justify-between p-3 bg-cyan-900/20 border border-cyan-800">
                     <div>
                       <div className="text-cyan-400 font-bold">WATCHLIST</div>

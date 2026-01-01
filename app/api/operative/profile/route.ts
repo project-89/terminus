@@ -40,20 +40,23 @@ export async function GET(req: NextRequest) {
 
     const trustState = await getTrustState(userId);
 
-    if (trustState.layer < 5) {
+    const profile = await prisma.playerProfile.findUnique({
+      where: { userId },
+      select: {
+        lastActiveAt: true,
+        dashboardEnabled: true,
+      },
+    });
+
+    const hasAccess = trustState.layer >= 5 || profile?.dashboardEnabled === true;
+    
+    if (!hasAccess) {
       return NextResponse.json({ 
         error: "Insufficient clearance", 
         layer: trustState.layer,
         required: 5 
       }, { status: 403 });
     }
-
-    const profile = await prisma.playerProfile.findUnique({
-      where: { userId },
-      select: {
-        lastActiveAt: true,
-      },
-    });
 
     const missionRuns = await prisma.missionRun.findMany({
       where: { userId },

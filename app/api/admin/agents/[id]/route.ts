@@ -341,7 +341,7 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { adminNotes, adminDirectives, watchlist, flagged, flagReason, assignedMissions, tags, trustScore, layer } = body;
+    const { adminNotes, adminDirectives, watchlist, flagged, flagReason, assignedMissions, tags, trustScore, layer, dashboardEnabled } = body;
 
     const user = await prisma.user.findUnique({
       where: { id },
@@ -362,6 +362,7 @@ export async function PATCH(
     if (tags !== undefined) updateData.tags = tags;
     if (trustScore !== undefined) updateData.trustScore = Math.max(0, Math.min(1, trustScore));
     if (layer !== undefined) updateData.layer = Math.max(0, Math.min(5, layer));
+    if (dashboardEnabled !== undefined) updateData.dashboardEnabled = dashboardEnabled;
 
     const profile = await prisma.playerProfile.upsert({
       where: { userId: id },

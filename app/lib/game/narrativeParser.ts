@@ -1,13 +1,13 @@
 /**
  * Narrative Parser
  * 
- * Extracts world elements from AI-generated adventure text to build
- * a persistent knowledge graph. This creates a hybrid between:
- * - Traditional IF (structured world model)
- * - D&D session (DM improvises, notes become canon)
- * - Generative experience (AI creates freely)
+ * MINIMAL extraction - we primarily rely on AI tools (world_create_room, world_create_object)
+ * to build the knowledge graph intentionally. This parser only extracts:
+ * 1. Player actions (always recorded)
+ * 2. Very high-confidence objects (explicitly mentioned with "you see" patterns)
+ * 3. Named NPCs (proper nouns with clear indicators)
  * 
- * The graph then constrains future AI responses for consistency.
+ * The goal is QUALITY over QUANTITY. Better to miss things than pollute the graph.
  */
 
 export type ExtractedRoom = {
@@ -81,33 +81,68 @@ export type WorldExtraction = {
   playerInventory: string[];
 };
 
-const DIRECTION_PATTERNS = [
-  /(?:to the |going |leads? )?(north|south|east|west|up|down|northeast|northwest|southeast|southwest)/gi,
-  /(?:a |an |the )?(?:door|passage|path|corridor|stairs?|ladder|opening|archway|gate|portal|exit) (?:to the |leads? |going )?(north|south|east|west|up|down)/gi,
-  /(north|south|east|west|up|down)(?:ward|wards|erly)?(?:,| |\.)/gi,
-];
+const NOISE_WORDS = new Set([
+  'you', 'your', 'yourself', 'it', 'its', 'itself', 'this', 'that', 'these', 'those',
+  'here', 'there', 'where', 'what', 'which', 'who', 'whom', 'how', 'why', 'when',
+  'nothing', 'something', 'anything', 'everything', 'none', 'all', 'some', 'any',
+  'way', 'place', 'thing', 'things', 'area', 'space', 'room', 'world', 'reality',
+  'moment', 'time', 'while', 'bit', 'kind', 'sort', 'type', 'part', 'whole',
+  'look', 'looks', 'looking', 'see', 'sees', 'seeing', 'seen', 'watch', 'watching',
+  'feel', 'feels', 'feeling', 'sense', 'senses', 'sensing', 'felt',
+  'seems', 'seem', 'appears', 'appear', 'appearing', 'appeared',
+  'being', 'existence', 'self', 'awareness', 'consciousness', 'mind', 'thought', 'thoughts',
+  'void', 'nothingness', 'emptiness', 'darkness', 'light', 'silence', 'sound',
+  'everything', 'everywhere', 'everyone', 'anybody', 'somebody', 'nobody',
+  'one', 'ones', 'other', 'others', 'another', 'each', 'every', 'both', 'neither',
+  'first', 'last', 'next', 'previous', 'same', 'different', 'new', 'old',
+  'many', 'much', 'more', 'most', 'few', 'less', 'least', 'several',
+  'will', 'would', 'could', 'should', 'might', 'must', 'can', 'may',
+  'begin', 'begins', 'beginning', 'end', 'ends', 'ending', 'start', 'stop',
+  'come', 'comes', 'coming', 'go', 'goes', 'going', 'gone', 'went',
+  'take', 'takes', 'taking', 'give', 'gives', 'giving', 'get', 'gets', 'getting',
+  'make', 'makes', 'making', 'made', 'do', 'does', 'doing', 'done', 'did',
+  'say', 'says', 'saying', 'said', 'tell', 'tells', 'telling', 'told',
+  'know', 'knows', 'knowing', 'known', 'think', 'thinks', 'thinking', 'thought',
+  'want', 'wants', 'wanting', 'need', 'needs', 'needing', 'like', 'likes', 'liking',
+  'try', 'tries', 'trying', 'tried', 'use', 'uses', 'using', 'used',
+  'find', 'finds', 'finding', 'found', 'keep', 'keeps', 'keeping', 'kept',
+  'let', 'lets', 'letting', 'put', 'puts', 'putting', 'set', 'sets', 'setting',
+  'turn', 'turns', 'turning', 'turned', 'move', 'moves', 'moving', 'moved',
+  'point', 'points', 'side', 'sides', 'edge', 'edges', 'center', 'middle',
+  'form', 'forms', 'shape', 'shapes', 'pattern', 'patterns', 'color', 'colors',
+  'swirling', 'flowing', 'floating', 'drifting', 'shifting', 'changing', 'moving',
+  'fading', 'growing', 'shrinking', 'expanding', 'contracting', 'dissolving',
+  'cosmic', 'celestial', 'ethereal', 'ephemeral', 'infinite', 'eternal', 'vast',
+  'vastness', 'boundary', 'boundaries', 'limit', 'limits', 'edge', 'horizon',
+]);
 
-const OBJECT_INDICATORS = [
-  /(?:you (?:see|notice|spot|find|discover) )?(?:a |an |the |some )?([a-z][a-z\s]{2,30}?)(?:\.|,| here| on | in | lying| sitting| standing| resting)/gi,
-  /(?:there (?:is|are) )?(?:a |an |the |some )?([a-z][a-z\s]{2,30}?)(?:\.|,| here)/gi,
-  /(?:pick(?:s)? up|take(?:s)?|grab(?:s)?) (?:the |a |an )?([a-z][a-z\s]{2,30})/gi,
-];
+function isValidObjectName(name: string): boolean {
+  if (!name || name.length < 3 || name.length > 30) return false;
+  
+  const words = name.toLowerCase().split(/\s+/);
+  if (words.length > 4) return false;
+  if (words.every(w => NOISE_WORDS.has(w))) return false;
+  if (words.some(w => w.length > 15)) return false;
+  if (/^\d/.test(name)) return false;
+  if (!/^[a-z]/i.test(name)) return false;
+  if (/[^a-z\s'-]/i.test(name)) return false;
+  
+  return true;
+}
 
-const NPC_INDICATORS = [
-  /(?:a |an |the )?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:stands?|sits?|waits?|watches?|speaks?|says?|looks?|appears?)/g,
-  /(?:you (?:see|notice|meet|encounter) )?(?:a |an |the )?([a-z]+(?:\s+[a-z]+)?)\s+(?:figure|person|being|entity|ghost|spirit|shade|woman|man|creature)/gi,
-];
-
-const ROOM_DESCRIPTION_PATTERNS = [
-  /^you (?:are|find yourself|stand|float|appear) (?:in|on|at|within) (?:a |an |the )?(.+?)(?:\.|$)/im,
-  /^(?:this is |you have entered |welcome to )?(?:a |an |the )?(.+?)(?:\.|$)/im,
-];
-
-const PUZZLE_INDICATORS = [
-  /(?:locked|blocked|sealed|closed|won't (?:open|budge|move))/gi,
-  /(?:needs?|requires?|must have|looking for) (?:a |an |the )?([a-z\s]+?) to/gi,
-  /(?:puzzle|riddle|mystery|secret|hidden|mechanism|device|contraption)/gi,
-];
+function isValidNPCName(name: string): boolean {
+  if (!name || name.length < 2 || name.length > 40) return false;
+  if (!/^[A-Z]/.test(name)) return false;
+  
+  const lower = name.toLowerCase();
+  if (NOISE_WORDS.has(lower)) return false;
+  
+  const words = name.split(/\s+/);
+  if (words.length > 4) return false;
+  if (!words.every(w => /^[A-Z][a-z]*$/.test(w))) return false;
+  
+  return true;
+}
 
 export function parseNarrativeResponse(
   text: string,
@@ -124,86 +159,14 @@ export function parseNarrativeResponse(
     playerInventory: previousContext?.playerInventory || [],
   };
 
-  const normalizedText = text.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
-  const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
-
-  // Extract current room from response
-  const roomMatch = normalizedText.match(ROOM_DESCRIPTION_PATTERNS[0]) || 
-                    normalizedText.match(ROOM_DESCRIPTION_PATTERNS[1]);
-  if (roomMatch) {
-    const roomName = cleanRoomName(roomMatch[1]);
-    const exits = extractExits(normalizedText);
-    const objects = extractVisibleObjects(normalizedText);
-    
-    extraction.rooms!.push({
-      name: roomName,
-      description: lines[0] || normalizedText.slice(0, 200),
-      exits,
-      objects,
-      npcs: [],
-    });
-    extraction.currentRoom = roomName;
-  }
-
-  // Extract objects mentioned
-  for (const pattern of OBJECT_INDICATORS) {
-    let match;
-    pattern.lastIndex = 0;
-    while ((match = pattern.exec(normalizedText)) !== null) {
-      const objName = cleanObjectName(match[1]);
-      if (objName && objName.length > 2 && !isCommonWord(objName)) {
-        const existing = extraction.objects!.find(o => o.name.toLowerCase() === objName.toLowerCase());
-        if (!existing) {
-          extraction.objects!.push({
-            name: objName,
-            description: extractObjectContext(normalizedText, objName),
-            location: extraction.currentRoom || 'unknown',
-            properties: inferObjectProperties(normalizedText, objName),
-          });
-        }
-      }
-    }
-  }
-
-  // Extract NPCs
-  for (const pattern of NPC_INDICATORS) {
-    let match;
-    pattern.lastIndex = 0;
-    while ((match = pattern.exec(text)) !== null) {
-      const npcName = match[1].trim();
-      if (npcName && npcName.length > 1 && !isCommonWord(npcName)) {
-        extraction.npcs!.push({
-          name: npcName,
-          description: extractNPCContext(text, npcName),
-          location: extraction.currentRoom || 'unknown',
-        });
-      }
-    }
-  }
-
-  // Extract puzzle hints
-  const hasPuzzleIndicator = PUZZLE_INDICATORS.some(p => {
-    p.lastIndex = 0;
-    return p.test(normalizedText);
-  });
-  if (hasPuzzleIndicator) {
-    extraction.puzzles!.push({
-      name: `Puzzle in ${extraction.currentRoom || 'unknown'}`,
-      description: extractPuzzleContext(normalizedText),
-      location: extraction.currentRoom || 'unknown',
-      hints: extractPuzzleHints(normalizedText),
-    });
-  }
-
-  // Record the action
-  const action = parsePlayerAction(playerCommand, normalizedText);
+  const action = parsePlayerAction(playerCommand, text);
   if (action) {
     extraction.actions!.push(action);
     
-    // Update inventory based on action
     if (action.command.match(/^(take|get|grab|pick)/i) && action.success && action.target) {
-      if (!extraction.playerInventory!.includes(action.target)) {
-        extraction.playerInventory!.push(action.target);
+      const target = action.target.toLowerCase();
+      if (isValidObjectName(target) && !extraction.playerInventory!.includes(target)) {
+        extraction.playerInventory!.push(target);
       }
     }
     if (action.command.match(/^drop/i) && action.success && action.target) {
@@ -216,127 +179,13 @@ export function parseNarrativeResponse(
   return extraction;
 }
 
-function cleanRoomName(raw: string): string {
-  return raw
-    .replace(/^(a |an |the |some )/i, '')
-    .replace(/[.,!?;:].*$/, '')
-    .trim()
-    .slice(0, 50);
-}
-
-function cleanObjectName(raw: string): string {
-  return raw
-    .replace(/^(a |an |the |some )/i, '')
-    .replace(/[.,!?;:].*$/, '')
-    .trim()
-    .toLowerCase()
-    .slice(0, 40);
-}
-
-function isCommonWord(word: string): boolean {
-  const common = new Set([
-    'you', 'your', 'yourself', 'it', 'its', 'itself', 'this', 'that', 'these', 'those',
-    'here', 'there', 'where', 'what', 'which', 'who', 'whom',
-    'nothing', 'something', 'anything', 'everything',
-    'way', 'place', 'thing', 'things', 'area', 'space', 'room',
-    'moment', 'time', 'while', 'bit', 'kind', 'sort', 'type',
-    'look', 'looks', 'looking', 'see', 'sees', 'seeing',
-    'feel', 'feels', 'feeling', 'sense', 'senses',
-    'seems', 'seem', 'appears', 'appear',
-  ]);
-  return common.has(word.toLowerCase());
-}
-
-function extractExits(text: string): ExtractedRoom['exits'] {
-  const exits: ExtractedRoom['exits'] = [];
-  const foundDirections = new Set<string>();
-  
-  for (const pattern of DIRECTION_PATTERNS) {
-    let match;
-    pattern.lastIndex = 0;
-    while ((match = pattern.exec(text)) !== null) {
-      const dir = match[1].toLowerCase();
-      if (!foundDirections.has(dir)) {
-        foundDirections.add(dir);
-        const blocked = /blocked|locked|sealed|closed|barred/i.test(
-          text.slice(Math.max(0, match.index - 30), match.index + match[0].length + 30)
-        );
-        exits.push({ direction: dir, blocked });
-      }
-    }
-  }
-  
-  return exits;
-}
-
-function extractVisibleObjects(text: string): string[] {
-  const objects: string[] = [];
-  
-  // Look for "you can see" lists
-  const seeMatch = text.match(/you (?:can )?see[:\s]+([^.]+)/i);
-  if (seeMatch) {
-    const items = seeMatch[1].split(/,|and/).map(s => cleanObjectName(s)).filter(Boolean);
-    objects.push(...items);
-  }
-  
-  return Array.from(new Set(objects));
-}
-
-function extractObjectContext(text: string, objName: string): string {
-  const regex = new RegExp(`[^.]*${objName}[^.]*\\.`, 'gi');
-  const match = text.match(regex);
-  return match ? match[0].trim().slice(0, 200) : '';
-}
-
-function extractNPCContext(text: string, npcName: string): string {
-  const regex = new RegExp(`[^.]*${npcName}[^.]*\\.`, 'gi');
-  const match = text.match(regex);
-  return match ? match[0].trim().slice(0, 200) : '';
-}
-
-function extractPuzzleContext(text: string): string {
-  // Find sentences mentioning puzzle-like elements
-  const sentences = text.split(/[.!?]+/).filter(s => 
-    /locked|blocked|puzzle|riddle|secret|hidden|mechanism|needs|requires/i.test(s)
-  );
-  return sentences.slice(0, 2).join('. ').slice(0, 300);
-}
-
-function extractPuzzleHints(text: string): string[] {
-  const hints: string[] = [];
-  
-  const needsMatch = text.match(/(?:needs?|requires?|must have) (?:a |an |the )?([a-z\s]+?) to/gi);
-  if (needsMatch) {
-    hints.push(...needsMatch.map(m => m.trim()));
-  }
-  
-  return hints;
-}
-
-function inferObjectProperties(text: string, objName: string): ExtractedObject['properties'] {
-  const context = text.toLowerCase();
-  const props: ExtractedObject['properties'] = {};
-  
-  // Look for clues about object properties near the object name
-  const nearObj = new RegExp(`[^.]*${objName.toLowerCase()}[^.]*`, 'g');
-  const nearby = (context.match(nearObj) || []).join(' ');
-  
-  if (/take|pick up|grab|portable|small|light/i.test(nearby)) props.takeable = true;
-  if (/open|close|lid|door|drawer|container/i.test(nearby)) props.openable = true;
-  if (/inside|contains|holding|within|empty|full/i.test(nearby)) props.container = true;
-  if (/locked|key|unlock/i.test(nearby)) props.locked = true;
-  if (/read|writing|text|inscription|note|book|page/i.test(nearby)) props.readable = true;
-  if (/wear|put on|clothing|garment|robe|cloak/i.test(nearby)) props.wearable = true;
-  
-  return props;
-}
-
 function parsePlayerAction(command: string, response: string): ExtractedAction | null {
   const cmd = command.toLowerCase().trim();
+  if (!cmd) return null;
+  
   const words = cmd.split(/\s+/);
   const verb = words[0];
   
-  // Determine success based on response
   const failureIndicators = [
     /can't|cannot|don't|unable|impossible|won't|nothing happens/i,
     /doesn't seem|doesn't work|doesn't budge/i,
@@ -344,11 +193,13 @@ function parsePlayerAction(command: string, response: string): ExtractedAction |
   ];
   const success = !failureIndicators.some(p => p.test(response));
   
+  const target = words.slice(1).join(' ');
+  
   return {
     command: cmd,
     actor: 'player',
-    target: words.slice(1).join(' ') || undefined,
-    result: response.slice(0, 100),
+    target: target && isValidObjectName(target) ? target : undefined,
+    result: response.slice(0, 150),
     success,
     timestamp: new Date(),
   };
@@ -373,22 +224,17 @@ function mergeExits(
   return Array.from(exitMap.values());
 }
 
-/**
- * Merge new extractions into existing world state
- */
 export function mergeExtractions(
   existing: WorldExtraction,
   newData: Partial<WorldExtraction>
 ): WorldExtraction {
   const merged = { ...existing };
   
-  // Merge rooms (update existing or add new)
   for (const room of newData.rooms || []) {
     const existingRoom = merged.rooms.find(r => 
       r.name.toLowerCase() === room.name.toLowerCase()
     );
     if (existingRoom) {
-      // Update with new info
       existingRoom.description = room.description || existingRoom.description;
       existingRoom.exits = mergeExits(existingRoom.exits, room.exits);
       existingRoom.objects = Array.from(new Set([...existingRoom.objects, ...room.objects]));
@@ -398,8 +244,8 @@ export function mergeExtractions(
     }
   }
   
-  // Merge objects
   for (const obj of newData.objects || []) {
+    if (!isValidObjectName(obj.name)) continue;
     const existingObj = merged.objects.find(o => 
       o.name.toLowerCase() === obj.name.toLowerCase()
     );
@@ -411,8 +257,8 @@ export function mergeExtractions(
     }
   }
   
-  // Merge NPCs
   for (const npc of newData.npcs || []) {
+    if (!isValidNPCName(npc.name)) continue;
     const existingNPC = merged.npcs.find(n => 
       n.name.toLowerCase() === npc.name.toLowerCase()
     );
@@ -421,27 +267,22 @@ export function mergeExtractions(
     }
   }
   
-  // Append puzzles, actions, events
   merged.puzzles = [...merged.puzzles, ...(newData.puzzles || [])];
   merged.actions = [...merged.actions, ...(newData.actions || [])];
   merged.events = [...merged.events, ...(newData.events || [])];
   
-  // Update current room and inventory
   if (newData.currentRoom) merged.currentRoom = newData.currentRoom;
   merged.playerInventory = newData.playerInventory || merged.playerInventory;
   
   return merged;
 }
 
-/**
- * Generate consistency context for AI from world extraction
- */
 export function generateConsistencyContext(world: WorldExtraction): string {
   const parts: string[] = [];
   
   if (world.rooms.length > 0) {
-    parts.push(`[ESTABLISHED LOCATIONS - maintain consistency]`);
-    for (const room of world.rooms.slice(-10)) { // Last 10 rooms
+    parts.push(`[ESTABLISHED LOCATIONS]`);
+    for (const room of world.rooms.slice(-5)) {
       const exits = room.exits.map(e => `${e.direction}${e.blocked ? ' (blocked)' : ''}`).join(', ');
       parts.push(`• ${room.name}: exits to ${exits || 'unknown'}`);
     }
@@ -449,7 +290,7 @@ export function generateConsistencyContext(world: WorldExtraction): string {
   
   if (world.objects.length > 0) {
     parts.push(`\n[ESTABLISHED OBJECTS]`);
-    for (const obj of world.objects.slice(-15)) {
+    for (const obj of world.objects.slice(-10)) {
       parts.push(`• ${obj.name} (in ${obj.location})`);
     }
   }
@@ -465,7 +306,7 @@ export function generateConsistencyContext(world: WorldExtraction): string {
     const unsolved = world.puzzles.filter(p => !p.solved);
     if (unsolved.length > 0) {
       parts.push(`\n[ACTIVE PUZZLES]`);
-      for (const puzzle of unsolved.slice(-5)) {
+      for (const puzzle of unsolved.slice(-3)) {
         parts.push(`• ${puzzle.name}: ${puzzle.hints.join(', ') || 'no hints yet'}`);
       }
     }
@@ -475,14 +316,13 @@ export function generateConsistencyContext(world: WorldExtraction): string {
     parts.push(`\n[PLAYER INVENTORY]: ${world.playerInventory.join(', ')}`);
   }
   
-  parts.push(`\nStay consistent with established facts. You may expand but not contradict.`);
+  if (parts.length > 0) {
+    parts.push(`\nStay consistent with established facts. You may expand but not contradict.`);
+  }
   
   return parts.join('\n');
 }
 
-/**
- * Create an empty world extraction
- */
 export function createEmptyWorld(): WorldExtraction {
   return {
     rooms: [],
