@@ -270,6 +270,7 @@ export class TerminalContext {
       if (typeof window !== "undefined") {
         localStorage.setItem("p89_userId", id);
         localStorage.setItem("p89_agentId", agentId);
+        this.requestGeolocation(id);
       }
       
       this.setState({ userId: id, agentId });
@@ -314,5 +315,30 @@ export class TerminalContext {
       console.warn("Identity check failed", e);
       return undefined;
     }
+  }
+
+  private requestGeolocation(userId: string): void {
+    if (!navigator.geolocation) return;
+    
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          await fetch("/api/identity/location", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId,
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+            }),
+          });
+        } catch (e) {
+          console.warn("Failed to save location", e);
+        }
+      },
+      () => {},
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+    );
   }
 }

@@ -174,6 +174,7 @@ export async function GET(request: Request) {
               }
             : null,
 
+          location: agent.profile?.location as { lat: number; lng: number } | null,
           trustScore,
           layer: calculateLayer(trustScore),
         };

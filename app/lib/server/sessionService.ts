@@ -77,7 +77,8 @@ export async function resetSession(handle?: string): Promise<SessionRecord> {
       status: session.status as "OPEN" | "CLOSED",
       summary: session.summary,
     };
-  } catch {
+  } catch (error) {
+    console.error("[sessionService] Failed to create session in DB, falling back to memory:", error);
     const now = new Date();
     const session: MemoryGameSession = {
       id: uid(),
@@ -179,7 +180,8 @@ export async function appendMessage(params: {
         content,
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("[sessionService] Failed to save message to DB, falling back to memory:", error);
     const message: MemoryMessage = {
       id: uid(),
       sessionId,

@@ -315,9 +315,9 @@ function OverviewLayout({ stats, agents, time, uptime, activeTab, setActiveTab }
     <div className="h-full flex flex-col">
       <header className="border-b-2 border-cyan-700/50 px-6 py-3 flex justify-between items-center bg-gradient-to-r from-black via-cyan-950/20 to-black">
         <div className="flex items-center gap-8">
-          <div>
-            <div className="text-cyan-400 text-3xl font-bold tracking-[0.3em]">PROJECT 89</div>
-            <div className="text-cyan-600 text-sm tracking-[0.2em]">OVERWATCH COMMAND</div>
+          <div className="shrink-0">
+            <div className="text-cyan-400 text-2xl font-bold tracking-widest whitespace-nowrap">PROJECT 89</div>
+            <div className="text-cyan-600 text-xs tracking-widest">OVERWATCH COMMAND</div>
           </div>
           <div className="h-12 w-px bg-cyan-800" />
           <nav className="flex gap-2">
