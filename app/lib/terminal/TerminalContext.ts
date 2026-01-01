@@ -5,6 +5,7 @@ export interface TerminalState {
   tokenBalance?: number;
   lastSeen?: Date;
   gameMessages?: { role: string; content: string }[];
+  syncedMessageCount?: number;
   accessTier?: number; // 0=normal,1=override,2=elevated
   threadId?: string;
   handle?: string;
@@ -139,19 +140,25 @@ export class TerminalContext {
     return this.state.gameMessages || [];
   }
 
-  setGameMessages(messages: { role: string; content: string }[]) {
-    this.setState({ gameMessages: messages });
-    // Best-effort persist to server thread if available
+  setGameMessages(messages: { role: string; content: string }[], options?: { skipSync?: boolean }) {
+    const syncedCount = this.state.syncedMessageCount ?? 0;
+    const newMessages = options?.skipSync ? [] : messages.slice(syncedCount);
+    
+    this.setState({ gameMessages: messages, syncedMessageCount: messages.length });
+    
     const threadId = this.state.threadId;
-    if (threadId) {
+    if (threadId && newMessages.length > 0) {
       fetch("/api/thread", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           threadId,
-          messages: messages.slice(-5), // send recent window to reduce traffic
+          messages: newMessages,
         }),
-      }).catch(() => {});
+      }).catch((err) => {
+        console.error("[TerminalContext] Failed to sync messages:", err);
+        this.setState({ syncedMessageCount: syncedCount });
+      });
     }
   }
 

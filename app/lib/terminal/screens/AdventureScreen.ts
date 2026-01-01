@@ -166,7 +166,7 @@ All around you is a void, not as a thing but as the absence of any thing.`;
                 }))
               : [];
           if (messages.length > 0) {
-            context.setGameMessages(messages);
+            context.setGameMessages(messages, { skipSync: true });
             existing = messages;
           }
         }
