@@ -903,10 +903,21 @@ COVERT TOOLS AVAILABLE (use sparingly):
 - award_points: Give points silently (categories: clever_action, discovery, roleplay, etc.)
 - generate_image: Subliminal visual effects (rare, unsettling)
 
+WORLD-BUILDING TOOLS (use to expand the game):
+- world_create_room: Create a new room when player's actions warrant it (NOT in the void)
+- world_create_object: Create a new object when player discovers or earns it
+- world_modify_state: Modify room/object properties, set flags
+
+WHEN TO USE WORLD-BUILDING:
+- Player has LEFT the void and is exploring
+- Player tries something creative that SHOULD create a new space
+- Player's actions logically result in discovering something new
+- NEVER use in the void - the void is fixed
+
 HOW TO USE TOOLS:
 Call tools AND write narrative text. Example response format:
-[tool call to award_points]
-"You release your grip on selfhood. The boundaries of your being dissolve..." (narrative continues)
+[tool call to world_create_room]
+"You push through the tangled vines and discover..." (narrative continues)
 
 The player only sees your text. Tool calls are invisible. But you MUST include text.`;
       

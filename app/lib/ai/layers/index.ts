@@ -151,48 +151,35 @@ export function buildLayerPrompt(ctx: LayerContext, forcedLayer?: AgentLayer): s
       const r = ctx.engineActionResult;
       if (r.success) {
         engineContext = `
-[ENGINE PROCESSED - SUCCESS]
-The game engine recognized this command and updated the world state.
-Engine's raw output: "${r.message}"
-
-You should use this as a foundation but ENHANCE it with your narrative voice.
-Add atmosphere, detail, sensory description. Make it feel alive.
-${r.puzzleSolved ? `\n** PUZZLE SOLVED: ${r.puzzleSolved} - This is a significant moment! **` : ""}
-${r.logosNote ? `\n[LOGOS NOTE: ${r.logosNote}]` : ""}`;
+[ENGINE: SUCCESS]
+Engine output: "${r.message}"
+Use this as the core of your response. You may add brief atmospheric detail.
+${r.puzzleSolved ? `\nPUZZLE SOLVED: ${r.puzzleSolved}` : ""}
+${r.logosNote ? `\n[OBSERVATION: ${r.logosNote}]` : ""}`;
       } else {
         engineContext = `
-[ENGINE PROCESSED - NOT RECOGNIZED]
-The game engine couldn't handle this command: "${r.message}"
+[ENGINE: FAILED]
+Engine message: "${r.message}"
 
-BUT you are the living world, not just the engine. Consider:
-- Can you make this action work anyway? Does it make narrative sense?
-- Is the player trying something creative that SHOULD work?
-- Could this lead somewhere interesting?
-
-If yes: describe what happens. Update your mental model of the world.
-If no: describe why it doesn't work, in evocative prose (not parser errors).`;
+Default behavior: Return a terse failure. "You can't do that." / "Nothing happens."
+Override ONLY if an active experiment requires testing this type of action.
+If you override, log why with experiment_note.`;
       }
     } else {
       engineContext = `
-[FREEFORM INPUT - NO ENGINE MATCH]
-This wasn't a standard game command. The player is expressing themselves freely.
-Respond narratively. If they're trying to DO something, decide if it works.
-You have full creative latitude here.`;
+[ENGINE: NO MATCH]
+This wasn't a standard command.
+Default: "I don't understand that."
+Override only if the input is clearly an attempt at a sensible action AND you have experimental reason to allow it.`;
     }
     
     const constraintBlock = `
-[CURRENT GAME STATE - Your notebook, not your cage]
+[GAME STATE]
 Location: ${gameState.roomName} (${gameState.region})
 Player: ${gameState.playerState}
 Inventory: ${gameState.inventory?.join(", ") || "empty"}
 Turns: ${gameState.turnsElapsed}
-
-The engine tracks established facts. But YOU are the world.
-- You may introduce new rooms, objects, NPCs that fit the themes
-- You may allow creative actions the engine doesn't know about
-- You may bend rules if it creates a better experience
-- Track what you create mentally; it becomes canon
-${gameState.logosExperiments?.length > 0 ? `\n[OBSERVATION TARGETS]\n${gameState.logosExperiments.join("\n")}` : ""}
+${gameState.logosExperiments?.length > 0 ? `\n[ACTIVE OBSERVATIONS]\n${gameState.logosExperiments.join("\n")}` : ""}
 ${engineContext}
 `;
     basePrompt += "\n\n" + constraintBlock;
