@@ -148,8 +148,9 @@ All around you is a void, not as a thing but as the absence of any thing.`;
     }
 
     const context = GameContext.getInstance();
+    await context.ensureIdentity();
     const threadId = await context.ensureThread();
-    await context.ensureProfile(); // warm profile for trust-gated commands/help
+    await context.ensureProfile();
     
     let existing = context.getGameMessages();
     // If we have no local history but a thread exists, try to hydrate from server
