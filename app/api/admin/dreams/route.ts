@@ -3,10 +3,17 @@ import prisma from "@/app/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const dreams = await prisma.dreamEntry.findMany({
-      orderBy: { createdAt: "desc" },
+    const { searchParams } = new URL(request.url);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
+    
+    const [dreams, total] = await Promise.all([
+      prisma.dreamEntry.findMany({
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
       include: {
         user: {
           select: {
@@ -20,7 +27,9 @@ export async function GET() {
           },
         },
       },
-    });
+    }),
+      prisma.dreamEntry.count(),
+    ]);
 
     const symbolCounts: Record<string, number> = {};
     const emotionCounts: Record<string, number> = {};
@@ -82,13 +91,19 @@ export async function GET() {
         },
       })),
       stats: {
-        total: dreams.length,
+        total,
         avgLucidity: lucidCount > 0 ? totalLucidity / lucidCount : 0,
         recurringCount: recurringDreams.length,
         uniqueSymbols: Object.keys(symbolCounts).length,
         uniqueEmotions: Object.keys(emotionCounts).length,
         topSymbols,
         topEmotions,
+      },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error: any) {

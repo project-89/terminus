@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 
 interface Agent {
   id: string;
@@ -13,6 +13,19 @@ interface Agent {
   stats?: { totalSessions: number; totalMinutes: number; daysSinceLast: number | null };
   missions?: { completed: number; total: number };
 }
+
+interface Cluster {
+  id: string;
+  lat: number;
+  lng: number;
+  agents: Agent[];
+  count: number;
+  avgLayer: number;
+  maxLayer: number;
+  isCluster: true;
+}
+
+type PointData = (Agent & { isCluster?: false }) | Cluster;
 
 interface GlobeProps {
   agents: Agent[];
@@ -62,12 +75,63 @@ function seededRandom(seed: string) {
   return Math.abs(hash) / 2147483647;
 }
 
+function clusterAgents(agents: Agent[], clusterRadius: number): PointData[] {
+  if (agents.length < 100 || clusterRadius < 5) {
+    return agents.map(a => ({ ...a, isCluster: false as const }));
+  }
+
+  const clusters: Cluster[] = [];
+  const unclustered: Agent[] = [];
+  const used = new Set<string>();
+
+  for (const agent of agents) {
+    if (used.has(agent.id)) continue;
+
+    const nearby = agents.filter(other => {
+      if (used.has(other.id) || other.id === agent.id) return false;
+      const latDiff = Math.abs((agent.lat ?? 0) - (other.lat ?? 0));
+      const lngDiff = Math.abs((agent.lng ?? 0) - (other.lng ?? 0));
+      return latDiff < clusterRadius && lngDiff < clusterRadius;
+    });
+
+    if (nearby.length >= 2) {
+      const clusterAgents = [agent, ...nearby];
+      clusterAgents.forEach(a => used.add(a.id));
+      
+      const avgLat = clusterAgents.reduce((sum, a) => sum + (a.lat ?? 0), 0) / clusterAgents.length;
+      const avgLng = clusterAgents.reduce((sum, a) => sum + (a.lng ?? 0), 0) / clusterAgents.length;
+      const avgLayer = clusterAgents.reduce((sum, a) => sum + a.layer, 0) / clusterAgents.length;
+      const maxLayer = Math.max(...clusterAgents.map(a => a.layer));
+
+      clusters.push({
+        id: `cluster-${agent.id}`,
+        lat: avgLat,
+        lng: avgLng,
+        agents: clusterAgents,
+        count: clusterAgents.length,
+        avgLayer,
+        maxLayer,
+        isCluster: true,
+      });
+    } else {
+      unclustered.push(agent);
+      used.add(agent.id);
+    }
+  }
+
+  return [
+    ...clusters,
+    ...unclustered.map(a => ({ ...a, isCluster: false as const })),
+  ];
+}
+
 export default function Globe({ agents, onAgentClick, showLegend = true }: GlobeProps) {
   const [GlobeGL, setGlobeGL] = useState<any>(null);
   const [globeEl, setGlobeEl] = useState<any>(null);
-  const [hoveredAgent, setHoveredAgent] = useState<Agent | null>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<PointData | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [altitude, setAltitude] = useState(2.5);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -96,13 +160,22 @@ export default function Globe({ agents, onAgentClick, showLegend = true }: Globe
       globeEl.pointOfView({ lat: 20, lng: 0, altitude: 2.5 });
       
       const stopAutoRotate = () => { controls.autoRotate = false; };
+      const handleZoom = () => {
+        const pov = globeEl.pointOfView();
+        setAltitude(pov.altitude);
+      };
+      
       controls.addEventListener("start", stopAutoRotate);
-      return () => controls.removeEventListener("start", stopAutoRotate);
+      controls.addEventListener("change", handleZoom);
+      return () => {
+        controls.removeEventListener("start", stopAutoRotate);
+        controls.removeEventListener("change", handleZoom);
+      };
     }
   }, [globeEl]);
 
   const agentsWithCoords = useMemo(() => {
-    return agents.map((agent, index) => {
+    return agents.map((agent) => {
       if (agent.lat !== undefined && agent.lng !== undefined) {
         return { ...agent, lat: agent.lat, lng: agent.lng };
       }
@@ -121,8 +194,24 @@ export default function Globe({ agents, onAgentClick, showLegend = true }: Globe
     });
   }, [agents]);
 
+  const clusteredPoints = useMemo(() => {
+    const clusterRadius = altitude > 2 ? 15 : altitude > 1.5 ? 10 : altitude > 1 ? 5 : 0;
+    return clusterAgents(agentsWithCoords, clusterRadius);
+  }, [agentsWithCoords, altitude]);
+
   const ringsData = useMemo(() => {
-    return agentsWithCoords.map(agent => ({
+    const MAX_RINGS = 50;
+    const prioritized = [...agentsWithCoords]
+      .sort((a, b) => {
+        const layerDiff = b.layer - a.layer;
+        if (layerDiff !== 0) return layerDiff;
+        const aRecent = a.stats?.daysSinceLast ?? 999;
+        const bRecent = b.stats?.daysSinceLast ?? 999;
+        return aRecent - bRecent;
+      })
+      .slice(0, MAX_RINGS);
+    
+    return prioritized.map(agent => ({
       lat: agent.lat,
       lng: agent.lng,
       maxR: 3 + agent.layer,
@@ -136,6 +225,17 @@ export default function Globe({ agents, onAgentClick, showLegend = true }: Globe
     setMousePos({ x: e.clientX, y: e.clientY });
   };
 
+  const handlePointClick = useCallback((point: PointData) => {
+    if (point.isCluster && globeEl) {
+      globeEl.pointOfView(
+        { lat: point.lat, lng: point.lng, altitude: Math.max(0.5, altitude * 0.5) },
+        1000
+      );
+    } else if (!point.isCluster && onAgentClick) {
+      onAgentClick(point);
+    }
+  }, [globeEl, altitude, onAgentClick]);
+
   if (!GlobeGL) {
     return (
       <div ref={containerRef} className="flex items-center justify-center h-full w-full bg-black">
@@ -143,6 +243,9 @@ export default function Globe({ agents, onAgentClick, showLegend = true }: Globe
       </div>
     );
   }
+
+  const clusterCount = clusteredPoints.filter(p => p.isCluster).length;
+  const individualCount = clusteredPoints.filter(p => !p.isCluster).length;
 
   return (
     <div ref={containerRef} className="relative w-full h-full bg-black overflow-hidden" onMouseMove={handleMouseMove}>
@@ -153,6 +256,11 @@ export default function Globe({ agents, onAgentClick, showLegend = true }: Globe
             <span className="text-2xl font-bold text-green-400">{agentsWithCoords.length}</span>
             <span className="text-cyan-600 ml-2">NODES ONLINE</span>
           </div>
+          {clusterCount > 0 && (
+            <div className="text-xs text-cyan-600 mt-1">
+              {clusterCount} clusters, {individualCount} individual
+            </div>
+          )}
           <div className="mt-2 space-y-1">
             {[0, 1, 2, 3, 4, 5].map((layer) => {
               const count = agents.filter((a) => a.layer === layer).length;
@@ -170,50 +278,77 @@ export default function Globe({ agents, onAgentClick, showLegend = true }: Globe
         </div>
       )}
 
-      {hoveredAgent && (
+      {hoveredPoint && (
         <div 
           className="fixed z-50 pointer-events-none"
           style={{ left: mousePos.x + 15, top: mousePos.y + 15 }}
         >
           <div className="bg-black/95 border-2 border-cyan-500 p-4 min-w-[280px] shadow-lg shadow-cyan-500/20">
-            <div className="flex justify-between items-start mb-2">
-              <div>
-                <div className="text-cyan-500 text-xs tracking-widest">OPERATIVE</div>
-                <div className="text-xl text-cyan-300 font-bold">
-                  {hoveredAgent.handle || `AGENT-${hoveredAgent.id.slice(0, 8)}`}
+            {hoveredPoint.isCluster ? (
+              <>
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="text-cyan-500 text-xs tracking-widest">CLUSTER</div>
+                    <div className="text-3xl text-cyan-300 font-bold">
+                      {hoveredPoint.count}
+                    </div>
+                    <div className="text-cyan-600 text-sm">OPERATIVES</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold" style={{ color: LAYER_COLORS[hoveredPoint.maxLayer] }}>
+                      Max L{hoveredPoint.maxLayer}
+                    </div>
+                    <div className="text-xs text-cyan-600">Avg L{hoveredPoint.avgLayer.toFixed(1)}</div>
+                  </div>
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: LAYER_COLORS[hoveredAgent.layer] }}>L{hoveredAgent.layer}</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center border-t border-cyan-800 pt-2 mt-2">
-              <div>
-                <div className="text-lg font-bold text-cyan-300">{hoveredAgent.stats?.totalSessions || 0}</div>
-                <div className="text-xs text-cyan-700">SESSIONS</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-cyan-300">{hoveredAgent.missions?.completed || 0}/{hoveredAgent.missions?.total || 0}</div>
-                <div className="text-xs text-cyan-700">MISSIONS</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-cyan-300">{(hoveredAgent.trustScore * 100).toFixed(0)}%</div>
-                <div className="text-xs text-cyan-700">TRUST</div>
-              </div>
-            </div>
-            {hoveredAgent.location && (
-              <div className="text-xs text-cyan-600 mt-2 pt-2 border-t border-cyan-800">
-                {(hoveredAgent.location as any).city}, {(hoveredAgent.location as any).country}
-              </div>
+                <div className="text-xs text-cyan-600 mt-2 pt-2 border-t border-cyan-800">
+                  Top agents: {hoveredPoint.agents.slice(0, 3).map(a => a.handle || `AGENT-${a.id.slice(0, 4)}`).join(", ")}
+                  {hoveredPoint.agents.length > 3 && ` +${hoveredPoint.agents.length - 3} more`}
+                </div>
+                <div className="text-xs text-cyan-700 mt-2 pt-2 border-t border-cyan-800">CLICK TO ZOOM IN →</div>
+              </>
+            ) : (
+              <>
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="text-cyan-500 text-xs tracking-widest">OPERATIVE</div>
+                    <div className="text-xl text-cyan-300 font-bold">
+                      {hoveredPoint.handle || `AGENT-${hoveredPoint.id.slice(0, 8)}`}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold" style={{ color: LAYER_COLORS[hoveredPoint.layer] }}>L{hoveredPoint.layer}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center border-t border-cyan-800 pt-2 mt-2">
+                  <div>
+                    <div className="text-lg font-bold text-cyan-300">{hoveredPoint.stats?.totalSessions || 0}</div>
+                    <div className="text-xs text-cyan-700">SESSIONS</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-cyan-300">{hoveredPoint.missions?.completed || 0}/{hoveredPoint.missions?.total || 0}</div>
+                    <div className="text-xs text-cyan-700">MISSIONS</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-cyan-300">{(hoveredPoint.trustScore * 100).toFixed(0)}%</div>
+                    <div className="text-xs text-cyan-700">TRUST</div>
+                  </div>
+                </div>
+                {hoveredPoint.location && (
+                  <div className="text-xs text-cyan-600 mt-2 pt-2 border-t border-cyan-800">
+                    {(hoveredPoint.location as any).city}, {(hoveredPoint.location as any).country}
+                  </div>
+                )}
+                <div className="text-xs text-cyan-600 mt-2">
+                  {hoveredPoint.stats?.daysSinceLast === 0 ? (
+                    <span className="text-green-400">● ONLINE NOW</span>
+                  ) : hoveredPoint.stats?.daysSinceLast !== null ? (
+                    `Last active ${hoveredPoint.stats?.daysSinceLast}d ago`
+                  ) : "No activity recorded"}
+                </div>
+                <div className="text-xs text-cyan-700 mt-2 pt-2 border-t border-cyan-800">CLICK FOR FULL DOSSIER →</div>
+              </>
             )}
-            <div className="text-xs text-cyan-600 mt-2">
-              {hoveredAgent.stats?.daysSinceLast === 0 ? (
-                <span className="text-green-400">● ONLINE NOW</span>
-              ) : hoveredAgent.stats?.daysSinceLast !== null ? (
-                `Last active ${hoveredAgent.stats?.daysSinceLast}d ago`
-              ) : "No activity recorded"}
-            </div>
-            <div className="text-xs text-cyan-700 mt-2 pt-2 border-t border-cyan-800">CLICK FOR FULL DOSSIER →</div>
           </div>
         </div>
       )}
@@ -223,15 +358,34 @@ export default function Globe({ agents, onAgentClick, showLegend = true }: Globe
         globeImageUrl="https://unpkg.com/three-globe/example/img/earth-night.jpg"
         bumpImageUrl="https://unpkg.com/three-globe/example/img/earth-topology.png"
         
-        pointsData={agentsWithCoords}
+        pointsData={clusteredPoints}
         pointLat="lat"
         pointLng="lng"
-        pointColor={(d: any) => LAYER_COLORS[d.layer] || "#00ff88"}
-        pointAltitude={(d: any) => 0.02 + d.layer * 0.03}
-        pointRadius={(d: any) => 0.6 + d.layer * 0.2}
+        pointColor={(d: PointData) => {
+          if (d.isCluster) return LAYER_COLORS[d.maxLayer] || "#00ff88";
+          return LAYER_COLORS[d.layer] || "#00ff88";
+        }}
+        pointAltitude={(d: PointData) => {
+          if (d.isCluster) return 0.05 + Math.min(d.count / 50, 0.2);
+          return 0.02 + d.layer * 0.03;
+        }}
+        pointRadius={(d: PointData) => {
+          if (d.isCluster) return 1.5 + Math.min(d.count / 20, 2);
+          return 0.6 + d.layer * 0.2;
+        }}
         pointResolution={16}
-        onPointClick={(point: any) => onAgentClick?.(point as Agent)}
-        onPointHover={(point: any) => setHoveredAgent(point as Agent | null)}
+        onPointClick={(point: any) => handlePointClick(point as PointData)}
+        onPointHover={(point: any) => setHoveredPoint(point as PointData | null)}
+        
+        labelsData={clusteredPoints.filter(p => p.isCluster && (p as Cluster).count >= 5)}
+        labelLat="lat"
+        labelLng="lng"
+        labelText={(d: any) => String(d.count)}
+        labelSize={1.5}
+        labelDotRadius={0}
+        labelColor={() => "#ffffff"}
+        labelResolution={2}
+        labelAltitude={(d: any) => 0.06 + Math.min(d.count / 50, 0.2)}
         
         ringsData={ringsData}
         ringLat="lat"

@@ -3,10 +3,17 @@ import prisma from "@/app/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const fieldMissions = await prisma.fieldMission.findMany({
-      orderBy: { createdAt: "desc" },
+    const { searchParams } = new URL(request.url);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
+    
+    const [fieldMissions, total] = await Promise.all([
+      prisma.fieldMission.findMany({
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
       include: {
         user: {
           select: {
@@ -20,7 +27,9 @@ export async function GET() {
           },
         },
       },
-    });
+    }),
+      prisma.fieldMission.count(),
+    ]);
 
     const byStatus = {
       ASSIGNED: fieldMissions.filter((m: any) => m.status === "ASSIGNED").length,
@@ -59,10 +68,16 @@ export async function GET() {
         },
       })),
       stats: {
-        total: fieldMissions.length,
+        total,
         byStatus,
         byType,
         pendingReview: byStatus.PENDING_REVIEW,
+      },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error: any) {

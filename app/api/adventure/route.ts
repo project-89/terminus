@@ -650,9 +650,18 @@ export async function POST(req: Request) {
     }
 
     // Filter out empty messages
-    const validMessages = messages.filter(
-      (msg: { content: string }) => msg.content && msg.content.trim() !== ""
+    let validMessages = messages.filter(
+      (msg: { content: string; role: string }) => msg.content && msg.content.trim() !== ""
     );
+    
+    // Gemini requires messages to end with a user role
+    // If the last message isn't from user, add a continuation prompt
+    if (validMessages.length > 0 && validMessages[validMessages.length - 1].role !== "user") {
+      validMessages = validMessages.filter((msg: { role: string }) => msg.role === "user" || msg.role === "assistant");
+      if (validMessages.length === 0 || validMessages[validMessages.length - 1].role !== "user") {
+        validMessages.push({ role: "user", content: "(continue)" });
+      }
+    }
 
     console.log("Processing request with messages:", validMessages);
 
