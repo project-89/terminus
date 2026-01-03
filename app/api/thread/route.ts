@@ -70,7 +70,7 @@ export async function GET(req: Request) {
     
     const messages = await prisma.gameMessage.findMany({
       where: { gameSessionId: threadId },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
     });
     
     return new Response(JSON.stringify({ 
@@ -192,18 +192,38 @@ export async function PATCH(req: Request) {
   }
   
   try {
+    const currentMax = await prisma.gameMessage.aggregate({
+      where: { gameSessionId: threadId },
+      _max: { order: true },
+    });
+    const startOrder = (currentMax._max.order ?? -1) + 1;
+    
+    const validMessages = messages.filter((m: any) => m.content && m.content.trim());
+    
+    if (validMessages.length === 0) {
+      return new Response(JSON.stringify({ ok: true, skipped: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    
     await prisma.gameMessage.createMany({
-      data: messages.map((m: any) => ({
+      data: validMessages.map((m: any, idx: number) => ({
         gameSessionId: threadId,
         role: m.role,
         content: m.content,
+        order: startOrder + idx,
       })),
     });
-    return new Response(JSON.stringify({ ok: true }), {
+    
+    console.log(`[Thread PATCH] Saved ${validMessages.length} messages to session ${threadId}, starting at order ${startOrder}`);
+    
+    return new Response(JSON.stringify({ ok: true, saved: validMessages.length }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
-  } catch {
+  } catch (e) {
+    console.error("[Thread PATCH] Error:", e);
     const existing = mem.messages.get(threadId) || [];
     const now = Date.now();
     for (const m of messages) {

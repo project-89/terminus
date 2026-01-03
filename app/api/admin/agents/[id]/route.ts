@@ -21,7 +21,7 @@ export async function GET(
           orderBy: { createdAt: "desc" },
           include: {
             messages: {
-              orderBy: { createdAt: "asc" },
+              orderBy: [{ order: "asc" }, { createdAt: "asc" }],
             },
             missionRuns: true,
           },
@@ -304,6 +304,7 @@ export async function GET(
         messages: s.messages.map((m: any) => ({
           role: m.role,
           content: m.content,
+          order: m.order,
           createdAt: m.createdAt,
         })),
       })),

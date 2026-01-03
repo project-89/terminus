@@ -147,10 +147,11 @@ model GameSession {
 model GameMessage {
     id            String      @id @default(cuid())
     createdAt     DateTime    @default(now())
+    order         Int         @default(0)
     role          String
     content       String
     gameSessionId String
-    gameSession   GameSession @relation(fields: [gameSessionId], references: [id])
+    gameSession   GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Cascade)
 }
 
 model MemoryEvent {
