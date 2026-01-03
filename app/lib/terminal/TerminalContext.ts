@@ -69,14 +69,17 @@ export class TerminalContext {
     }
   }
 
-  async ensureThread(handle: string = "anonymous"): Promise<string> {
+  async ensureThread(handle?: string): Promise<string> {
     if (this.state.threadId) return this.state.threadId;
+    
+    const resolvedHandle = handle || this.state.handle || "anonymous";
+    
     try {
       const res = await fetch("/api/thread", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          handle,
+          handle: resolvedHandle,
           userId: this.state.userId,
         }),
       });
@@ -255,7 +258,8 @@ export class TerminalContext {
         if (verifyRes.ok) {
           const data = await verifyRes.json();
           if (data.identity) {
-            this.setState({ userId: savedUserId, agentId: savedAgentId });
+            const handle = data.identity.handle || savedAgentId.toLowerCase();
+            this.setState({ userId: savedUserId, agentId: savedAgentId, handle });
             return { userId: savedUserId, agentId: savedAgentId };
           }
         }
@@ -275,7 +279,7 @@ export class TerminalContext {
       });
       if (!res.ok) throw new Error("Identity creation failed");
       const data = await res.json();
-      const { id, agentId } = data.identity;
+      const { id, agentId, handle } = data.identity;
       
       if (typeof window !== "undefined") {
         localStorage.setItem("p89_userId", id);
@@ -283,7 +287,7 @@ export class TerminalContext {
         this.requestGeolocation(id);
       }
       
-      this.setState({ userId: id, agentId });
+      this.setState({ userId: id, agentId, handle: handle || agentId.toLowerCase() });
       return { userId: id, agentId };
     } catch (e) {
       console.error("Failed to create identity", e);

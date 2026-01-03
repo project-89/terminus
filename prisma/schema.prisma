@@ -40,6 +40,9 @@ model User {
     synchronicities Synchronicity[]
     fieldMissions  FieldMission[]
     
+    puzzleChains   PuzzleChain[]
+    puzzleSolves   PuzzleSolve[]
+    
     // Referral system
     referralCode   String?         @unique
     referredBy     User?           @relation("Referrals", fields: [referredById], references: [id])
@@ -635,6 +638,115 @@ model RewardConfig {
     minLayer        Int              @default(0)
     
     @@index([taskType, enabled])
+}
+
+// ============================================
+// PUZZLE SYSTEM - AI-Generated Puzzle Chains
+// ============================================
+
+model PuzzleChain {
+    id              String          @id @default(cuid())
+    createdAt       DateTime        @default(now())
+    updatedAt       DateTime        @updatedAt
+    
+    title           String
+    description     String
+    
+    entryPoint      String          // First puzzle ID
+    finalReward     String          // What solving the chain reveals
+    
+    // Targeting
+    targetUserId    String?         // Personal chain for specific user
+    targetUser      User?           @relation(fields: [targetUserId], references: [id])
+    globalChain     Boolean         @default(true)
+    
+    // Evolution
+    adaptiveDifficulty Boolean      @default(true)
+    branchingEnabled   Boolean      @default(false)
+    
+    // State
+    expiresAt       DateTime?
+    completedBy     String[]        // User IDs who completed
+    
+    // Nodes
+    nodes           PuzzleNode[]
+    
+    @@index([targetUserId])
+    @@index([globalChain])
+}
+
+model PuzzleNode {
+    id              String          @id @default(cuid())
+    createdAt       DateTime        @default(now())
+    updatedAt       DateTime        @updatedAt
+    
+    chainId         String
+    chain           PuzzleChain     @relation(fields: [chainId], references: [id], onDelete: Cascade)
+    
+    order           Int
+    type            PuzzleType
+    title           String?
+    
+    // The puzzle content (encoded text, cipher info, media URL, coordinates)
+    content         Json
+    
+    // Solution
+    solution        String
+    solutionHints   String[]
+    
+    // Unlocking (puzzle IDs)
+    prerequisites   String[]
+    unlocksNext     String[]
+    
+    // Metadata
+    difficulty      Int             @default(3)  // 1-5
+    estimatedTime   Int             @default(10) // minutes
+    tags            String[]
+    
+    // State
+    status          PuzzleStatus    @default(LOCKED)
+    attempts        Int             @default(0)
+    
+    // Solve tracking
+    solves          PuzzleSolve[]
+    
+    @@index([chainId])
+    @@index([status])
+}
+
+model PuzzleSolve {
+    id              String          @id @default(cuid())
+    createdAt       DateTime        @default(now())
+    
+    puzzleId        String
+    puzzle          PuzzleNode      @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+    
+    userId          String
+    user            User            @relation(fields: [userId], references: [id])
+    
+    attemptsUsed    Int             @default(1)
+    timeSpent       Int?            // seconds
+    
+    @@unique([puzzleId, userId])
+    @@index([userId])
+}
+
+enum PuzzleType {
+    CIPHER          // Text-based cipher
+    STEGANOGRAPHY   // Hidden in image
+    COORDINATES     // Real-world location
+    AUDIO           // Hidden in sound
+    TEMPORAL        // Time-based
+    COLLABORATIVE   // Requires multiple players
+    META            // About the puzzle system itself
+}
+
+enum PuzzleStatus {
+    LOCKED
+    AVAILABLE
+    IN_PROGRESS
+    SOLVED
+    EXPIRED
 }
 
 enum RewardTaskType {

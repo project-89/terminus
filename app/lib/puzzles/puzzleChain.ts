@@ -5,8 +5,8 @@
  * LOGOS can generate these dynamically, adapting to player behavior.
  */
 
-// Database integration will be added when puzzle persistence is needed
-// import { prisma } from "@/app/lib/db";
+import prisma from "@/app/lib/prisma";
+import { PuzzleType as PrismaPuzzleType, PuzzleStatus as PrismaPuzzleStatus } from "@prisma/client";
 import * as ciphers from "./ciphers";
 import * as stego from "./steganography";
 
@@ -362,38 +362,207 @@ export function createMetaPuzzle(config: {
   };
 }
 
-// Database helpers (using notes table for now, could be dedicated table)
+// Type converters
+function toPrismaType(type: PuzzleType): PrismaPuzzleType {
+  const map: Record<PuzzleType, PrismaPuzzleType> = {
+    cipher: "CIPHER",
+    steganography: "STEGANOGRAPHY",
+    coordinates: "COORDINATES",
+    audio: "AUDIO",
+    temporal: "TEMPORAL",
+    collaborative: "COLLABORATIVE",
+    meta: "META",
+  };
+  return map[type];
+}
+
+function fromPrismaType(type: PrismaPuzzleType): PuzzleType {
+  return type.toLowerCase() as PuzzleType;
+}
+
+function toPrismaStatus(status: PuzzleStatus): PrismaPuzzleStatus {
+  const map: Record<PuzzleStatus, PrismaPuzzleStatus> = {
+    locked: "LOCKED",
+    available: "AVAILABLE",
+    in_progress: "IN_PROGRESS",
+    solved: "SOLVED",
+    expired: "EXPIRED",
+  };
+  return map[status];
+}
+
+function fromPrismaStatus(status: PrismaPuzzleStatus): PuzzleStatus {
+  return status.toLowerCase().replace("_", "_") as PuzzleStatus;
+}
+
+// Database helpers
 async function storePuzzleChain(chain: PuzzleChain): Promise<void> {
-  // Store as JSON in a dedicated puzzle table or notes
-  // For now, log it
+  await prisma.puzzleChain.create({
+    data: {
+      id: chain.id,
+      title: chain.title,
+      description: chain.description,
+      entryPoint: chain.entryPoint,
+      finalReward: chain.finalReward,
+      targetUserId: chain.targetUserId,
+      globalChain: chain.globalChain,
+      adaptiveDifficulty: chain.adaptiveDifficulty,
+      branchingEnabled: chain.branchingEnabled,
+      expiresAt: chain.expiresAt,
+      completedBy: chain.completedBy,
+      nodes: {
+        create: chain.nodes.map((node) => ({
+          id: node.id,
+          order: node.order,
+          type: toPrismaType(node.type),
+          title: node.title,
+          content: node.content as any,
+          solution: node.solution,
+          solutionHints: node.solutionHints,
+          prerequisites: node.prerequisites,
+          unlocksNext: node.unlocksNext,
+          difficulty: node.difficulty,
+          estimatedTime: node.estimatedTime,
+          tags: node.tags,
+          status: toPrismaStatus(node.status),
+          attempts: node.attempts,
+        })),
+      },
+    },
+  });
   console.log("[PuzzleChain] Stored:", chain.id);
 }
 
 async function getPuzzle(puzzleId: string): Promise<PuzzleNode | null> {
-  // Retrieve from database
-  console.log("[PuzzleChain] Get puzzle:", puzzleId);
-  return null;
+  const node = await prisma.puzzleNode.findUnique({
+    where: { id: puzzleId },
+    include: { solves: true },
+  });
+  
+  if (!node) return null;
+  
+  return {
+    id: node.id,
+    chainId: node.chainId,
+    order: node.order,
+    type: fromPrismaType(node.type),
+    title: node.title ?? undefined,
+    content: node.content as PuzzleNode["content"],
+    solution: node.solution,
+    solutionHints: node.solutionHints,
+    prerequisites: node.prerequisites,
+    unlocksNext: node.unlocksNext,
+    difficulty: node.difficulty as 1 | 2 | 3 | 4 | 5,
+    estimatedTime: node.estimatedTime,
+    tags: node.tags,
+    status: fromPrismaStatus(node.status),
+    solvedBy: node.solves.map((s: { userId: string }) => s.userId),
+    solvedAt: node.solves[0]?.createdAt,
+    attempts: node.attempts,
+  };
 }
 
 async function getChain(chainId: string): Promise<PuzzleChain | null> {
-  console.log("[PuzzleChain] Get chain:", chainId);
-  return null;
+  const chain = await prisma.puzzleChain.findUnique({
+    where: { id: chainId },
+    include: { nodes: { include: { solves: true } } },
+  });
+  
+  if (!chain) return null;
+  
+  return {
+    id: chain.id,
+    title: chain.title,
+    description: chain.description,
+    nodes: chain.nodes.map((node: any) => ({
+      id: node.id,
+      chainId: node.chainId,
+      order: node.order,
+      type: fromPrismaType(node.type),
+      title: node.title ?? undefined,
+      content: node.content as PuzzleNode["content"],
+      solution: node.solution,
+      solutionHints: node.solutionHints,
+      prerequisites: node.prerequisites,
+      unlocksNext: node.unlocksNext,
+      difficulty: node.difficulty as 1 | 2 | 3 | 4 | 5,
+      estimatedTime: node.estimatedTime,
+      tags: node.tags,
+      status: fromPrismaStatus(node.status),
+      solvedBy: node.solves.map((s: { userId: string }) => s.userId),
+      solvedAt: node.solves[0]?.createdAt,
+      attempts: node.attempts,
+    })),
+    entryPoint: chain.entryPoint,
+    finalReward: chain.finalReward,
+    targetUserId: chain.targetUserId ?? undefined,
+    globalChain: chain.globalChain,
+    adaptiveDifficulty: chain.adaptiveDifficulty,
+    branchingEnabled: chain.branchingEnabled,
+    createdAt: chain.createdAt,
+    expiresAt: chain.expiresAt ?? undefined,
+    completedBy: chain.completedBy,
+  };
 }
 
 async function incrementAttempts(puzzleId: string): Promise<void> {
-  console.log("[PuzzleChain] Increment attempts:", puzzleId);
+  await prisma.puzzleNode.update({
+    where: { id: puzzleId },
+    data: { attempts: { increment: 1 } },
+  });
 }
 
 async function markSolved(puzzleId: string, userId: string): Promise<void> {
+  const puzzle = await prisma.puzzleNode.findUnique({ where: { id: puzzleId } });
+  if (!puzzle) return;
+  
+  await prisma.$transaction([
+    prisma.puzzleNode.update({
+      where: { id: puzzleId },
+      data: { status: "SOLVED" },
+    }),
+    prisma.puzzleSolve.upsert({
+      where: { puzzleId_userId: { puzzleId, userId } },
+      create: {
+        puzzleId,
+        userId,
+        attemptsUsed: puzzle.attempts + 1,
+      },
+      update: {},
+    }),
+  ]);
   console.log("[PuzzleChain] Mark solved:", puzzleId, "by", userId);
 }
 
 async function tryUnlock(puzzleId: string, userId: string): Promise<boolean> {
-  console.log("[PuzzleChain] Try unlock:", puzzleId);
+  const puzzle = await getPuzzle(puzzleId);
+  if (!puzzle) return false;
+  
+  // Check if all prerequisites are solved by this user
+  for (const prereqId of puzzle.prerequisites) {
+    const prereq = await prisma.puzzleSolve.findUnique({
+      where: { puzzleId_userId: { puzzleId: prereqId, userId } },
+    });
+    if (!prereq) return false;
+  }
+  
+  // Unlock the puzzle
+  await prisma.puzzleNode.update({
+    where: { id: puzzleId },
+    data: { status: "AVAILABLE" },
+  });
+  
+  console.log("[PuzzleChain] Unlocked:", puzzleId, "for", userId);
   return true;
 }
 
 async function markChainCompleted(chainId: string, userId: string): Promise<void> {
+  await prisma.puzzleChain.update({
+    where: { id: chainId },
+    data: {
+      completedBy: { push: userId },
+    },
+  });
   console.log("[PuzzleChain] Chain completed:", chainId, "by", userId);
 }
 

@@ -83,6 +83,22 @@ export async function GET(
         rewards: {
           orderBy: { createdAt: "desc" },
         },
+        puzzleSolves: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            puzzle: {
+              include: {
+                chain: true,
+              },
+            },
+          },
+        },
+        puzzleChains: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            nodes: true,
+          },
+        },
       },
     });
 
@@ -299,6 +315,39 @@ export async function GET(
         metadata: r.metadata,
         createdAt: r.createdAt,
       })),
+
+      puzzles: {
+        solved: agent.puzzleSolves?.length || 0,
+        chainsCreated: agent.puzzleChains?.length || 0,
+        chainsCompleted: agent.puzzleChains?.filter((c: any) => c.completedBy?.includes(id)).length || 0,
+        solves: agent.puzzleSolves?.map((s: any) => ({
+          id: s.id,
+          puzzleId: s.puzzleId,
+          puzzleTitle: s.puzzle?.title,
+          puzzleType: s.puzzle?.type,
+          chainTitle: s.puzzle?.chain?.title,
+          attemptsUsed: s.attemptsUsed,
+          timeSpent: s.timeSpent,
+          solvedAt: s.createdAt,
+        })) || [],
+        chains: agent.puzzleChains?.map((c: any) => ({
+          id: c.id,
+          title: c.title,
+          description: c.description,
+          nodeCount: c.nodes?.length || 0,
+          solvedCount: c.nodes?.filter((n: any) => n.status === "SOLVED").length || 0,
+          globalChain: c.globalChain,
+          createdAt: c.createdAt,
+          nodes: c.nodes?.map((n: any) => ({
+            id: n.id,
+            title: n.title,
+            type: n.type,
+            status: n.status,
+            difficulty: n.difficulty,
+            attempts: n.attempts,
+          })) || [],
+        })) || [],
+      },
     });
   } catch (error: any) {
     console.error("Admin agent detail error:", error);

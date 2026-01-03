@@ -102,6 +102,38 @@ interface AgentDossier {
   }>;
   experiments?: Experiment[];
   memory?: MemoryEvent[];
+  puzzles?: {
+    solved: number;
+    chainsCreated: number;
+    chainsCompleted: number;
+    solves: Array<{
+      id: string;
+      puzzleId: string;
+      puzzleTitle: string | null;
+      puzzleType: string;
+      chainTitle: string | null;
+      attemptsUsed: number;
+      timeSpent: number | null;
+      solvedAt: string;
+    }>;
+    chains: Array<{
+      id: string;
+      title: string;
+      description: string;
+      nodeCount: number;
+      solvedCount: number;
+      globalChain: boolean;
+      createdAt: string;
+      nodes: Array<{
+        id: string;
+        title: string | null;
+        type: string;
+        status: string;
+        difficulty: number;
+        attempts: number;
+      }>;
+    }>;
+  };
   gameSessions?: Array<{
     id: string;
     status: string;
@@ -155,7 +187,7 @@ export default function AgentDossierPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [dossier, setDossier] = useState<AgentDossier | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"profile" | "missions" | "research" | "admin">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "missions" | "research" | "puzzles" | "admin">("profile");
   const [adminNotes, setAdminNotes] = useState("");
   const [adminDirectives, setAdminDirectives] = useState("");
   const [saving, setSaving] = useState(false);
@@ -323,7 +355,7 @@ export default function AgentDossierPage() {
         </div>
 
         <div className="flex gap-4 mt-4">
-          {(["profile", "missions", "research", "admin"] as const).map((tab) => (
+          {(["profile", "missions", "research", "puzzles", "admin"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -958,6 +990,137 @@ export default function AgentDossierPage() {
                   <button className="w-full bg-red-900/50 border-2 border-red-500 p-3 text-red-400 hover:bg-red-800/50 transition text-sm tracking-widest font-bold">
                     TERMINATE AGENT ACCESS
                   </button>
+                </div>
+              </Section>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "puzzles" && (
+          <div className="grid grid-cols-12 gap-6">
+            <div className="col-span-4 space-y-6">
+              <Section title="PUZZLE STATS">
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <div className="bg-cyan-900/20 border border-cyan-800 p-3">
+                    <div className="text-2xl font-bold text-green-400">{dossier.puzzles?.solved || 0}</div>
+                    <div className="text-xs text-cyan-700">SOLVED</div>
+                  </div>
+                  <div className="bg-cyan-900/20 border border-cyan-800 p-3">
+                    <div className="text-2xl font-bold text-cyan-300">{dossier.puzzles?.chainsCreated || 0}</div>
+                    <div className="text-xs text-cyan-700">CHAINS CREATED</div>
+                  </div>
+                  <div className="bg-cyan-900/20 border border-cyan-800 p-3 col-span-2">
+                    <div className="text-2xl font-bold text-purple-400">{dossier.puzzles?.chainsCompleted || 0}</div>
+                    <div className="text-xs text-cyan-700">CHAINS COMPLETED</div>
+                  </div>
+                </div>
+              </Section>
+
+              <Section title="PUZZLE TYPES SOLVED">
+                {dossier.puzzles?.solves?.length ? (
+                  <div className="space-y-2">
+                    {Object.entries(
+                      dossier.puzzles.solves.reduce((acc: Record<string, number>, s) => {
+                        acc[s.puzzleType || "UNKNOWN"] = (acc[s.puzzleType || "UNKNOWN"] || 0) + 1;
+                        return acc;
+                      }, {})
+                    ).map(([type, count]) => (
+                      <div key={type} className="flex justify-between items-center">
+                        <span className="text-cyan-500 text-sm">{type}</span>
+                        <span className="text-cyan-300 font-bold">{count as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-cyan-700 text-sm">No puzzles solved yet</div>
+                )}
+              </Section>
+            </div>
+
+            <div className="col-span-8 space-y-6">
+              <Section title="SOLVE HISTORY">
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {dossier.puzzles?.solves?.length ? dossier.puzzles.solves.map((solve) => (
+                    <div key={solve.id} className="bg-cyan-900/20 border border-cyan-800 p-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="text-cyan-300 font-bold">{solve.puzzleTitle || "Untitled Puzzle"}</div>
+                          <div className="text-cyan-600 text-xs mt-1">
+                            {solve.puzzleType} | {solve.chainTitle || "Standalone"}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-green-400 text-sm">SOLVED</div>
+                          <div className="text-cyan-700 text-xs">{new Date(solve.solvedAt).toLocaleDateString()}</div>
+                        </div>
+                      </div>
+                      <div className="flex gap-4 mt-2 text-xs">
+                        <span className="text-cyan-600">Attempts: <span className="text-cyan-400">{solve.attemptsUsed}</span></span>
+                        {solve.timeSpent && (
+                          <span className="text-cyan-600">Time: <span className="text-cyan-400">{Math.round(solve.timeSpent / 60)}m</span></span>
+                        )}
+                      </div>
+                    </div>
+                  )) : (
+                    <div className="text-center py-8 text-cyan-700">NO PUZZLES SOLVED</div>
+                  )}
+                </div>
+              </Section>
+
+              <Section title="PUZZLE CHAINS">
+                <div className="space-y-3">
+                  {dossier.puzzles?.chains?.length ? dossier.puzzles.chains.map((chain) => (
+                    <div key={chain.id} className="bg-purple-900/20 border border-purple-800 p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <div className="text-purple-300 font-bold">{chain.title}</div>
+                          <div className="text-purple-600 text-xs mt-1">{chain.description}</div>
+                        </div>
+                        <div className="text-right">
+                          {chain.globalChain && (
+                            <span className="bg-purple-900/50 border border-purple-600 px-2 py-1 text-xs text-purple-400">GLOBAL</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 bg-black/50 rounded-full h-2 overflow-hidden">
+                          <div 
+                            className="h-full bg-purple-500 transition-all"
+                            style={{ width: `${chain.nodeCount > 0 ? (chain.solvedCount / chain.nodeCount) * 100 : 0}%` }}
+                          />
+                        </div>
+                        <span className="text-purple-400 text-xs font-bold">
+                          {chain.solvedCount}/{chain.nodeCount}
+                        </span>
+                      </div>
+                      {chain.nodes?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {chain.nodes.map((node) => (
+                            <span 
+                              key={node.id}
+                              className={`px-2 py-1 text-xs border ${
+                                node.status === "SOLVED" 
+                                  ? "bg-green-900/40 border-green-700 text-green-400"
+                                  : node.status === "IN_PROGRESS"
+                                  ? "bg-yellow-900/40 border-yellow-700 text-yellow-400"
+                                  : node.status === "AVAILABLE"
+                                  ? "bg-cyan-900/40 border-cyan-700 text-cyan-400"
+                                  : "bg-gray-900/40 border-gray-700 text-gray-500"
+                              }`}
+                              title={`${node.title || node.type} - ${node.status}`}
+                            >
+                              {node.type}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="text-purple-700 text-xs mt-2">
+                        Created: {new Date(chain.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  )) : (
+                    <div className="text-center py-8 text-cyan-700">NO PUZZLE CHAINS</div>
+                  )}
                 </div>
               </Section>
             </div>

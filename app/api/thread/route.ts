@@ -107,14 +107,27 @@ export async function POST(req: Request) {
     
     if (providedUserId) {
       user = await prisma.user.findUnique({ where: { id: providedUserId } });
+      if (user) {
+        console.log(`[Thread API] Found user by userId: ${user.id}, handle: ${user.handle}`);
+      }
     }
     
-    if (!user) {
+    if (!user && handle && handle !== "anonymous") {
       user = await prisma.user.findUnique({ where: { handle } });
+      if (user) {
+        console.log(`[Thread API] Found user by handle: ${handle}, userId: ${user.id}`);
+      }
     }
     
     if (!user) {
-      user = await prisma.user.create({ data: { handle } });
+      const { createAnonymousAgent } = await import("@/app/lib/server/identityService");
+      const identity = await createAnonymousAgent();
+      user = await prisma.user.findUnique({ where: { id: identity.id } });
+      console.log(`[Thread API] Created new agent: ${identity.agentId}, userId: ${identity.id}`);
+    }
+    
+    if (!user) {
+      throw new Error("Failed to find or create user");
     }
     
     const session = await prisma.gameSession.create({
@@ -123,6 +136,8 @@ export async function POST(req: Request) {
         status: "OPEN",
       },
     });
+    
+    console.log(`[Thread API] Created session ${session.id} for user ${user.id} (${user.handle})`);
     
     return new Response(JSON.stringify({ threadId: session.id }), {
       status: 200,
