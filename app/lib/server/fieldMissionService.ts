@@ -537,11 +537,36 @@ Proceed with caution.`,
   },
 ];
 
-export function generateMission(
+export async function generateMission(
   userId: string,
   difficulty: "initiate" | "agent" | "operative"
 ): Promise<FieldMissionRecord> {
-  const templates = MISSION_TEMPLATES.filter((t) => t.difficulty === difficulty);
+  let templates: typeof MISSION_TEMPLATES = [];
+  
+  try {
+    const dbTemplates = await prisma.fieldMissionTemplate.findMany({
+      where: { 
+        difficulty,
+        active: true,
+      },
+    });
+    
+    if (dbTemplates.length > 0) {
+      templates = dbTemplates.map((t: any) => ({
+        type: t.type as MissionType,
+        title: t.title,
+        briefing: t.briefing,
+        objectives: t.objectives as Array<{ description: string; required?: boolean }>,
+        difficulty: t.difficulty as "initiate" | "agent" | "operative",
+      }));
+    }
+  } catch {
+  }
+  
+  if (templates.length === 0) {
+    templates = MISSION_TEMPLATES.filter((t) => t.difficulty === difficulty);
+  }
+  
   const template = templates[Math.floor(Math.random() * templates.length)];
 
   return createFieldMission({

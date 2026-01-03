@@ -177,6 +177,13 @@ export async function GET(request: Request) {
           location: agent.profile?.location as { lat: number; lng: number } | null,
           trustScore,
           layer: calculateLayer(trustScore),
+          
+          gameSessions: gameSessions.slice(0, 10).map((s: any) => ({
+            id: s.id,
+            createdAt: s.createdAt,
+            updatedAt: s.updatedAt,
+            status: s.status,
+          })),
         };
       })
     );

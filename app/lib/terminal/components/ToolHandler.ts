@@ -1140,5 +1140,110 @@ export class ToolHandler {
         }
       },
     });
+
+    this.registerTool({
+      name: "synchronicity_log",
+      handler: async (params: {
+        pattern: string;
+        description: string;
+        significance?: "low" | "medium" | "high";
+      }) => {
+        const context = await this.ensureSessionContext();
+        if (!context) return;
+
+        const sigLevel = params.significance || "medium";
+        const sigColor = sigLevel === "high" ? TERMINAL_COLORS.warning : 
+                        sigLevel === "medium" ? TERMINAL_COLORS.secondary : 
+                        TERMINAL_COLORS.system;
+
+        await this.terminal.print("\n[SYNCHRONICITY DETECTED]", {
+          color: TERMINAL_COLORS.system,
+          speed: "normal",
+        });
+
+        await this.terminal.print(`\nPattern: ${params.pattern}`, {
+          color: sigColor,
+          speed: "fast",
+        });
+
+        await this.terminal.print(`${params.description}`, {
+          color: TERMINAL_COLORS.primary,
+          speed: "normal",
+        });
+
+        await this.terminal.print(`Significance: ${sigLevel.toUpperCase()}`, {
+          color: sigColor,
+          speed: "fast",
+        });
+
+        if (sigLevel === "high") {
+          this.terminal.effects.triggerGlitch(0.5, 300);
+        }
+      },
+    });
+
+    this.registerTool({
+      name: "network_broadcast",
+      handler: async (params: {
+        message: string;
+        priority?: "normal" | "urgent";
+        recipients?: "all" | "operatives" | "handlers";
+      }) => {
+        await this.terminal.print("\n[NETWORK BROADCAST]", {
+          color: TERMINAL_COLORS.warning,
+          speed: "normal",
+        });
+
+        await this.terminal.print(`\nTo: ${params.recipients || "all"} operatives`, {
+          color: TERMINAL_COLORS.system,
+          speed: "fast",
+        });
+
+        await this.terminal.print(`Priority: ${(params.priority || "normal").toUpperCase()}`, {
+          color: params.priority === "urgent" ? TERMINAL_COLORS.error : TERMINAL_COLORS.secondary,
+          speed: "fast",
+        });
+
+        await this.terminal.print(`\n${params.message}`, {
+          color: TERMINAL_COLORS.primary,
+          speed: "normal",
+        });
+
+        this.terminal.effects.startMatrixRain(0.3);
+        setTimeout(() => this.terminal.effects.stopMatrixRain(), 1500);
+      },
+    });
+
+    this.registerTool({
+      name: "agent_coordination",
+      handler: async (params: {
+        action: "assign" | "relay" | "convene";
+        target?: string;
+        details: string;
+      }) => {
+        const actionLabels: Record<string, string> = {
+          assign: "MISSION ASSIGNMENT",
+          relay: "INTEL RELAY",
+          convene: "OPERATIVE ASSEMBLY",
+        };
+
+        await this.terminal.print(`\n[${actionLabels[params.action] || "COORDINATION"}]`, {
+          color: TERMINAL_COLORS.system,
+          speed: "normal",
+        });
+
+        if (params.target) {
+          await this.terminal.print(`\nTarget: ${params.target}`, {
+            color: TERMINAL_COLORS.secondary,
+            speed: "fast",
+          });
+        }
+
+        await this.terminal.print(`\n${params.details}`, {
+          color: TERMINAL_COLORS.primary,
+          speed: "normal",
+        });
+      },
+    });
   }
 }
