@@ -55,6 +55,19 @@ export async function GET(req: Request) {
     if (!session) {
       throw new Error("not found");
     }
+    
+    const isAnonymousUser = session.user?.handle === "anonymous" || !session.user?.agentId;
+    
+    if (isAnonymousUser) {
+      return new Response(JSON.stringify({ 
+        resetRequired: true,
+        reason: "Session linked to anonymous user. Please reset to get proper tracking.",
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    
     const messages = await prisma.gameMessage.findMany({
       where: { gameSessionId: threadId },
       orderBy: { createdAt: "asc" },

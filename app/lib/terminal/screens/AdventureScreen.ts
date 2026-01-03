@@ -159,16 +159,30 @@ All around you is a void, not as a thing but as the absence of any thing.`;
         const res = await fetch(`/api/thread?threadId=${threadId}`);
         if (res.ok) {
           const data = await res.json();
-          const messages =
-            Array.isArray(data?.messages) && data.messages.length > 0
-              ? data.messages.map((m: any) => ({
-                  role: m.role || "assistant",
-                  content: m.content || "",
-                }))
-              : [];
-          if (messages.length > 0) {
-            context.setGameMessages(messages, { skipSync: true });
-            existing = messages;
+          
+          if (data.resetRequired) {
+            console.log("[AdventureScreen] Reset required - session linked to anonymous user");
+            context.clearState();
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("p89_userId");
+              localStorage.removeItem("p89_agentId");
+              localStorage.removeItem("terminalState");
+            }
+            await context.ensureIdentity();
+            await context.ensureThread();
+            existing = [];
+          } else {
+            const messages =
+              Array.isArray(data?.messages) && data.messages.length > 0
+                ? data.messages.map((m: any) => ({
+                    role: m.role || "assistant",
+                    content: m.content || "",
+                  }))
+                : [];
+            if (messages.length > 0) {
+              context.setGameMessages(messages, { skipSync: true });
+              existing = messages;
+            }
           }
         }
       } catch (err) {

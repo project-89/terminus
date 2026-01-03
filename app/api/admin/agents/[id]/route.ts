@@ -428,3 +428,34 @@ export async function PATCH(
     return NextResponse.json({ error: "Failed to update agent" }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const adminSecret = request.headers.get("x-admin-secret");
+  if (process.env.ADMIN_SECRET && adminSecret !== process.env.ADMIN_SECRET) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id },
+    });
+
+    if (!user) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
+    await prisma.user.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({ success: true, message: `Agent ${id} deleted` });
+  } catch (error: any) {
+    console.error("Admin agent delete error:", error);
+    return NextResponse.json({ error: "Failed to delete agent" }, { status: 500 });
+  }
+}

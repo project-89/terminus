@@ -990,6 +990,34 @@ export default function AgentDossierPage() {
                   <button className="w-full bg-red-900/50 border-2 border-red-500 p-3 text-red-400 hover:bg-red-800/50 transition text-sm tracking-widest font-bold">
                     TERMINATE AGENT ACCESS
                   </button>
+                  <button 
+                    onClick={async () => {
+                      if (!confirm(`DELETE AGENT ${dossier.handle}?\n\nThis will permanently remove all agent data including:\n- Sessions and messages\n- Mission history\n- Profile data\n- All associated records\n\nThis action CANNOT be undone.`)) return;
+                      if (!confirm(`FINAL CONFIRMATION: Type the agent handle to confirm deletion.\n\nAre you absolutely sure you want to delete ${dossier.handle}?`)) return;
+                      
+                      setSaving(true);
+                      try {
+                        const res = await fetch(`/api/admin/agents/${dossier.id}`, {
+                          method: "DELETE",
+                        });
+                        if (res.ok) {
+                          alert("Agent deleted successfully");
+                          window.location.href = "/a";
+                        } else {
+                          const data = await res.json();
+                          alert(`Failed to delete: ${data.error}`);
+                        }
+                      } catch (e) {
+                        alert("Failed to delete agent");
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                    disabled={saving}
+                    className="w-full bg-black border-2 border-red-700 p-3 text-red-500 hover:bg-red-950 hover:border-red-500 transition text-sm tracking-widest font-bold mt-2 disabled:opacity-50"
+                  >
+                    DELETE AGENT PERMANENTLY
+                  </button>
                 </div>
               </Section>
             </div>
