@@ -149,11 +149,13 @@ export class TerminalContext {
   setGameMessages(messages: { role: string; content: string }[], options?: { skipSync?: boolean }) {
     const syncedCount = this.state.syncedMessageCount ?? 0;
     const newMessages = options?.skipSync ? [] : messages.slice(syncedCount);
-    
+
     this.setState({ gameMessages: messages, syncedMessageCount: messages.length });
-    
+
     const threadId = this.state.threadId;
     if (threadId && newMessages.length > 0) {
+      console.log(`[TerminalContext] Syncing ${newMessages.length} new messages to thread ${threadId}:`,
+        newMessages.map(m => ({ role: m.role, contentLen: m.content?.length ?? 0, preview: m.content?.substring(0, 50) })));
       fetch("/api/thread", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

@@ -197,16 +197,21 @@ export async function PATCH(req: Request) {
       _max: { order: true },
     });
     const startOrder = (currentMax._max.order ?? -1) + 1;
-    
+
+    console.log(`[Thread PATCH] Received ${messages.length} messages:`,
+      messages.map((m: any) => ({ role: m.role, hasContent: !!m.content, contentLen: m.content?.length, preview: m.content?.substring(0, 30) })));
+
     const validMessages = messages.filter((m: any) => m.content && m.content.trim());
-    
+
+    console.log(`[Thread PATCH] After filter: ${validMessages.length} valid messages`);
+
     if (validMessages.length === 0) {
       return new Response(JSON.stringify({ ok: true, skipped: true }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }
-    
+
     await prisma.gameMessage.createMany({
       data: validMessages.map((m: any, idx: number) => ({
         gameSessionId: threadId,
@@ -215,8 +220,9 @@ export async function PATCH(req: Request) {
         order: startOrder + idx,
       })),
     });
-    
-    console.log(`[Thread PATCH] Saved ${validMessages.length} messages to session ${threadId}, starting at order ${startOrder}`);
+
+    console.log(`[Thread PATCH] Saved ${validMessages.length} messages to session ${threadId}, starting at order ${startOrder}:`,
+      validMessages.map((m: any) => ({ role: m.role, preview: m.content?.substring(0, 30) })));
     
     return new Response(JSON.stringify({ ok: true, saved: validMessages.length }), {
       status: 200,

@@ -42,10 +42,12 @@ export const adventureMiddleware: TerminalMiddleware = async (
 
     const state = context.getState();
     let chatHistory = context.getGameMessages();
+    console.log("[Adventure] Creating userMessage with ctx.command:", JSON.stringify(ctx.command));
     const userMessage = {
       role: "user",
       content: ctx.command,
     };
+    console.log("[Adventure] userMessage created:", JSON.stringify(userMessage));
 
     let reportSummary: string | null = null;
 
@@ -127,6 +129,7 @@ export const adventureMiddleware: TerminalMiddleware = async (
     }
 
     // Add user message to history
+    console.log("[Adventure] User message:", { role: userMessage.role, content: userMessage.content, ctxCommand: ctx.command });
     chatHistory.push(userMessage);
 
     if (reportSummary) {
@@ -157,6 +160,13 @@ export const adventureMiddleware: TerminalMiddleware = async (
       role: "assistant",
       content: aiResponse,
     });
+
+    // Debug: log what we're syncing
+    console.log("[Adventure] Syncing chatHistory:", chatHistory.map(m => ({
+      role: m.role,
+      contentLen: m.content?.length ?? 0,
+      preview: m.content?.substring(0, 40)
+    })));
 
     // Update chat history with both messages
     context.setGameMessages(chatHistory);

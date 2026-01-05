@@ -20,14 +20,14 @@ export function PointsTracker() {
     const getHandle = () => {
       try {
         const directHandle = localStorage.getItem("p89_handle");
-        if (directHandle && directHandle !== "anonymous") {
+        if (directHandle) {
           return directHandle;
         }
         const saved = localStorage.getItem("terminalState");
         if (saved) {
           const state = JSON.parse(saved);
           const h = state.handle;
-          if (h && h !== "anonymous") {
+          if (h) {
             return h;
           }
         }
@@ -42,14 +42,14 @@ export function PointsTracker() {
     }
 
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === "p89_handle" && e.newValue && e.newValue !== "anonymous") {
+      if (e.key === "p89_handle" && e.newValue) {
         handleRef.current = e.newValue;
         fetchPoints(e.newValue);
       } else if (e.key === "terminalState" && e.newValue) {
         try {
           const state = JSON.parse(e.newValue);
           const h = state.handle;
-          if (h && h !== "anonymous" && h !== handleRef.current) {
+          if (h && h !== handleRef.current) {
             handleRef.current = h;
             fetchPoints(h);
           }
@@ -76,9 +76,15 @@ export function PointsTracker() {
   const fetchPoints = async (handle: string) => {
     try {
       const res = await fetch(`/api/points?handle=${encodeURIComponent(handle)}`);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json();
+      // Show 0 points if user exists, or if they have any points data
+      // Hide only if truly no session exists yet
+      if (res.ok || data.points !== undefined) {
         setPoints(data.points ?? 0);
+      } else if (data.error === "User not found") {
+        // User doesn't exist yet - they'll be created on first interaction
+        // Don't show tracker until they have a session
+        setPoints(null);
       }
     } catch (e) {
       console.warn("Failed to fetch points:", e);
