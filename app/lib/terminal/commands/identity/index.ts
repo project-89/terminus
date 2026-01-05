@@ -327,8 +327,14 @@ async function handleWhoami(ctx: any): Promise<void> {
   }
   
   try {
-    const res = await fetch(`/api/identity?userId=${identity.userId}`);
-    const data = await res.json();
+    const [identityRes, pointsRes] = await Promise.all([
+      fetch(`/api/identity?userId=${identity.userId}`),
+      fetch(`/api/points?handle=${encodeURIComponent((identity as any).handle || identity.agentId || "agent")}`),
+    ]);
+    
+    const data = await identityRes.json();
+    const pointsData = await pointsRes.json().catch(() => ({ points: 0 }));
+    const points = pointsData.points ?? 0;
     
     if (data.identity) {
       const i = data.identity;
@@ -343,6 +349,7 @@ async function handleWhoami(ctx: any): Promise<void> {
 ║  Status:      ${(i.identityLocked ? "SECURED" : "UNSECURED").padEnd(44)}║
 ║  Network:     ${(i.isReferred ? "ACTIVATED" : "PENDING ACTIVATION").padEnd(44)}║
 ${i.referralCode ? `║  Your Code:   ${i.referralCode.padEnd(44)}║\n` : ""}║                                                              ║
+║  LOGOS:       ${String(points).padEnd(44)}║
 ║  Turns:       ${String(s?.turnsPlayed || 0).padEnd(44)}║
 ║  Time:        ${(String(s?.minutesPlayed || 0) + " minutes").padEnd(44)}║
 ╚══════════════════════════════════════════════════════════════╝`, {

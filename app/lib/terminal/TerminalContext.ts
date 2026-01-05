@@ -174,6 +174,20 @@ export class TerminalContext {
     this.setGameMessages(messages);
   }
 
+  private syncMessagesToServer(sessionId: string, messages: { role: string; content: string }[]) {
+    fetch("/api/session", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, messages }),
+    }).then(res => {
+      if (res.ok) {
+        console.log("[TerminalContext] Synced messages to server");
+      }
+    }).catch(err => {
+      console.warn("[TerminalContext] Failed to sync messages:", err);
+    });
+  }
+
   async ensureProfile(force: boolean = false): Promise<TerminalState['profile'] | undefined> {
     if (this.state.profile && !force) return this.state.profile;
     
@@ -223,6 +237,11 @@ export class TerminalContext {
         this.setGameMessages([]);
         this.setActiveMissionRun(undefined);
         this.setExpectingReport(false);
+      } else {
+        const existingMessages = this.getGameMessages();
+        if (existingMessages.length > 0) {
+          this.syncMessagesToServer(data.sessionId, existingMessages);
+        }
       }
       return data.sessionId;
     };

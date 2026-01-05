@@ -19,11 +19,15 @@ export function PointsTracker() {
   useEffect(() => {
     const getHandle = () => {
       try {
+        const directHandle = localStorage.getItem("p89_handle");
+        if (directHandle && directHandle !== "anonymous") {
+          return directHandle;
+        }
         const saved = localStorage.getItem("terminalState");
         if (saved) {
           const state = JSON.parse(saved);
           const h = state.handle;
-          if (h && h !== "anonymous" && !h.startsWith("agent-")) {
+          if (h && h !== "anonymous") {
             return h;
           }
         }
@@ -38,11 +42,14 @@ export function PointsTracker() {
     }
 
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === "terminalState" && e.newValue) {
+      if (e.key === "p89_handle" && e.newValue && e.newValue !== "anonymous") {
+        handleRef.current = e.newValue;
+        fetchPoints(e.newValue);
+      } else if (e.key === "terminalState" && e.newValue) {
         try {
           const state = JSON.parse(e.newValue);
           const h = state.handle;
-          if (h && h !== "anonymous" && !h.startsWith("agent-") && h !== handleRef.current) {
+          if (h && h !== "anonymous" && h !== handleRef.current) {
             handleRef.current = h;
             fetchPoints(h);
           }
