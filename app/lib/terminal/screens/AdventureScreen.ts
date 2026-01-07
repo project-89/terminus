@@ -1,8 +1,6 @@
 import { BaseScreen, ScreenContext } from "./BaseScreen";
 import { TERMINAL_COLORS } from "../Terminal";
 import { TerminalContext as GameContext } from "../TerminalContext";
-import { systemCommandsMiddleware } from "../middleware/system";
-import { overrideMiddleware } from "../middleware/override";
 import { adventureMiddleware } from "../middleware/adventure";
 import { adventureCommands } from "../commands/adventure";
 import { rewardCommands } from "../commands/rewards";
@@ -57,8 +55,8 @@ All around you is a void, not as a thing but as the absence of any thing.`;
   constructor(context: ScreenContext) {
     super(context);
 
-    this.registerMiddleware(systemCommandsMiddleware);
-    this.registerMiddleware(overrideMiddleware);
+    // Note: systemCommandsMiddleware and overrideMiddleware are already
+    // registered by BaseScreen - only add adventureMiddleware here
     this.registerMiddleware(adventureMiddleware);
 
     this.registerCommands([

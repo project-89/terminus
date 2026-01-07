@@ -223,7 +223,6 @@ export class InputHandler {
 
   private async handleEnter() {
     const command = this.buffer.trim();
-    console.log("[InputHandler] handleEnter called, buffer:", JSON.stringify(this.buffer), "command:", JSON.stringify(command));
     if (command) {
       this.buffer = "";
       this.cursorPosition = 0;
@@ -232,8 +231,6 @@ export class InputHandler {
       this.addToHistory(command);
 
       await this.terminal.processCommand(command);
-    } else {
-      console.log("[InputHandler] Empty command, skipping processCommand");
     }
   }
 

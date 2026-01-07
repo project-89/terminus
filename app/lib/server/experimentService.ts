@@ -66,10 +66,12 @@ export async function createExperiment(params: {
           title: params.title || null,
         },
       });
+      console.log(`[ExperimentService] Created experiment ${id} in Experiment table`);
     } else {
       throw new Error("experiment model not available");
     }
-  } catch {
+  } catch (err: any) {
+    console.warn(`[ExperimentService] Experiment.create failed for ${id}, falling back to AgentNote:`, err?.message);
     try {
       await prisma.agentNote.create({
         data: {

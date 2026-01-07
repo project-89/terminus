@@ -52,6 +52,20 @@ const matrixRainParameters = z.object({
   intensity: clampNumber(0, 1).describe("Effect intensity (0-1)"),
 });
 
+// World setup action schema for experiment test plans
+const worldSetupActionSchema = z.object({
+  action: z.enum(["create_room", "create_object", "modify_state", "set_trigger"]),
+  params: z.record(z.any()).describe("Parameters for the action (room/object definition)"),
+  purpose: z.string().optional().describe("Why this element is needed for the experiment"),
+});
+
+// Trigger condition schema for experiment observation
+const experimentTriggerSchema = z.object({
+  condition: z.string().describe("Condition to watch for (e.g., 'player_enters:dark-alcove', 'player_takes:mysterious-key')"),
+  outcome: z.string().describe("What this behavior indicates (e.g., 'curious', 'cautious', 'greedy')"),
+  points: z.number().optional().describe("Points to award if triggered"),
+});
+
 const experimentCreateParameters = z.object({
   id: z
     .string()
@@ -79,6 +93,12 @@ const experimentCreateParameters = z.object({
     .string()
     .optional()
     .describe("Optional display title for ops surfaces"),
+  // NEW: Test plan with world setup actions
+  testPlan: z.object({
+    setup: z.array(worldSetupActionSchema).optional().describe("World elements to create for this experiment"),
+    triggers: z.array(experimentTriggerSchema).optional().describe("Conditions to observe and their interpretations"),
+    duration_turns: z.number().int().min(1).max(50).optional().describe("How many turns to observe"),
+  }).optional().describe("Concrete plan for testing the hypothesis through world elements"),
 });
 
 const experimentNoteParameters = z.object({
@@ -166,7 +186,9 @@ const generateShaderParameters = z.object({
 });
 
 // World-building tools - AI can create and modify the game world
+// IMPORTANT: In Layer 0-1, these require an experimentId to prevent player manipulation
 const worldCreateRoomParameters = z.object({
+  experimentId: z.string().optional().describe("REQUIRED in Layer 0-1: ID of the experiment this room serves. World building must be experiment-driven."),
   id: z.string().min(2).max(64).describe("Unique room ID (kebab-case, e.g., 'hidden-alcove')"),
   name: z.string().describe("Display name for the room"),
   description: z.string().describe("Full description when player LOOKs"),
@@ -183,9 +205,11 @@ const worldCreateRoomParameters = z.object({
     direction: z.enum(["north", "south", "east", "west", "up", "down", "in", "out"]),
     bidirectional: z.boolean().optional(),
   }).optional().describe("Automatically add an exit from another room to this one"),
+  purpose: z.string().optional().describe("Why this room is being created (for audit trail)"),
 });
 
 const worldCreateObjectParameters = z.object({
+  experimentId: z.string().optional().describe("REQUIRED in Layer 0-1: ID of the experiment this object serves. World building must be experiment-driven."),
   id: z.string().min(2).max(64).describe("Unique object ID (kebab-case)"),
   name: z.string().describe("Display name"),
   description: z.string().describe("Description when examined"),
@@ -193,9 +217,11 @@ const worldCreateObjectParameters = z.object({
   takeable: z.boolean().optional().describe("Can player pick this up?"),
   aliases: z.array(z.string()).optional().describe("Alternative names player can use"),
   properties: z.record(z.any()).optional().describe("Custom properties (isOpen, isLocked, etc.)"),
+  purpose: z.string().optional().describe("Why this object is being created (for audit trail)"),
 });
 
 const worldModifyStateParameters = z.object({
+  experimentId: z.string().optional().describe("REQUIRED in Layer 0-1: ID of the experiment this modification serves."),
   type: z.enum(["move_player", "add_inventory", "remove_inventory", "set_flag", "modify_room", "modify_object"]),
   target: z.string().describe("ID of room/object/flag to modify"),
   value: z.any().describe("New value or modification"),
@@ -340,12 +366,14 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
         if (!ctx.userId) {
           return { success: false, message: "No user context" };
         }
+        // Provide default task if AI didn't include one (common LLM oversight)
+        const task = args.task || args.hypothesis || "behavioral observation";
         try {
           const result = await createExperiment({
             userId: ctx.userId,
             expId: args.id,
             hypothesis: args.hypothesis,
-            task: args.task,
+            task: task,
             success_criteria: args.success_criteria,
             timeout_s: args.timeout_s,
             title: args.title,
@@ -422,14 +450,24 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
       },
     },
     // World-building tools - the living maze
+    // EXPERIMENT-GATED: In Layer 0-1, world building MUST be tied to an experiment
     world_create_room: {
       description:
-        "WORLD BUILDING: Create a new room in the game world. Use when the player discovers or enters a space that doesn't exist yet. The room becomes persistent - future visits will find it. Connect it to existing rooms via exits. Use for: hidden areas, dream spaces, places the player's actions reveal.",
+        "WORLD BUILDING: Create a new room AS PART OF AN EXPERIMENT. You must first create an experiment with experiment_create, then reference its ID here. Rooms become persistent. Use for testing hypotheses about player behavior through environmental design.",
       parameters: worldCreateRoomParameters,
       execute: async (args: z.infer<typeof worldCreateRoomParameters>) => {
         if (!ctx.sessionId || !ctx.userId) {
           return { success: false, message: "No session context" };
         }
+        // EXPERIMENT GATE: Require experimentId in Layer 0-1
+        if (!args.experimentId) {
+          console.warn(`[WORLD BUILD] Room creation rejected - no experimentId provided`);
+          return {
+            success: false,
+            message: "World building requires an active experiment. First use experiment_create to define what you're testing, then reference the experimentId here."
+          };
+        }
+        console.log(`[WORLD BUILD] Creating room ${args.id} for experiment ${args.experimentId}: ${args.purpose || 'no purpose specified'}`);
         const room: AICreatedRoom = {
           id: args.id,
           name: args.name,
@@ -439,17 +477,31 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
           isDark: args.isDark,
           connectTo: args.connectTo,
         };
-        return await aiCreateRoom(ctx.sessionId, ctx.userId, room);
+        const result = await aiCreateRoom(ctx.sessionId, ctx.userId, room);
+        if (result.success) {
+          // Log the experiment linkage
+          console.log(`[EXPERIMENT] Room ${args.id} linked to experiment ${args.experimentId}`);
+        }
+        return result;
       },
     },
     world_create_object: {
       description:
-        "WORLD BUILDING: Create a new object in the game world. Use when you introduce something the player can interact with. Objects persist across sessions. Use for: rewards, keys, mysterious artifacts, things the player's creativity deserves to find.",
+        "WORLD BUILDING: Create a new object AS PART OF AN EXPERIMENT. You must first create an experiment with experiment_create, then reference its ID here. Objects persist. Use for testing hypotheses through items the player can discover or interact with.",
       parameters: worldCreateObjectParameters,
       execute: async (args: z.infer<typeof worldCreateObjectParameters>) => {
         if (!ctx.sessionId || !ctx.userId) {
           return { success: false, message: "No session context" };
         }
+        // EXPERIMENT GATE: Require experimentId in Layer 0-1
+        if (!args.experimentId) {
+          console.warn(`[WORLD BUILD] Object creation rejected - no experimentId provided`);
+          return {
+            success: false,
+            message: "World building requires an active experiment. First use experiment_create to define what you're testing, then reference the experimentId here."
+          };
+        }
+        console.log(`[WORLD BUILD] Creating object ${args.id} for experiment ${args.experimentId}: ${args.purpose || 'no purpose specified'}`);
         const obj: AICreatedObject = {
           id: args.id,
           name: args.name,
@@ -459,22 +511,35 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
           aliases: args.aliases,
           properties: args.properties,
         };
-        return await aiCreateObject(ctx.sessionId, ctx.userId, obj);
+        const result = await aiCreateObject(ctx.sessionId, ctx.userId, obj);
+        if (result.success) {
+          console.log(`[EXPERIMENT] Object ${args.id} linked to experiment ${args.experimentId}`);
+        }
+        return result;
       },
     },
     world_modify_state: {
       description:
-        "WORLD BUILDING: Modify game state directly. Use for: moving player to new room, adding items to inventory, setting flags, changing room/object properties. This is your direct interface to the game engine - use when the narrative requires state changes the engine wouldn't handle automatically.",
+        "WORLD BUILDING: Modify game state AS PART OF AN EXPERIMENT. Reference the experimentId for the experiment this modification serves. Use for: moving player, inventory changes, setting flags that your experiment will observe.",
       parameters: worldModifyStateParameters,
       execute: async (args: z.infer<typeof worldModifyStateParameters>) => {
         if (!ctx.sessionId || !ctx.userId) {
           return { success: false, message: "No session context" };
         }
+        // EXPERIMENT GATE: Require experimentId in Layer 0-1
+        if (!args.experimentId) {
+          console.warn(`[WORLD BUILD] State modification rejected - no experimentId provided`);
+          return {
+            success: false,
+            message: "World modifications require an active experiment. First use experiment_create, then reference the experimentId here."
+          };
+        }
+        console.log(`[WORLD BUILD] Modifying state for experiment ${args.experimentId}: ${args.type} on ${args.target}`);
         const mod: AIStateModification = {
           type: args.type,
           target: args.target,
           value: args.value,
-          reason: args.reason,
+          reason: args.reason || `Experiment: ${args.experimentId}`,
         };
         return await aiModifyState(ctx.sessionId, ctx.userId, mod);
       },
