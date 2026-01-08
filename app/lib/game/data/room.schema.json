@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Room File",
+  "description": "A collection of rooms for a region/layer",
+  "type": "object",
+  "required": ["region", "rooms"],
+  "properties": {
+    "region": {
+      "type": "string",
+      "description": "The game region these rooms belong to"
+    },
+    "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "Trust layer required to access these rooms"
+    },
+    "rooms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/room"
+      }
+    }
+  },
+  "definitions": {
+    "room": {
+      "type": "object",
+      "required": ["id", "name", "description", "exits"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Unique room identifier (kebab-case)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable room name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Room description when lit"
+        },
+        "darkDescription": {
+          "type": "string",
+          "description": "Room description when dark"
+        },
+        "isDark": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the room starts dark"
+        },
+        "exits": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/exit" },
+          "description": "Available exits from this room"
+        },
+        "objects": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Object IDs that start in this room"
+        }
+      }
+    },
+    "exit": {
+      "type": "object",
+      "required": ["direction", "destination"],
+      "properties": {
+        "direction": {
+          "type": "string",
+          "enum": ["north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest", "up", "down", "in", "out"],
+          "description": "Exit direction"
+        },
+        "destination": {
+          "type": "string",
+          "description": "ID of destination room"
+        },
+        "isLocked": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether exit is initially locked"
+        },
+        "lockedMessage": {
+          "type": "string",
+          "description": "Message shown when trying to use locked exit"
+        }
+      }
+    }
+  }
+}

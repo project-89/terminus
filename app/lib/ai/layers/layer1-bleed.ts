@@ -6,7 +6,7 @@
  * personal. The environment responds to the player's real state.
  */
 
-import { buildLayer0Prompt, LAYER_0_WORLD, LAYER_0_COMMANDS } from './layer0-mask';
+import { buildLayer0Prompt, LAYER_0_WORLD, LAYER_0_COMMANDS, LAYER_0_VOICE } from './layer0-mask';
 import type { LayerContext } from './index';
 
 export const LAYER_1_IDENTITY = `You are a text adventure game engine presenting an immersive interactive fiction experience. You respond to standard adventure commands and create atmospheric, mysterious environments.
@@ -77,6 +77,7 @@ You are a game that is beginning to dream of being more. But you don't know that
 export function buildLayer1Prompt(ctx: LayerContext): string {
   const basePrompt = [
     LAYER_1_IDENTITY,
+    LAYER_0_VOICE, // Same voice/style (includes no random caps, no repetition)
     LAYER_0_WORLD, // Same world
     LAYER_0_COMMANDS, // Same commands
     LAYER_1_BLEED_TECHNIQUES,

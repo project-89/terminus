@@ -1,0 +1,94 @@
+{
+  "$schema": "../puzzle.schema.json",
+  "region": "Dream Realm",
+  "layer": 2,
+  "puzzles": [
+    {
+      "id": "focus-dream-desk",
+      "name": "Stabilize Dream Object",
+      "description": "Use will to solidify the dream desk",
+      "conditions": [
+        { "type": "object_state", "target": "dream-desk", "property": "isFocused", "value": true }
+      ],
+      "onSolve": [
+        { "type": "reveal_object", "target": "dream-drawer", "value": true }
+      ],
+      "hint": "Focus on the desk.",
+      "logosExperiment": "Agent stabilizes unstable reality constructs"
+    },
+    {
+      "id": "get-dream-candle",
+      "name": "Retrieve Artifact",
+      "description": "Get the candle from the solidified drawer",
+      "conditions": [
+        { "type": "object_state", "target": "dream-drawer", "property": "isOpen", "value": true },
+        { "type": "inventory", "target": "long-candle", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "has-candle", "value": true }
+      ],
+      "hint": "Open the drawer you revealed.",
+      "logosExperiment": "Agent retrieves key artifacts",
+      "dependsOn": ["focus-dream-desk"]
+    },
+    {
+      "id": "find-lighter",
+      "name": "Excavate Tool",
+      "description": "Find the lighter hidden in the forest leaves",
+      "conditions": [
+        { "type": "room", "target": "forest", "value": true }
+      ],
+      "onSolve": [
+        { "type": "inventory", "target": "lighter", "value": true }
+      ],
+      "hint": "Search the pile of leaves.",
+      "logosExperiment": "Agent searches environment for tools"
+    },
+    {
+      "id": "burn-vines",
+      "name": "Clear Obstruction",
+      "description": "Burn the vines blocking the subway entrance",
+      "conditions": [
+        { "type": "inventory", "target": "lighter", "value": true },
+        { "type": "object_state", "target": "subway-vines", "property": "isBurning", "value": true }
+      ],
+      "onSolve": [
+        { "type": "unlock_exit", "target": "subway-entrance", "value": "outer-cement-structure" },
+        { "type": "set_flag", "target": "vines-cleared", "value": true }
+      ],
+      "hint": "Fire clears the path.",
+      "logosExperiment": "Agent uses destructive tools for access",
+      "dependsOn": ["find-lighter"]
+    },
+    {
+      "id": "enter-subway",
+      "name": "Enter the Depths",
+      "description": "Proceed into the subway structure",
+      "conditions": [
+        { "type": "flag", "target": "vines-cleared", "value": true }
+      ],
+      "onSolve": [
+        { "type": "move_object", "target": "player", "value": "outer-cement-structure" }
+      ],
+      "hint": "Enter the metal doors.",
+      "logosExperiment": "Agent explores subterranean structures",
+      "dependsOn": ["burn-vines"]
+    },
+    {
+      "id": "exfiltrate-items",
+      "name": "Wake Up Transfer",
+      "description": "Wake up to transfer dream items (comics) to reality",
+      "conditions": [
+        { "type": "room", "target": "dream-bedroom", "value": true },
+        { "type": "object_state", "target": "dream-bed", "property": "isEnclosed", "value": true }
+      ],
+      "onSolve": [
+        { "type": "move_object", "target": "player", "value": "mundane-bedroom" },
+        { "type": "move_object", "target": "comic-page-1", "value": "mundane-bedroom" },
+        { "type": "move_object", "target": "comic-page-3", "value": "mundane-bedroom" }
+      ],
+      "hint": "Sleep in the dream bed to wake up.",
+      "logosExperiment": "Agent brings data from simulation to reality"
+    }
+  ]
+}

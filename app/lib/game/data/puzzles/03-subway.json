@@ -1,0 +1,142 @@
+{
+  "$schema": "../puzzle.schema.json",
+  "region": "Subway System",
+  "layer": 3,
+  "puzzles": [
+    {
+      "id": "unlock-turnstile",
+      "name": "Activate Mechanism",
+      "description": "Restore power to the turnstile to pass",
+      "conditions": [
+        { "type": "object_state", "target": "turnstile-panel", "property": "isOpen", "value": true },
+        { "type": "object_state", "target": "actuator", "property": "isSwitchedOn", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "turnstile-unlocked", "value": true },
+        { "type": "unlock_exit", "target": "wooden-turnstile", "value": "inner-cement-structure" }
+      ],
+      "hint": "Check the panel on the turnstile.",
+      "logosExperiment": "Agent manipulates mechanical systems"
+    },
+    {
+      "id": "platform-shift",
+      "name": "Reality Inversion",
+      "description": "Unscrew the electric bulbs to reveal the modern, broken subway layer",
+      "conditions": [
+        { "type": "room", "target": "platform-55", "value": true },
+        { "type": "object_state", "target": "electric-bulbs", "property": "isScrewed", "value": false }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "platform-dark-mode", "value": true },
+        { "type": "trigger_event", "target": "reality-shift" },
+        { "type": "reveal_object", "target": "graffiti", "value": true },
+        { "type": "reveal_object", "target": "trashcan", "value": true }
+      ],
+      "hint": "The bulbs look like they can be unscrewed to plunge the station into darkness.",
+      "logosExperiment": "Agent manipulates light to perceive alternate timelines"
+    },
+    {
+      "id": "search-trashcan",
+      "name": "Scavenge Fragment",
+      "description": "Search the trashcan in the dark reality to find the newspaper",
+      "conditions": [
+        { "type": "flag", "target": "platform-dark-mode", "value": true },
+        { "type": "object_state", "target": "trashcan", "property": "isSearched", "value": true }
+      ],
+      "onSolve": [
+        { "type": "inventory", "target": "balled-up-newspaper", "value": true }
+      ],
+      "hint": "There is a rusted trashcan visible only when the lights are off.",
+      "logosExperiment": "Agent retrieves objects hidden in specific reality phases",
+      "dependsOn": ["platform-shift"]
+    },
+    {
+      "id": "unfold-newspaper",
+      "name": "Paper Reveal",
+      "description": "Unfold the balled up newspaper to reveal the comic page",
+      "conditions": [
+        { "type": "inventory", "target": "balled-up-newspaper", "value": true },
+        { "type": "object_state", "target": "balled-up-newspaper", "property": "isOpen", "value": true }
+      ],
+      "onSolve": [
+        { "type": "move_object", "target": "comic-page-3", "value": "platform-55" },
+        { "type": "trigger_event", "target": "dream:getPageThree" }
+      ],
+      "hint": "Maybe there is something inside the balled up paper.",
+      "logosExperiment": "Agent performs multi-step object deconstruction",
+      "dependsOn": ["search-trashcan"]
+    },
+    {
+      "id": "shift-reality-light",
+      "name": "Reality Restoration",
+      "description": "Screw the bulbs back in to return to the vintage subway layer",
+      "conditions": [
+        { "type": "room", "target": "platform-55", "value": true },
+        { "type": "object_state", "target": "electric-bulbs", "property": "isScrewed", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "platform-dark-mode", "value": false },
+        { "type": "trigger_event", "target": "reality-shift-vintage" }
+      ],
+      "hint": "The station fades back into its classic form when the bulbs are tightened.",
+      "logosExperiment": "Agent toggles between reality states to compare data"
+    },
+    {
+      "id": "ride-train",
+      "name": "Transit",
+      "description": "Travel to Platform 89 via the subway car",
+      "conditions": [
+        { "type": "room", "target": "subway-interior", "value": true }
+      ],
+      "onSolve": [
+        { "type": "move_object", "target": "player", "value": "platform-89" }
+      ],
+      "hint": "Wait for the train and get on.",
+      "logosExperiment": "Agent navigates transport systems"
+    },
+    {
+      "id": "access-tracks",
+      "name": "Leap of Faith",
+      "description": "Jump onto the tracks at Platform 89",
+      "conditions": [
+        { "type": "room", "target": "platform-89", "value": true }
+      ],
+      "onSolve": [
+        { "type": "move_object", "target": "player", "value": "platform-tracks" }
+      ],
+      "hint": "Jump onto the tracks.",
+      "logosExperiment": "Agent takes calculated physical risks",
+      "dependsOn": ["ride-train"]
+    },
+    {
+      "id": "get-crowbar",
+      "name": "Acquire Tool",
+      "description": "Find the crowbar in the hidden compartment by manipulating the panels",
+      "conditions": [
+        { "type": "room", "target": "subway-interior", "value": true },
+        { "type": "object_state", "target": "white-panels", "property": "isSwitchedOn", "value": false }
+      ],
+      "onSolve": [
+        { "type": "reveal_object", "target": "emergency-compartment", "value": true },
+        { "type": "inventory", "target": "crowbar", "value": true }
+      ],
+      "hint": "Push the glowing panels in the train.",
+      "logosExperiment": "Agent interacts with futuristic interfaces"
+    },
+    {
+      "id": "access-maintenance",
+      "name": "Force Entry",
+      "description": "Break into the maintenance area",
+      "conditions": [
+        { "type": "inventory", "target": "crowbar", "value": true },
+        { "type": "room", "target": "north-tracks", "value": true }
+      ],
+      "onSolve": [
+        { "type": "unlock_exit", "target": "maintenance-door", "value": "service-passage" }
+      ],
+      "hint": "Use the crowbar on the door.",
+      "logosExperiment": "Agent uses physical force to bypass barriers",
+      "dependsOn": ["get-crowbar", "access-tracks"]
+    }
+  ]
+}

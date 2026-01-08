@@ -9,7 +9,7 @@ describe("Session API", () => {
       expect(user.id).toBeTruthy();
       expect(user.handle).toMatch(/^test-session-user-/);
       expect(user.agentId).toBeTruthy();
-      expect(user.agentId).toMatch(/^TST-/);
+      expect(user.agentId).toMatch(/^T[A-Z0-9]+/);
     });
 
     it("should generate unique agentIds for different users", async () => {

@@ -1,0 +1,300 @@
+{
+  "$schema": "../object.schema.json",
+  "region": "Subway System",
+  "objects": [
+    {
+      "id": "wooden-turnstile",
+      "name": "wooden turnstile",
+      "aliases": ["turnstile"],
+      "description": "Though seeming from another time or even another dimension, this turnstile appears to be brand new. It is an odd combination of wood and metal woven together. It has bars that should rotate, obviously blocked by some kind of internal locking mechanism. Plates and panels cover it. It sits inert and lifeless, stopping you from getting through. A turnstile stands between you and the escalator.",
+      "location": "outer-cement-structure",
+      "properties": {
+        "isFixed": true,
+        "isLockable": true,
+        "isLocked": true
+      },
+      "interactions": {
+        "burn": "The wooden turn stiles burst into flames after prolonged exposure to the flame. The fire flows up the bars, consuming everything in its path. The air becomes choked with smoke. You realize that there is nowhere for you to go as the flames surround you in this enclosed space."
+      }
+    },
+    {
+      "id": "turnstile-panel",
+      "name": "turnstile panel",
+      "aliases": ["panel"],
+      "description": "A small hinged panel, slightly different from the rest, adorns the side of the turnstile.",
+      "location": null,
+      "containedIn": "wooden-turnstile",
+      "properties": {
+        "isOpenable": true,
+        "isOpen": false,
+        "isContainer": true,
+        "isScenery": true
+      }
+    },
+    {
+      "id": "actuator",
+      "name": "actuator",
+      "aliases": ["turnstile actuator"],
+      "description": "A small actuator for switching the turnstile on and off. It is currently off",
+      "location": null,
+      "containedIn": "turnstile-panel",
+      "properties": {
+        "isSwitchable": true,
+        "isSwitchedOn": false,
+        "isScenery": true
+      },
+      "interactions": {
+        "switchOn": "The turnstile hums to life, warm and vibrant and electric. You hear a gentle click as the bars unlock.",
+        "switchOff": "The turnstile slows to a still as the life is drained from it. A click sound suggests that the bars are now locked again."
+      }
+    },
+    {
+      "id": "metal-doors",
+      "name": "metal doors",
+      "aliases": ["doors"],
+      "description": "Large metal doors lie in the west.",
+      "location": "outer-cement-structure",
+      "properties": {
+        "isFixed": true
+      }
+    },
+    {
+      "id": "wooden-escalator",
+      "name": "wooden escalator",
+      "aliases": ["escalator"],
+      "description": "A beautiful work of craftsmanship. A relic of a past where things were made by hand and of the finest materials. It is in perfect condition, as though it were just made yesterday. Polished wooden stairs appear out of the floor leading slowly downwards. There is a gentle clacking sound of the mechanics creating a hypnotizing effect. In the center of the space an escalator descends downwards into a inky blackness, nameless and unknown, waiting to pull you down into its dark depths",
+      "location": "inner-cement-structure",
+      "properties": {
+        "isFixed": true
+      }
+    },
+    {
+      "id": "yellowing-tiles",
+      "name": "yellowing tiles",
+      "aliases": ["tiles"],
+      "description": "Old tiles covering the walls.",
+      "location": "inner-cement-structure",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "old-chipped-paint",
+      "name": "old chipped paint",
+      "aliases": ["paint"],
+      "description": "It is old and broken up, but as you squint you think you can make out the letters KI, FEL, and an X",
+      "location": "inner-cement-structure",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "electric-bulbs",
+      "name": "electric bulbs",
+      "aliases": ["bulbs"],
+      "description": "They flicker occasionally, but give off a warm yellow glow. They look like you might be able to unscrew them. Flickering bulbs protrude from the walls along the subway platform.",
+      "location": "platform-55",
+      "properties": {
+        "isLit": true
+      },
+      "customState": {
+        "isScrewed": true
+      },
+      "interactions": {
+        "unscrew": "The bulb flickers for one last moment, and then dies. The tunnels are plunged into almost total blackness. However, as your eyes adjust, you can begin to make out shapes that weren't there before.",
+        "screw": "The bulbs burst to life again, giving off that beautiful gentle glow of old edison lightbulbs. The platform around you seems to fade back into its classic form."
+      }
+    },
+    {
+      "id": "trashcan",
+      "name": "trashcan",
+      "aliases": ["trash can"],
+      "description": "It reminds you of so many of the problems you see in the world, overflowing as it does with garbage and other refuse, neglected and abandoned. The world seems to be crumbling under the weight of its own ignorance and apathy, a system that produces so much waste that it can't even contain it any more.",
+      "location": "platform-55",
+      "properties": {
+        "isContainer": true,
+        "isOpen": true,
+        "isFixed": true,
+        "isScenery": true
+      },
+      "interactions": {
+        "search": "You find an old balled up newspaper that looks like it might have some useful information on it."
+      }
+    },
+    {
+      "id": "balled-up-newspaper",
+      "name": "balled up newspaper",
+      "aliases": ["newspaper"],
+      "description": "A balled up old newspaper. You try to read it but you can't make out the date, and the words of the page can't quite hold still. Maybe there is something more informative inside it.",
+      "location": null,
+      "containedIn": "trashcan",
+      "properties": {
+        "isOpenable": true,
+        "isOpen": false
+      },
+      "interactions": {
+        "open": "You unfold the newspaper and something slips out, gliding gently onto the platform below you."
+      }
+    },
+    {
+      "id": "comic-page-3",
+      "name": "Comic Page Three",
+      "aliases": ["page three", "comic three"],
+      "description": "Yet another comic book page. It seems to depict you in it, though on this one there also seems to be voices speaking from somewhere else about you. Whose voices are they, and what do they want? It unnerves you every time you look at it. Where did it even come from? Who made it? How did they know who you were, and what would happen to you? You see another piece of paper lying on the dirty floor of the subway. At the bottom you make out the number three. It appears to be the third comic page",
+      "location": null,
+      "containedIn": "balled-up-newspaper",
+      "properties": {}
+    },
+    {
+      "id": "graffiti",
+      "name": "graffiti",
+      "aliases": ["writing"],
+      "description": "Once this would have been brightly colored, but now is is worn and faded and chipped. As you look at it, shapes and faces emerge. You swear you can make out loved ones and friends amongst them. Words seem to fade in and out throughout the graffiti. Amidst it all though you can make out two words - SIRIUS SPEAKS",
+      "location": "platform-55",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "decaying-cables",
+      "name": "decaying cables",
+      "aliases": ["cables"],
+      "description": "Old cables running over the ceiling and along parts of the wall, once vital to the functioning of this bustling subway, now dead and inert, slowly returning back to the elements they were conjured from. No more electricity or data flows through them. They are relics of a world seemingly long gone. You wonder at this. When are you? Why does it seem the world you thought you knew is dead and passed?",
+      "location": "platform-55",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "dreaming-subway",
+      "name": "dreaming subway",
+      "aliases": ["subway", "train"],
+      "description": "There appears to be a subway here, though it is hard to make out what it is. As you stare at it, you can't make out the details. One moment it is a brand new vintage subway. The next a dilapidated modern one. And after that, something you can hardly understand. These three seem to exist in space all at the same time.",
+      "location": "platform-55",
+      "properties": {
+        "isFixed": true
+      },
+      "interactions": {
+        "enter": "You step into the subway car."
+      }
+    },
+    {
+      "id": "ads",
+      "name": "ads",
+      "aliases": ["advertisements"],
+      "description": "Having trouble with temporal distortion? Reality not behaving the way you want it to? Try our new and improved Ubik, now with longer shelf life! Spray away the lies and find the truth. Use only as directed.",
+      "location": "subway-interior",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "train-time",
+      "name": "train time",
+      "aliases": ["time"],
+      "description": "You have pondered about time before, but here everything you thought you knew about it doesn't apply. You can no longer tell of you are in the past, in the present or the future; or for that matter, if you even are at all. Time seems to be something different here, as though it were trying to silently point you towards some revelation, some apocalypse, that is always just a breadth away if you could but grasp at it. You remember a William Blake quote: 'Eternity is in love with the productions of time.' Is that what this is, some sort of factory, the machinations of time turning eternity into art, or into... something else?",
+      "location": "subway-interior",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "emergency-compartment",
+      "name": "emergency compartment",
+      "aliases": ["compartment"],
+      "description": "You look more closely, but for some reason the compartment remains fuzzy, indistinct, a composite of multiple timelines. You make out, from the glow of the panels, a small compartment with the word 'emergency' in big red letters on it.",
+      "location": "subway-interior",
+      "properties": {
+        "isContainer": true,
+        "isOpenable": true,
+        "isOpen": false,
+        "isFixed": true
+      }
+    },
+    {
+      "id": "crowbar",
+      "name": "crowbar",
+      "aliases": ["bar"],
+      "description": "An old rusted crowbar, about the length of your arm, made out of solid steel. It must be here in case of emergencies on the tracks.",
+      "location": null,
+      "containedIn": "emergency-compartment",
+      "properties": {}
+    },
+    {
+      "id": "white-panels",
+      "name": "white panels",
+      "aliases": ["panels"],
+      "description": "White hexagonal panels cover almost every surface, and they sit, inert but in anticipation of life. They are made out of some substance you can't quite understand. They feel insubstantial, almost like they were made of air itself, yet paradoxically they also seem to have an immense weight to them, as though they were made of metal and glass.",
+      "location": "subway-interior",
+      "properties": {
+        "isScenery": true,
+        "isSwitchable": true,
+        "isSwitchedOn": false
+      },
+      "interactions": {
+        "push": "You push your hand into the panel, and it ripples with a rainbow of colors. It then fades into existence."
+      }
+    },
+    {
+      "id": "subway-seats",
+      "name": "subway seats",
+      "aliases": ["seats"],
+      "description": "Closer inspection reveals very little. The three appearances morph into one another. Though despite the appearances, you could probably sit down on it quite comfortably. You think you are looking at seating of some kind. They seem to be quite lush fabric cushions made out of hard plastic and glowing with an internal luminescence. Like everything else they can't be pinned down.",
+      "location": "subway-interior",
+      "properties": {
+        "isFixed": true
+      }
+    },
+    {
+      "id": "digital-wall",
+      "name": "digital wall",
+      "aliases": ["wall", "screen"],
+      "description": "A beautiful field with a child running through it towards her mother. Behind her is a glorious sun setting over a deep valley between two mountain ranges. Her mother grabs her and hoists her into the air. She laughs. The wind swirls here hair and ruffles her dress. The mother is smiling. The scene cuts to rows of glowing computer servers. A voiceover comes in. 'Here at Oneirocom we take your reality very seriously'. Cut to a team of researchers sitting behind holographic displays, data swirling by them. 'Our teams of top professionals ensure the highest quality to your simulations so that you and your family can focus on the special moments that really matter.' Cut to nebulas in space. 'No matter where you want to be, Oneirocom can take you there. Your imagination is the only limit. As real as anything else is.' A swirling logo appears on the screen. Oneirocom. We makes dreams reality.",
+      "location": "platform-89",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "tracks",
+      "name": "tracks",
+      "aliases": ["subway tracks"],
+      "description": "The tracks run north and south into the blackness of the tunnels. They are lower than the main platform. Maybe you can find some way to get onto them.",
+      "location": "platform-89",
+      "properties": {
+        "isScenery": true
+      },
+      "interactions": {
+        "jump": "You jump down onto the tracks."
+      }
+    },
+    {
+      "id": "maintenance-door",
+      "name": "maintenance door",
+      "aliases": ["door"],
+      "description": "What looks like it might be a maintenance door. A slab of steel set into the side of the subway tunnel. You can see no visible handle or key hole in the door. Very different from the bright and shining futuristic platform just up the tracks from you.",
+      "location": "north-tracks",
+      "properties": {
+        "isLockable": true,
+        "isLocked": true,
+        "isOpenable": true,
+        "isFixed": true
+      },
+      "interactions": {
+        "pry": "You shove the crowbar into the door slot and pull with all your strength. At first it doesn't seem to work, but eventually you feel a shudder, hear a crack and the door pops open."
+      }
+    },
+    {
+      "id": "service-ladder",
+      "name": "service ladder",
+      "aliases": ["ladder"],
+      "description": "The ladder appears well cared for, though perhaps infrequently used. You can make out a circular shape in the floor, hiding the service ladder, which you know leads down to the service passage.",
+      "location": "service-passage",
+      "properties": {
+        "isOpenable": true,
+        "isOpen": true,
+        "isFixed": true
+      }
+    }
+  ]
+}

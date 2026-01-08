@@ -143,7 +143,7 @@ export function TerminalCanvas() {
     };
   }, []); // Only run once on mount
 
-  // Handle resize
+  // Handle resize - use ResizeObserver for reliable container size detection
   useEffect(() => {
     function handleResize() {
       if (!canvasRef.current || !containerRef.current || !terminalRef.current)
@@ -151,13 +151,32 @@ export function TerminalCanvas() {
 
       const container = containerRef.current;
       const rect = container.getBoundingClientRect();
-      terminalRef.current.resize(rect.width, rect.height);
+      // Only resize if we have valid dimensions
+      if (rect.width > 0 && rect.height > 0) {
+        terminalRef.current.resize(rect.width, rect.height);
+      }
+    }
+
+    // Use ResizeObserver for container size changes (more reliable than window resize alone)
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
     }
 
     window.addEventListener("resize", handleResize);
-    handleResize(); // Initial resize
 
-    return () => window.removeEventListener("resize", handleResize);
+    // Initial resize with a small delay to ensure layout is complete
+    handleResize();
+    const delayedResize = setTimeout(handleResize, 100);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      resizeObserver.disconnect();
+      clearTimeout(delayedResize);
+    };
   }, []); // Only run once on mount
 
   // Add click to focus hidden input
@@ -200,8 +219,22 @@ export function TerminalCanvas() {
 
       if (!terminalRef.current) return;
 
+      // Handle Enter key specially - need to process command, not just buffer
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const command = terminalRef.current.inputHandler?.getInputBuffer() || "";
+        terminalRef.current.inputHandler?.setBuffer("");
+        terminalRef.current.processCommand(command);
+        terminalRef.current.scrollToLatest();
+
+        // Sync hidden input
+        if (hiddenInputRef.current) {
+          hiddenInputRef.current.value = "";
+        }
+        return;
+      }
+
       if (
-        e.key === "Enter" ||
         e.key === "Backspace" ||
         e.key === "ArrowUp" ||
         e.key === "ArrowDown" ||

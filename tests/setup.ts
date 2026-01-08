@@ -14,8 +14,8 @@ export const testPrisma = new PrismaClient({
 export async function createTestUser(handlePrefix?: string) {
   const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const id = `test-user-${uniqueSuffix}`;
-  // Use more random characters to avoid collisions
-  const agentId = `TST-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  // Use timestamp + random to guarantee uniqueness
+  const agentId = `T${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
   // Always make handle unique to avoid conflicts in parallel tests
   const handle = handlePrefix ? `${handlePrefix}-${uniqueSuffix}` : `test-${uniqueSuffix}`;
 

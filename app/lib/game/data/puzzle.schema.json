@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Puzzle File",
+  "description": "A collection of puzzles for a region/layer",
+  "type": "object",
+  "required": ["region", "puzzles"],
+  "properties": {
+    "region": {
+      "type": "string",
+      "description": "The game region these puzzles belong to"
+    },
+    "layer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "Trust layer required to encounter these puzzles"
+    },
+    "puzzles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/puzzle"
+      }
+    }
+  },
+  "definitions": {
+    "puzzle": {
+      "type": "object",
+      "required": ["id", "name", "conditions", "onSolve"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Unique puzzle identifier (kebab-case)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable puzzle name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional longer description of the puzzle"
+        },
+        "conditions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/condition" },
+          "description": "All conditions must be true for puzzle to be solved"
+        },
+        "onSolve": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/effect" },
+          "description": "Effects triggered when puzzle is solved"
+        },
+        "hint": {
+          "type": "string",
+          "description": "Optional hint for the player"
+        },
+        "logosExperiment": {
+          "type": "string",
+          "description": "LOGOS behavioral hypothesis this puzzle tests"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Puzzle IDs that must be solved first"
+        }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "required": ["type", "target", "value"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["object_state", "object_location", "flag", "inventory", "room"]
+        },
+        "target": {
+          "type": "string",
+          "description": "ID of the object/flag/room to check"
+        },
+        "property": {
+          "type": "string",
+          "description": "Property path to check (for object_state)"
+        },
+        "value": {
+          "description": "Expected value for the condition"
+        }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "required": ["type", "target"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["unlock_exit", "reveal_object", "set_flag", "move_object", "change_description", "trigger_event"]
+        },
+        "target": {
+          "type": "string",
+          "description": "ID of the target to affect"
+        },
+        "value": {
+          "description": "New value or destination"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "../room.schema.json",
+  "region": "Dream Realm",
+  "layer": 2,
+  "rooms": [
+    {
+      "id": "dream-bedroom",
+      "name": "Dream Bedroom",
+      "description": "You find yourself in your bedroom again, or what you think is your bedroom, which you were just lying down in. But nothing is as it was and yet everything is exactly how it is. The furniture around you seems vague, almost fuzzy. You can just barely make out your desk and the bookshelf, but they remain insubstantial and out of focus. You feel a little strange, as though you were just an observer drifting through the world. You make out the vague appearance of a desk, similar to yours in almost every way, yet completely different. You have a hard time making out any details of it, aside from knowing somehow that it is the same as your own desk. The bed you just went to sleep on is in the room, though also seems to be the entire room itself in some weird way. North in the room is a solid wooden door. Out of the open door you can see what looks like trees larger than any you have seen in your life. It is shut, barring the way.",
+      "isDark": false,
+      "exits": [
+        { "direction": "north", "destination": "forest", "isLocked": false }
+      ],
+      "objects": ["dream-self", "dream-desk", "dream-bed", "dream-door"]
+    },
+    {
+      "id": "forest",
+      "name": "Towering Forest",
+      "description": "Enormous trees surround you, stretching up around you like silent giants, a vast landscape of wooden and organic skyscrapers. From each tree you can see what looks like massive ruby colored pitcher plants hanging. As you step amidst of these immense wooden pillars you can feel how ancient they are, almost eternal in their very nature. They seem as though they could have been standing for all of eternity, silently watching. They could be holding up the entire vault of heaven, Shrubs are dotted all around you and piles of leaves litter the forest floor. Stretching east a path continues on amidst the trees. In the south, there is a door in a tree.",
+      "isDark": false,
+      "exits": [
+        { "direction": "east", "destination": "clearing", "isLocked": false },
+        { "direction": "south", "destination": "dream-bedroom", "isLocked": false }
+      ],
+      "objects": ["tree-door", "shrubs", "pitcher-plants", "pile-of-leaves", "tall-trees"]
+    },
+    {
+      "id": "clearing",
+      "name": "The Clearing",
+      "description": "The path stretches onwards weaving through the massive trees. Light breaks through the canopy dotting the landscape around you. As you walk, you are struck by the unnatural beauty of the space. Nature here sparkles with its own sort of iridescent beauty, as though infinity were inscribed into every jewel of light that strikes your eye. The path eventually ends, leading up to a large cement structure. It has no windows anywhere that you can use to see in. Vines grow all over the structure, as though it were rising out of the ground and the forest was trying to consume it again. It sticks out from everything around it.",
+      "isDark": false,
+      "exits": [
+        { "direction": "east", "destination": "outer-cement-structure", "isLocked": true, "lockedMessage": "The vines bar your way going east." }
+      ],
+      "objects": ["cement-building", "subway-entrance", "subway-vines"]
+    }
+  ]
+}

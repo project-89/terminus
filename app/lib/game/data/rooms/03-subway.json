@@ -1,0 +1,91 @@
+{
+  "$schema": "../room.schema.json",
+  "region": "Subway System",
+  "layer": 3,
+  "rooms": [
+    {
+      "id": "outer-cement-structure",
+      "name": "Outer Cement Structure",
+      "description": "Inside the cement structure, fluorescent lights flicker around you. A wave of odors strike your nostrils with a musty smell, as though no one had stepped foot in here in centuries. As your eyes adjust, you can make out, rising up from ground to ceiling, old wooden bars, in the middle of which is an opening. The opening contains a wooden turnstile, sitting inert and barring your way. Beyond it, you can see an antique wooden escalator.",
+      "isDark": false,
+      "exits": [
+        { "direction": "west", "destination": "clearing", "isLocked": false },
+        { "direction": "north", "destination": "inner-cement-structure", "isLocked": true, "lockedMessage": "The turnstile bars your way." }
+      ],
+      "objects": ["wooden-turnstile", "metal-doors"]
+    },
+    {
+      "id": "inner-cement-structure",
+      "name": "Inner Cement Structure",
+      "description": "The walls around you are covered in yellowing tiles, old chipped paint that seems to be peeling off the walls, and exposed brick behind cracking cement. It almost feels as though you have entered into a past that didn't quite get a chance to exist. A deep sense of nostalgia fills you as you take in your surroundings. It feels so oddly familiar, as though it were out of a book you had read years ago, or out of a movie you had seen but can't remember. The thought of it remains at the edge of your consciousness like a word on the tip of your tongue. It seems like a world away from the forest outside.",
+      "isDark": false,
+      "exits": [
+        { "direction": "south", "destination": "outer-cement-structure", "isLocked": false },
+        { "direction": "west", "destination": "platform-55", "isLocked": false }
+      ],
+      "objects": ["wooden-escalator", "yellowing-tiles", "old-chipped-paint"]
+    },
+    {
+      "id": "platform-55",
+      "name": "Platform 55",
+      "description": "You find yourself in a beautiful ornate subway station, a vintage design that hasn't existed for almost a century. Electric lights along the walls flicker intermittently, illuminating the space in bursts. In beautiful tiled mosaic you can make out, amidst the flickering lights, the words 'Platform 55'. You notice something strange, however. Between flickers of the lights, the whole station changes. While the lights are on you see the classic subway, but while they are off you can dimly make out a a modern subway, graffiti sprawled across the walls, litter scattered across the floor. The worlds cycle between each other as the light pulses. The tunnel curves off north and south in front of you.",
+      "darkDescription": "You find yourself standing in a broken down old subway station. Graffiti covers all of the walls. Piles of trash are scattered all over the ground. Against one wall, you see an old beat up trashcan, rusted and dilapidated and overflowing with garbage. It obviously has not been emptied in decades. Some of the papers in it look like they could crumble at a touch. A sad sight. You can make out decaying cables running up the walls and along the ceiling. The air smells musty and old; much older than the vintage subway station did. It feels as though it has been millennia since anyone has stepped foot here. The tunnel curves off north and south in front of you.",
+      "isDark": false,
+      "exits": [
+        { "direction": "east", "destination": "inner-cement-structure", "isLocked": false }
+      ],
+      "objects": ["electric-bulbs", "trashcan", "graffiti", "decaying-cables", "dreaming-subway"]
+    },
+    {
+      "id": "subway-interior",
+      "name": "Subway Interior",
+      "description": "You find yourself in a subway car that seems to have multiple timelines overlaid on one another, almost holographically super imposed and interlaced. As you speed through the tunnels it shifts and changes. You can make out a beaten up plastic interior super imposed onto beautiful velvet and wooden features. The floor both is stained and dirty linoleum as well as a soft and lush art nouveau patterned carpet. You make out glowing white panels, smooth and calming, amidst it all as well. You look around, ads litter the space. Some animated on glowing screens, others printed on poster board.",
+      "isDark": false,
+      "exits": [
+        { "direction": "out", "destination": "platform-55", "isLocked": false }
+      ],
+      "objects": ["ads", "train-time", "emergency-compartment", "white-panels", "subway-seats"]
+    },
+    {
+      "id": "platform-89",
+      "name": "Platform 89",
+      "description": "Around you shines the perfect image of the future. The walls are lined with glowing white hexagonal tiles. Large typography adorns the hexagonal tiles spelling out 'Platform 89'. Why does that number seem so familiar to you? You look around more. You can see no stairs, at least not visible to you. There appears to be almost no features of any kind that you can make out. The only distinct detail is an entire digital wall which is animated with advertising, and the tracks running off into the darkness to the north and south",
+      "isDark": false,
+      "exits": [],
+      "objects": ["digital-wall", "tracks"]
+    },
+    {
+      "id": "platform-tracks",
+      "name": "Platform Tracks",
+      "description": "You are looking up at the platform, glowing with the gentle light of the stations walls. Below your feet you can see the tracks running north and south into the blackness of the tunnels. An old musty smell drifts into your nostrils, blown by a gentle breeze coming from somewhere in their depths.",
+      "isDark": false,
+      "exits": [
+        { "direction": "up", "destination": "platform-89", "isLocked": false },
+        { "direction": "north", "destination": "north-tracks", "isLocked": false }
+      ],
+      "objects": []
+    },
+    {
+      "id": "north-tracks",
+      "name": "North Tracks",
+      "description": "You can make out the walls of the tunnel around you, near black cement structures, holding up the immense weight of the world above, allowing the subway to weave its course through the cthonic tunnels. You ponder on what labyrinths lie veiled by that darkness. Like reality itself, it offers up an almost infinite number of possibilities to the imagination. To the east you make out what looks like a maintenance door.",
+      "isDark": true,
+      "exits": [
+        { "direction": "south", "destination": "platform-tracks", "isLocked": false },
+        { "direction": "east", "destination": "service-passage", "isLocked": true, "lockedMessage": "The maintenance door is locked." }
+      ],
+      "objects": ["maintenance-door"]
+    },
+    {
+      "id": "service-passage",
+      "name": "Service Passage",
+      "description": "You are in a narrow confined space, perhaps the size of a large closet. The walls are clean and bare.",
+      "isDark": false,
+      "exits": [
+        { "direction": "west", "destination": "north-tracks", "isLocked": false },
+        { "direction": "up", "destination": "control-lab", "isLocked": false }
+      ],
+      "objects": ["service-ladder"]
+    }
+  ]
+}

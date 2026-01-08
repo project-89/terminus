@@ -1,0 +1,108 @@
+{
+  "$schema": "../object.schema.json",
+  "region": "OneirOS",
+  "objects": [
+    {
+      "id": "void",
+      "name": "The Void",
+      "aliases": ["void"],
+      "description": "All around you is a vast expanse of infinite light pregnant with possibility. All things are born here, from the very essence of your own being. You are clothed in the ultimate nature of all phenomena, and yet stand separate from it all. The Void is a positive quality of nothingness, contrasted against your current state of existential nakedness, having no body or quality to identify with. If you could somehow become the void, you would at least have some sense of identity.",
+      "location": "empty-space",
+      "properties": {
+        "isWearable": true,
+        "isScenery": true
+      },
+      "interactions": {
+        "wear": "You slip into the Void, it engulfs you as you infinitely expand into it. You have something positive to anchor your identity to. You become the Void. Not only do you feel different, the world apparently outside of you, which is your own body, seems different.",
+        "listen": "The ears you have become aware of are filled with the sounds of the void. They resonate and hum with the beauty of the passage of emptiness over emptiness."
+      }
+    },
+    {
+      "id": "vision",
+      "name": "The Vision",
+      "aliases": ["visions"],
+      "description": "A mass of swirling colors and dancing lights engulfs your vision as it pulses in towards you from the vast expanse of the empty space. Every color of the rainbow fades in and out of existence. The pulsing gets stronger and faster. You can make out shapes. A vision dances around you, phosphorescent and mesmerizing.",
+      "location": "empty-space",
+      "properties": {
+        "isFixed": true
+      },
+      "interactions": {
+        "examine": "You examine the visions, and shapes begin to materialize."
+      }
+    },
+    {
+      "id": "shapes",
+      "name": "Shapes",
+      "aliases": ["shape"],
+      "description": "You can make out distinct objects. A scene starts to come into being, as though materializing out of the very nothingness of the void which is your self. Shapes, vague and out of focus, fade in and out of the space around you. You can make out faint contours and patterns in the swirling mass of light, but it is blurry. It just looks like the sun reflecting off of rippling water. You sense that you could focus on the shapes with concentrated thought.",
+      "location": "empty-space",
+      "properties": {
+        "isFixed": true
+      },
+      "customState": {
+        "isFocused": false
+      },
+      "interactions": {
+        "focus": "Your eyes adjust around you and the swirling masses beginning to crystallize. Everything becomes clearer and the shapes start to feel familiar. They seem close enough to touch.",
+        "touch": "You grope around you. It is soft and slightly warm. There is a sense of familiarity in your surroundings. You are comfortable and relaxed, wherever you are. You can feel something pressing against your temples.",
+        "smell": "There is a LIght fragrance of freSh spring air, a crisp coolness to The smell. You can also smell the incrEasing odor of old lauNdry."
+      }
+    },
+    {
+      "id": "interface",
+      "name": "The Interface",
+      "aliases": ["interface", "device", "headset"],
+      "description": "The interface has a sleek and smooth design. It weighs almost nothing. It is a perfect example of modern, minimalist design. You reach upwards with what you understand to be your hands to what feels like a head. You can feel something around it comfortably resting. It is sleek and smooth. It rests around your cranium, stopping at your temples. It weighs almost nothing and is barely perceptible to you.",
+      "location": "empty-space",
+      "properties": {
+        "isWearable": true
+      },
+      "interactions": {
+        "remove": "You find the edges of the device and you gently lift it off your head. It comes off with little resistance, the sensors and adapters being perfectly adapted to the human head. You begin to come to your senses as your sense of self finally crystallizes again into what you remember to be your normal form, or so you believe. You have vague memories of having been somewhere (or was it nowhere?), but the experience is slipping away from you like some dream as you find yourself somewhere new."
+      }
+    },
+    {
+      "id": "identity-self",
+      "name": "Identity",
+      "aliases": ["identity", "self"],
+      "description": "Your sense of self. As you turn in upon yourself, you become aware of your own lack of identity. There is a brief flash of light as you become aware of your own self as emptiness. Like a lightning flash, you are kindled into a luminous self awareness.",
+      "location": "empty-space",
+      "properties": {
+        "isScenery": true
+      },
+      "interactions": {
+        "examine": "As you turn in upon yourself, you become aware of your own lack of identity."
+      }
+    },
+    {
+      "id": "nothing-thing",
+      "name": "Nothingness",
+      "aliases": ["nothing", "nothingness"],
+      "description": "You try to comprehend nothingness, but without form or identity, even that escapes your grasp. You are the void - you contain nothing and are nothing, yet paradoxically you are also everything.",
+      "location": "empty-space",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "entirety",
+      "name": "The Entirety",
+      "aliases": ["infinity", "everything"],
+      "description": "Without form or identity, you cannot grasp the concept of everything. You are simply nothing, floating in nothingness. You are infinite, containing all possibilities within your vastness. You are the ground from which all things arise.",
+      "location": "empty-space",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "temples",
+      "name": "temples",
+      "aliases": ["temple"],
+      "description": "You can make out the sense of something around your head, resting gently over your temples. It is barely perceptible. It appears to be some kind of interface.",
+      "location": null,
+      "properties": {
+        "isScenery": true
+      }
+    }
+  ]
+}

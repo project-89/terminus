@@ -1,0 +1,112 @@
+{
+  "$schema": "../puzzle.schema.json",
+  "region": "OneirOS",
+  "layer": 0,
+  "puzzles": [
+    {
+      "id": "reflect-on-self",
+      "name": "Self Reflection",
+      "description": "Realize your own lack of identity to kindle self-awareness",
+      "conditions": [
+        { "type": "room", "target": "empty-space", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "self-reflection", "value": true },
+        { "type": "change_description", "target": "void", "value": "All around you is a vast expanse of infinite light pregnant with possibility..." }
+      ],
+      "hint": "Try examining yourself.",
+      "logosExperiment": "Agent demonstrates capability for self-referential thought"
+    },
+    {
+      "id": "become-void",
+      "name": "Become the Void",
+      "description": "Merge with the nothingness to find identity",
+      "conditions": [
+        { "type": "flag", "target": "self-reflection", "value": true },
+        { "type": "object_state", "target": "void", "property": "isWorn", "value": true }
+      ],
+      "onSolve": [
+        { "type": "reveal_object", "target": "vision", "value": true },
+        { "type": "move_object", "target": "vision", "value": "empty-space" }
+      ],
+      "hint": "If you are nothing, perhaps you should become nothing.",
+      "logosExperiment": "Agent attempts metaphysical union with abstract concepts",
+      "dependsOn": ["reflect-on-self"]
+    },
+    {
+      "id": "materialize-vision",
+      "name": "Materialize Vision",
+      "description": "Observe the visions to bring reality into focus",
+      "conditions": [
+        { "type": "object_state", "target": "void", "property": "isWorn", "value": true }
+      ],
+      "onSolve": [
+        { "type": "move_object", "target": "shapes", "value": "empty-space" }
+      ],
+      "hint": "Examine the visions dancing around you.",
+      "logosExperiment": "Agent observes pattern emergence from chaos",
+      "dependsOn": ["become-void"]
+    },
+    {
+      "id": "focus-shapes",
+      "name": "Focus Reality",
+      "description": "Concentrate on the vague shapes to solidify them",
+      "conditions": [
+        { "type": "room", "target": "empty-space", "value": true },
+        { "type": "object_state", "target": "shapes", "property": "isFocused", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "shapes-focused", "value": true },
+        { "type": "change_description", "target": "shapes", "value": "You can make out distinct objects..." }
+      ],
+      "hint": "Focus on the shapes.",
+      "logosExperiment": "Agent exerts will to stabilize reality",
+      "dependsOn": ["materialize-vision"]
+    },
+    {
+      "id": "acquire-interface",
+      "name": "Discover Interface",
+      "description": "Tactile interaction with the solidified reality reveals the interface",
+      "conditions": [
+        { "type": "flag", "target": "shapes-focused", "value": true }
+      ],
+      "onSolve": [
+        { "type": "object_state", "target": "player", "property": "isWearing", "value": "interface" },
+        { "type": "reveal_object", "target": "temples", "value": true }
+      ],
+      "hint": "Touch the shapes.",
+      "logosExperiment": "Agent identifies control mechanisms in the environment",
+      "dependsOn": ["focus-shapes"]
+    },
+    {
+      "id": "retrieve-void-key",
+      "name": "Dimensional Retrieval",
+      "description": "Find the key that materialized from the crystal brought into the void",
+      "conditions": [
+        { "type": "room", "target": "empty-space", "value": true },
+        { "type": "object_state", "target": "small-key", "property": "location", "value": "empty-space" }
+      ],
+      "onSolve": [
+        { "type": "inventory", "target": "small-key", "value": true }
+      ],
+      "hint": "Something floating here matches the crystal you held.",
+      "logosExperiment": "Agent manipulates cross-dimensional persistence",
+      "dependsOn": ["acquire-interface"]
+    },
+    {
+      "id": "wake-up",
+      "name": "Wake Up",
+      "description": "Remove the simulation interface to return to the mundane world",
+      "conditions": [
+        { "type": "inventory", "target": "interface", "value": true }
+      ],
+      "onSolve": [
+        { "type": "trigger_event", "target": "wake-up-sequence" },
+        { "type": "move_object", "target": "player", "value": "mundane-bedroom" }
+      ],
+      "hint": "Remove the interface.",
+      "logosExperiment": "Agent demonstrates ability to exit simulation",
+      "dependsOn": ["acquire-interface"]
+    }
+  ]
+}

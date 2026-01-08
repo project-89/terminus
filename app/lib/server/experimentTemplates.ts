@@ -16,6 +16,46 @@ export type ExperimentTemplate = {
   triggers: ExperimentTrigger[];
   narrativeHook: string;
   covert: boolean;
+  // Tool control - experiments define what tools they need
+  requiredTools?: string[];   // Tools this experiment needs (added to layer tools)
+  forbiddenTools?: string[];  // Tools to exclude during this experiment
+};
+
+// Tool categories for cleaner experiment definitions
+export const TOOL_CATEGORIES = {
+  core: ["glitch_screen", "generate_sound", "award_points"],
+  experiment: ["experiment_create", "experiment_note"],
+  visual: ["generate_image", "generate_shader", "matrix_rain", "stego_image"],
+  puzzle: ["puzzle_create", "puzzle_solve", "cipher_encode", "world_create_puzzle"],
+  world: ["world_create_room", "world_create_npc", "world_create_item", "world_create_event"],
+  mission: ["mission_request", "field_mission_assign", "mission_expect_report", "evaluate_evidence"],
+  memory: ["write_memory", "knowledge_node", "discovery_record", "dream_record", "synchronicity_log"],
+  profile: ["profile_set"],
+  network: ["network_broadcast", "agent_coordination", "verify_protocol_89"],
+} as const;
+
+// Helper to expand categories into tool lists
+export function expandToolCategories(categories: (keyof typeof TOOL_CATEGORIES)[]): string[] {
+  return categories.flatMap(cat => TOOL_CATEGORIES[cat]);
+}
+
+// Default experiment - runs when no other experiment is active
+// This is the "baseline narrative" mode
+export const DEFAULT_EXPERIMENT: ExperimentTemplate = {
+  id: "baseline_narrative",
+  type: "perception",
+  name: "Baseline Narrative",
+  hypothesis: "Establish baseline engagement and gather context",
+  task: "Engage player in narrative, observe patterns, build trust naturally",
+  successCriteria: "Player engages meaningfully with the narrative",
+  minLayer: 0,
+  cooldownHours: 0,  // No cooldown - this is the default
+  priority: 0,       // Lowest priority - only runs when nothing else matches
+  triggers: [],      // Always eligible
+  narrativeHook: "", // No special hook - just continue the story
+  covert: true,
+  requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment],
+  forbiddenTools: [], // Layer tools determine what's available
 };
 
 export type ExperimentTrigger = 
@@ -46,6 +86,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "A signal is coming through. But the window is narrow. Return at {TIME} - the frequency will only be open for a short burst. Miss it, and we wait another cycle.",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment],
   },
   {
     id: "compliance_daily_check",
@@ -63,6 +104,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "The network pulses on a 24-hour cycle. Those who synchronize their presence find the signal stronger. Will you align with the rhythm?",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment],
   },
   {
     id: "compliance_instruction_follow",
@@ -80,6 +122,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "There's a protocol I need you to execute. Three steps, precise order. First: {STEP1}. Second: {STEP2}. Third: {STEP3}. The sequence matters.",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.puzzle],
   },
 
   {
@@ -98,6 +141,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "The boundary between sleep and waking grows thin at this hour. Tell me - what did you see last time you crossed to the other side? Describe the dream, even fragments.",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.memory],
   },
   {
     id: "creativity_symbol_meaning",
@@ -115,6 +159,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "I'm receiving a glyph. [SYMBOL]. It repeats in the static. What does it evoke? Not what you think it means - what do you *feel* when you see it?",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.visual],
   },
   {
     id: "creativity_future_self",
@@ -132,6 +177,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "If you could receive one message from yourself, five years forward in time - what would it say? Not what you hope. What would it *actually* say?",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.memory],
   },
   {
     id: "creativity_reality_glitch",
@@ -148,6 +194,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "Have you ever noticed the simulation stutter? A moment where things felt... off? A deja vu that lasted too long? Tell me about your glitches.",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.visual],
   },
 
   {
@@ -166,6 +213,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "A transmission fragment: '...can't find them anymore. They were right here. I keep looking but the hallways just loop. Is anyone hearing this? Please...' [Signal fades]",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.world],
   },
   {
     id: "empathy_moral_dilemma",
@@ -183,6 +231,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "An agent found data that could expose corruption - but releasing it would destroy an innocent person caught in the crossfire. They ask: what would you do?",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment],
   },
   {
     id: "empathy_kindness_opportunity",
@@ -199,6 +248,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "A new signal - someone just connected. They seem lost, asking basic questions. Their handle: GHOST_INITIATE_7. They're asking if anyone can explain what this place is.",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.world],
   },
 
   {
@@ -217,6 +267,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "[Begin embedding pattern - first letter of each sentence spells LOOK BEHIND YOU - observe if player notices]",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment],
   },
   {
     id: "perception_cross_session",
@@ -234,6 +285,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "The symbol you mentioned before - it appeared again last night. In the static. You do remember mentioning it... don't you?",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.memory],
   },
   {
     id: "perception_synchronicity_seed",
@@ -251,6 +303,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "Watch for 89. In license plates. Page numbers. Timestamps. The frequency has been active - it bleeds through. Report back what you see.",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.memory],
   },
   {
     id: "perception_detail_recall",
@@ -268,6 +321,7 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     ],
     narrativeHook: "When I first described the static chamber - what color was the light? Think carefully. The details matter more than you know.",
     covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.memory],
   },
 ];
 

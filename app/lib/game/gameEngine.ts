@@ -10,6 +10,15 @@ import {
   PUZZLES,
   getDefaultGameState,
 } from "./worldModel";
+import { loadPuzzles } from "./puzzleLoader";
+import { loadRooms } from "./roomLoader";
+import { loadObjects } from "./objectLoader";
+import {
+  convertWorldExtraction,
+  mergeDynamicContent,
+  connectRooms,
+} from "./dynamicWorldBridge";
+import { WorldExtraction } from "./narrativeParser";
 
 export type ActionResult = {
   success: boolean;
@@ -75,11 +84,58 @@ export class GameEngine {
   private objects: Record<string, ObjectState>;
   private puzzles: Puzzle[];
 
-  constructor(savedState?: GameState) {
+  constructor(savedState?: GameState, useHardcodedData = false) {
     this.state = savedState || getDefaultGameState();
-    this.rooms = JSON.parse(JSON.stringify(ROOMS));
-    this.objects = JSON.parse(JSON.stringify(OBJECTS));
-    this.puzzles = JSON.parse(JSON.stringify(PUZZLES));
+
+    // Use hardcoded data if explicitly requested or GAME_USE_HARDCODED env is set
+    const forceHardcoded = useHardcodedData || process.env.GAME_USE_HARDCODED === "true";
+
+    // Load rooms from JSON files, fall back to hardcoded if not available
+    if (forceHardcoded) {
+      this.rooms = JSON.parse(JSON.stringify(ROOMS));
+    } else {
+      try {
+        const loadedRooms = loadRooms();
+        if (loadedRooms.length > 0) {
+          this.rooms = {};
+          for (const room of loadedRooms) {
+            this.rooms[room.id] = JSON.parse(JSON.stringify(room));
+          }
+        } else {
+          this.rooms = JSON.parse(JSON.stringify(ROOMS));
+        }
+      } catch {
+        this.rooms = JSON.parse(JSON.stringify(ROOMS));
+      }
+    }
+
+    // Load objects from JSON files, fall back to hardcoded if not available
+    if (forceHardcoded) {
+      this.objects = JSON.parse(JSON.stringify(OBJECTS));
+    } else {
+      try {
+        const loadedObjects = loadObjects();
+        this.objects = Object.keys(loadedObjects).length > 0
+          ? JSON.parse(JSON.stringify(loadedObjects))
+          : JSON.parse(JSON.stringify(OBJECTS));
+      } catch {
+        this.objects = JSON.parse(JSON.stringify(OBJECTS));
+      }
+    }
+
+    // Load puzzles from JSON files, fall back to hardcoded if not available
+    if (forceHardcoded) {
+      this.puzzles = JSON.parse(JSON.stringify(PUZZLES));
+    } else {
+      try {
+        const loadedPuzzles = loadPuzzles();
+        this.puzzles = loadedPuzzles.length > 0
+          ? JSON.parse(JSON.stringify(loadedPuzzles))
+          : JSON.parse(JSON.stringify(PUZZLES));
+      } catch {
+        this.puzzles = JSON.parse(JSON.stringify(PUZZLES));
+      }
+    }
     
     if (savedState?.objectStates) {
       for (const [id, changes] of Object.entries(savedState.objectStates)) {
@@ -100,6 +156,123 @@ export class GameEngine {
 
   getObject(id: string): ObjectState | undefined {
     return this.objects[id];
+  }
+
+  // ============================================
+  // Dynamic World Manipulation (for AI/LOGOS)
+  // ============================================
+
+  /**
+   * Load dynamic content from a WorldExtraction (from session)
+   * Merges AI-created rooms/objects/puzzles with static content
+   */
+  loadDynamicWorld(world: WorldExtraction): void {
+    const dynamic = convertWorldExtraction(world);
+    const merged = mergeDynamicContent(
+      this.rooms,
+      this.objects,
+      this.puzzles,
+      dynamic.rooms,
+      dynamic.objects,
+      dynamic.puzzles
+    );
+    this.rooms = merged.rooms;
+    this.objects = merged.objects;
+    this.puzzles = merged.puzzles;
+    console.log(`[GameEngine] Loaded dynamic world: ${Object.keys(dynamic.rooms).length} rooms, ${Object.keys(dynamic.objects).length} objects`);
+  }
+
+  /**
+   * Add a new room dynamically (AI-created)
+   */
+  addRoom(room: Room): boolean {
+    if (this.rooms[room.id]) {
+      console.warn(`[GameEngine] Room ${room.id} already exists`);
+      return false;
+    }
+    this.rooms[room.id] = room;
+    console.log(`[GameEngine] Added dynamic room: ${room.id}`);
+    return true;
+  }
+
+  /**
+   * Add a new object dynamically (AI-created)
+   */
+  addObject(obj: ObjectState): boolean {
+    if (this.objects[obj.id]) {
+      console.warn(`[GameEngine] Object ${obj.id} already exists`);
+      return false;
+    }
+    this.objects[obj.id] = obj;
+
+    // Add to room's object list if it has a location
+    if (obj.location && this.rooms[obj.location]) {
+      if (!this.rooms[obj.location].objects.includes(obj.id)) {
+        this.rooms[obj.location].objects.push(obj.id);
+      }
+    }
+    console.log(`[GameEngine] Added dynamic object: ${obj.id} at ${obj.location}`);
+    return true;
+  }
+
+  /**
+   * Add a new puzzle dynamically (AI-created)
+   */
+  addPuzzle(puzzle: Puzzle): boolean {
+    if (this.puzzles.some(p => p.id === puzzle.id)) {
+      console.warn(`[GameEngine] Puzzle ${puzzle.id} already exists`);
+      return false;
+    }
+    this.puzzles.push(puzzle);
+    console.log(`[GameEngine] Added dynamic puzzle: ${puzzle.id}`);
+    return true;
+  }
+
+  /**
+   * Connect two rooms with exits
+   */
+  connectRooms(fromId: string, toId: string, direction: Direction, bidirectional = true): boolean {
+    if (!this.rooms[fromId] || !this.rooms[toId]) {
+      console.warn(`[GameEngine] Cannot connect rooms: ${fromId} or ${toId} not found`);
+      return false;
+    }
+    connectRooms(this.rooms, fromId, toId, direction, bidirectional);
+    return true;
+  }
+
+  /**
+   * Get all rooms (for AI context)
+   */
+  getAllRooms(): Room[] {
+    return Object.values(this.rooms);
+  }
+
+  /**
+   * Get all objects (for AI context)
+   */
+  getAllObjects(): ObjectState[] {
+    return Object.values(this.objects);
+  }
+
+  /**
+   * Get all puzzles (for AI context)
+   */
+  getAllPuzzles(): Puzzle[] {
+    return [...this.puzzles];
+  }
+
+  /**
+   * Check if a room exists
+   */
+  hasRoom(id: string): boolean {
+    return !!this.rooms[id];
+  }
+
+  /**
+   * Check if an object exists
+   */
+  hasObject(id: string): boolean {
+    return !!this.objects[id];
   }
 
   parseCommand(input: string): ParsedCommand {
@@ -671,6 +844,7 @@ export class GameEngine {
       const drawer = this.objects["dream-drawer"];
       if (drawer) {
         drawer.customState.visible = true;
+        this.state.objectStates["dream-drawer"] = { ...this.state.objectStates["dream-drawer"], customState: drawer.customState };
       }
       this.state.objectStates[obj.id] = { ...this.state.objectStates[obj.id], customState: obj.customState };
       this.checkPuzzles();

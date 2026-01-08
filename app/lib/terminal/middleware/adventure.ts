@@ -142,6 +142,9 @@ export const adventureMiddleware: TerminalMiddleware = async (
       });
     }
 
+    // Start loading animation BEFORE the API call
+    ctx.terminal.startGeneration();
+
     // Get AI response
     const stream = await getAdventureResponse(chatHistory, {
       sessionId,
@@ -177,6 +180,8 @@ export const adventureMiddleware: TerminalMiddleware = async (
     }
   } catch (error) {
     console.error("Adventure middleware error:", error);
+    // Ensure loading indicator is stopped on error
+    ctx.terminal.endGeneration();
     await ctx.terminal.print("Error processing command", {
       color: TERMINAL_COLORS.error,
       speed: "fast",

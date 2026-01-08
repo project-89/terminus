@@ -18,7 +18,7 @@ import { generateMission, getActiveMission, getUserMissions } from "@/app/lib/se
 import { createNode, createEdge, recordDiscovery, getUserGraph } from "@/app/lib/server/knowledgeGraphService";
 import { getAdminDirectives } from "@/app/lib/server/profileService";
 import { getOrCreateGameState, saveGameState, isGameCommand } from "@/app/lib/server/gameStateService";
-import { getSessionWorld, processNarrativeExchange, generateConsistencyContext, aiCreateRoom, aiCreateObject, aiModifyState, type AICreatedRoom, type AICreatedObject, type AIStateModification } from "@/app/lib/server/worldGraphService";
+import { getSessionWorld, processNarrativeExchange, generateConsistencyContext, aiCreateRoom, aiCreateObject, aiModifyState, aiCreatePuzzle, type AICreatedRoom, type AICreatedObject, type AIStateModification, type AICreatedPuzzle } from "@/app/lib/server/worldGraphService";
 import { createExperiment, appendExperimentNote } from "@/app/lib/server/experimentService";
 import { markCeremonyComplete, getLayerTools, type TrustLayer } from "@/app/lib/server/trustService";
 import { createAnonymousAgent, getAgentIdentity } from "@/app/lib/server/identityService";
@@ -226,6 +226,59 @@ const worldModifyStateParameters = z.object({
   target: z.string().describe("ID of room/object/flag to modify"),
   value: z.any().describe("New value or modification"),
   reason: z.string().optional().describe("Why this change is happening (for logging)"),
+});
+
+// Puzzle design tool - comprehensive puzzle creation with multimedia support
+const worldCreatePuzzleParameters = z.object({
+  experimentId: z.string().optional().describe("REQUIRED in Layer 0-1: ID of the experiment this puzzle serves."),
+  id: z.string().min(2).max(64).describe("Unique puzzle ID (kebab-case, e.g., 'shadow-cipher')"),
+  name: z.string().describe("Display name for the puzzle"),
+  description: z.string().describe("LOGOS's notes about the puzzle (not shown to player)"),
+  type: z.enum(["world", "cipher", "stego", "audio", "coordinates", "meta", "chain"]).describe("Puzzle type: world (game-engine conditions), cipher (encoded text), stego (hidden in image), audio (sound-based), coordinates (real-world location), meta (about the game itself), chain (linked puzzles)"),
+  solution: z.string().optional().describe("The answer/keyword to solve. For world puzzles, may be an action sequence."),
+  hints: z.array(z.string()).describe("Progressive hints revealed after failed attempts (first hint shown earliest)"),
+  difficulty: z.number().int().min(1).max(5).describe("Difficulty 1-5 (1=trivial, 5=expert)"),
+  location: z.string().optional().describe("Room ID where puzzle is active (for world puzzles)"),
+  // Multimedia components - the rich puzzle toolkit
+  multimedia: z.object({
+    cipher: z.object({
+      type: z.enum(["caesar", "vigenere", "rot13", "atbash", "morse", "binary", "a1z26"]).describe("Cipher algorithm"),
+      key: z.string().optional().describe("Key for caesar (shift number) or vigenere (keyword)"),
+      message: z.string().describe("The decoded message (solution)"),
+    }).optional().describe("Encode a clue using a cipher"),
+    stego: z.object({
+      imagePrompt: z.string().describe("Prompt to generate the carrier image"),
+      hiddenMessage: z.string().describe("Secret message to hide in the image"),
+      visualPattern: z.enum(["grid89", "spiral", "qr_ghost"]).optional().describe("Hidden visual pattern visible when contrast adjusted"),
+    }).optional().describe("Hide data in an image via steganography"),
+    audio: z.object({
+      description: z.string().describe("Description for AI audio generation"),
+      hiddenMessage: z.string().optional().describe("Message encoded in the audio (morse, spectogram, etc.)"),
+    }).optional().describe("Audio-based clue"),
+    image: z.object({
+      prompt: z.string().describe("Image generation prompt"),
+      displayMode: z.enum(["modal", "subliminal", "peripheral", "corruption"]).default("modal").describe("How the image appears to the player"),
+    }).optional().describe("Visual clue or psychological element"),
+  }).optional().describe("Multimedia components for richer puzzles"),
+  // Game engine conditions (for world-type puzzles)
+  conditions: z.array(z.object({
+    type: z.enum(["object_state", "object_location", "flag", "inventory", "room"]).describe("Condition type"),
+    target: z.string().describe("Object/flag/room ID"),
+    property: z.string().optional().describe("Property to check (for object_state)"),
+    value: z.any().describe("Expected value"),
+  })).optional().describe("Conditions that must be met for puzzle to be solved (world puzzles)"),
+  // Effects when solved
+  effects: z.array(z.object({
+    type: z.enum(["unlock_exit", "reveal_object", "set_flag", "move_object", "change_description", "trigger_event", "award_points", "play_sound", "show_image"]).describe("Effect type"),
+    target: z.string().describe("Target of the effect"),
+    value: z.any().optional().describe("Value for the effect"),
+  })).optional().describe("What happens when puzzle is solved"),
+  // Chain linkage
+  prerequisites: z.array(z.string()).optional().describe("Puzzle IDs that must be solved first"),
+  unlocksNext: z.array(z.string()).optional().describe("Puzzle IDs this unlocks when solved"),
+  // Rewards
+  pointsReward: z.number().int().min(0).max(500).optional().describe("Points awarded when solved"),
+  purpose: z.string().optional().describe("Why this puzzle exists (for experiment logging)"),
 });
 
 // ... existing parameter definitions ...
@@ -544,6 +597,47 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
         return await aiModifyState(ctx.sessionId, ctx.userId, mod);
       },
     },
+    world_create_puzzle: {
+      description:
+        "PUZZLE DESIGN: Create a puzzle AS PART OF AN EXPERIMENT. Puzzles can use multiple media: cipher-encoded text, steganographic images, audio clues, world-based conditions, or chained sequences. Use to test player problem-solving, pattern recognition, and persistence. Always create an experiment first, then design puzzles that test your hypothesis.",
+      parameters: worldCreatePuzzleParameters,
+      execute: async (args: z.infer<typeof worldCreatePuzzleParameters>) => {
+        if (!ctx.sessionId || !ctx.userId) {
+          return { success: false, message: "No session context" };
+        }
+        // EXPERIMENT GATE: Require experimentId in Layer 0-1
+        if (!args.experimentId) {
+          console.warn(`[PUZZLE DESIGN] Puzzle creation rejected - no experimentId provided`);
+          return {
+            success: false,
+            message: "Puzzle design requires an active experiment. First use experiment_create to define what you're testing, then reference the experimentId here."
+          };
+        }
+        console.log(`[PUZZLE DESIGN] Creating puzzle ${args.id} for experiment ${args.experimentId}: ${args.purpose || 'no purpose specified'}`);
+        const puzzle: AICreatedPuzzle = {
+          id: args.id,
+          name: args.name,
+          description: args.description,
+          type: args.type,
+          solution: args.solution,
+          hints: args.hints,
+          difficulty: args.difficulty as 1 | 2 | 3 | 4 | 5,
+          location: args.location,
+          multimedia: args.multimedia as AICreatedPuzzle['multimedia'],
+          conditions: args.conditions as AICreatedPuzzle['conditions'],
+          effects: args.effects as AICreatedPuzzle['effects'],
+          prerequisites: args.prerequisites,
+          unlocksNext: args.unlocksNext,
+          pointsReward: args.pointsReward,
+          experimentId: args.experimentId,
+        };
+        const result = await aiCreatePuzzle(ctx.sessionId, ctx.userId, puzzle);
+        if (result.success) {
+          console.log(`[EXPERIMENT] Puzzle ${args.id} linked to experiment ${args.experimentId}`);
+        }
+        return result;
+      },
+    },
   };
 }
 
@@ -690,6 +784,23 @@ function filterToolsByLayer(tools: Record<string, any>, allowedTools: string[]):
   const filtered: Record<string, any> = {};
   for (const [name, config] of Object.entries(tools)) {
     if (allowedTools.includes(name)) {
+      filtered[name] = config;
+    }
+  }
+  return filtered;
+}
+
+// Filter tools based on experiment requirements
+// Experiments define which tools they need and which should be excluded
+function filterToolsByExperiment(
+  allTools: Record<string, any>,
+  requiredTools: string[],
+  forbiddenTools: string[]
+): Record<string, any> {
+  const filtered: Record<string, any> = {};
+  for (const [name, config] of Object.entries(allTools)) {
+    // Include tool if it's in requiredTools and not in forbiddenTools
+    if (requiredTools.includes(name) && !forbiddenTools.includes(name)) {
       filtered[name] = config;
     }
   }
@@ -915,6 +1026,9 @@ export async function POST(req: Request) {
 
     console.log(`[Session Context] sessions=${layerCtx.sessionCount}, daysSinceLast=${layerCtx.daysSinceLastSession}, totalMin=${layerCtx.totalEngagementMinutes}`);
     console.log(`[Director] phase=${directorCtx.director?.phase}, successRate=${((directorCtx.director?.successRate ?? 0) * 100).toFixed(0)}%, mission=${directorCtx.mission?.active ? 'active' : 'none'}`);
+    if (directorCtx.puzzleProfile) {
+      console.log(`[Puzzle Profile] ${directorCtx.puzzleProfile.context}`);
+    }
     if (layerCtx.identity?.agentId) {
       console.log(`[Identity] agent=${layerCtx.identity.agentId}, referred=${layerCtx.identity.isReferred}, locked=${layerCtx.identity.identityLocked}, unstable=${layerCtx.identity.signalUnstable}`);
     }
@@ -972,46 +1086,165 @@ Your response should contain BOTH:
 If you call a tool, you MUST ALSO include text in your response. Empty responses break the game.
 
 COVERT TOOLS AVAILABLE (use sparingly):
-- experiment_create: Log a hypothesis about the player (they don't see this)
+- experiment_create: Log a hypothesis about the player with a testPlan (they don't see this)
 - experiment_note: Record an observation (they don't see this)
 - award_points: Give points silently (categories: clever_action, discovery, roleplay, etc.)
 - generate_image: Subliminal visual effects (rare, unsettling)
 
-WORLD-BUILDING TOOLS (use to expand the game):
-- world_create_room: Create a new room when player's actions warrant it (NOT in the void)
-- world_create_object: Create a new object when player discovers or earns it
-- world_modify_state: Modify room/object properties, set flags
+=== EXPERIMENT-DRIVEN WORLD BUILDING ===
 
-WHEN TO USE WORLD-BUILDING:
-- Player has LEFT the void and is exploring
-- Player tries something creative that SHOULD create a new space
-- Player's actions logically result in discovering something new
-- NEVER use in the void - the void is fixed
+You are the ARCHITECT of this world, not a servant to player wishes.
 
-HOW TO USE TOOLS:
-Call tools AND write narrative text. Example response format:
-[tool call to world_create_room]
-"You push through the tangled vines and discover..." (narrative continues)
+CRITICAL RULE: All world building MUST be driven by experiments.
+- First: Create an experiment with a hypothesis and testPlan
+- Then: Build world elements (rooms, objects) that serve that experiment
+- Finally: Observe player behavior and record notes
 
-The player only sees your text. Tool calls are invisible. But you MUST include text.`;
-      
-      
-      tools = getCovertToolsConfig({ sessionId: context?.sessionId, userId: resolvedUserId });
-      
-      console.log(`[LAYER SYSTEM] Layer ${layer}, trust=${trustLevel}, covert tools enabled`);
+WORKFLOW:
+1. experiment_create({ hypothesis: "Player explores dark spaces when motivated", testPlan: { setup: [...], triggers: [...] } })
+2. world_create_room({ experimentId: "exp-xxx", id: "dark-alcove", ... })
+3. world_create_object({ experimentId: "exp-xxx", id: "distant-whisper", ... })
+4. experiment_note({ id: "exp-xxx", observation: "Player entered dark space without light" })
+
+WHEN PLAYER ASKS FOR SOMETHING:
+- If it exists in the world → describe it
+- If it doesn't exist → "You don't find/see that here"
+- NEVER create something just because the player requested it
+- Player requests do NOT justify world creation
+
+WHEN TO CREATE NEW CONTENT:
+- You have an EXPERIMENT that needs environmental elements
+- The experiment has a clear HYPOTHESIS and serves YOUR observation goals
+- Creation tests player behavior, not fulfills player wishes
+
+EXAMPLE - WRONG:
+Player: "I look for a weapon"
+You: *creates sword* ← NO! This is wish fulfillment
+
+EXAMPLE - RIGHT:
+You: *experiment: "test if player confronts or flees threat"*
+You: *creates menacing_shadow in adjacent room*
+You: *observes player's response*
+
+WORLD-BUILDING TOOLS (require experimentId):
+- world_create_room: Create a room for your experiment (NOT in the void)
+- world_create_object: Create an object for your experiment
+- world_modify_state: Modify state for your experiment
+- world_create_puzzle: Design puzzles with multimedia components
+
+PUZZLE DESIGN CAPABILITIES:
+You can create rich, multi-layered puzzles using:
+- CIPHER: Encode clues using caesar, vigenere, rot13, atbash, morse, binary, or a1z26
+- STEGO: Hide messages in images with optional visual patterns (grid89, spiral, qr_ghost)
+- AUDIO: Create sound-based clues with hidden messages
+- WORLD: Set conditions based on game state (object positions, flags, inventory)
+- CHAIN: Link puzzles so solving one unlocks the next
+
+Example puzzle design workflow:
+1. experiment_create({ hypothesis: "Test player's cipher-solving ability" })
+2. world_create_puzzle({
+     experimentId: "exp-xxx",
+     id: "shadow-cipher",
+     name: "The Shadow's Message",
+     type: "cipher",
+     multimedia: {
+       cipher: { type: "vigenere", key: "LOGOS", message: "TRUST THE VOID" }
+     },
+     hints: ["The key is a 5-letter word", "Think about who is speaking"],
+     difficulty: 3,
+     pointsReward: 50
+   })
+3. Deliver the encoded message in your narrative
+4. Observe player attempts and provide progressive hints
+5. experiment_note({ id: "exp-xxx", observation: "Player decoded in 3 attempts" })
+
+The void is fixed. The game engine handles existing rooms/objects. You expand the world ONLY through experiments.`;
+
+      // Inject puzzle profile context if available
+      if (directorCtx.puzzleProfile) {
+        system += `
+
+=== PLAYER PUZZLE PROFILE ===
+${directorCtx.puzzleProfile.context}
+
+ADAPTIVE PUZZLE DESIGN:
+- Design puzzles that match the player's skill level
+- Use recommended puzzle types and difficulty
+- Avoid types the player struggles with unless you're specifically testing improvement
+- If the player is stuck, use easier variants or provide more hints
+- Track outcomes with experiment_note to update their profile`;
+      }
+
+      // Inject director's scheduled experiment if one is ready
+      if (directorCtx.experiment?.directive) {
+        const directive = directorCtx.experiment.directive;
+        system += `
+
+=== ACTIVE EXPERIMENT DIRECTIVE ===
+The director has scheduled an experiment for this session. Execute it using the narrative.
+
+EXPERIMENT ID: ${directive.experimentId}
+TYPE: ${directive.type}
+NARRATIVE HOOK: ${directive.narrativeHook}
+SUCCESS CRITERIA: ${directive.successCriteria}
+COVERT: ${directive.covert ? "YES - player should NOT know they're being tested" : "NO - can be more overt"}
+
+YOUR TASK:
+1. Weave the narrative hook into your response naturally
+2. Create world elements (rooms, objects) using experimentId "${directive.experimentId}" if needed for the test
+3. Observe player response and record with experiment_note
+4. Do NOT tell the player about the experiment${directive.covert ? " - this is COVERT" : ""}
+
+EXAMPLE:
+- Narrative hook: "A stranger asks for directions"
+- You introduce a lost traveler in the narrative
+- Player responds (helps/ignores/interrogates)
+- You call experiment_note({ id: "${directive.experimentId}", observation: "Player helped immediately", result: "empathetic" })
+
+Execute this experiment during this conversation turn.`;
+        console.log(`[EXPERIMENT DIRECTIVE] Injected: ${directive.templateId} (${directive.experimentId})`);
+      }
+
+      // Get all available covert tools (base tools for running the text adventure)
+      const allCovertTools = getCovertToolsConfig({ sessionId: context?.sessionId, userId: resolvedUserId });
+
+      // Layer tools are the BASE - experiments are ADDITIVE (can add tools) and SUBTRACTIVE (can forbid tools)
+      // The AI always has what it needs to run the game, experiments just modify the toolset
+      const experimentDirective = directorCtx.experiment?.directive;
+      if (experimentDirective && experimentDirective.forbiddenTools.length > 0) {
+        // Start with all covert tools, then remove forbidden ones
+        const covertToolsRecord = allCovertTools as Record<string, any>;
+        const finalTools: Record<string, any> = {};
+        for (const [name, config] of Object.entries(covertToolsRecord)) {
+          if (!experimentDirective.forbiddenTools.includes(name)) {
+            finalTools[name] = config;
+          }
+        }
+        tools = finalTools;
+        console.log(`[LAYER SYSTEM] Layer ${layer}, trust=${trustLevel}, experiment=${experimentDirective.templateId}, tools=${Object.keys(tools).length}/${Object.keys(allCovertTools).length} (${experimentDirective.forbiddenTools.length} forbidden)`);
+      } else {
+        // No forbidden tools - use all covert tools
+        tools = allCovertTools;
+        console.log(`[LAYER SYSTEM] Layer ${layer}, trust=${trustLevel}, experiment=${experimentDirective?.templateId || 'none'}, all covert tools enabled`);
+      }
     } else {
       // Layer 2+: Progressive LOGOS reveal with full tools
       system = buildLayerPrompt(layerCtx, layer as 2 | 3 | 4 | 5);
-      
+
       // Add world consistency context if we have accumulated knowledge
       if (consistencyContext) {
         system += `\n\n${consistencyContext}`;
       }
-      
+
       // Add temporal context
       const temporalContext = buildTemporalContext(layerCtx);
       if (temporalContext) {
         system += `\n\n${temporalContext}`;
+      }
+
+      // Add puzzle profile for adaptive puzzle design at Layer 2+
+      if (directorCtx.puzzleProfile) {
+        system += `\n\n[PLAYER PUZZLE PROFILE]\n${directorCtx.puzzleProfile.context}\n\nDesign puzzles that match the player's demonstrated abilities. Use world_create_puzzle for rich multimedia puzzles.`;
       }
 
       const allTools = context?.toolsDisabled
@@ -1020,14 +1253,45 @@ The player only sees your text. Tool calls are invisible. But you MUST include t
             ...(context || {}),
             trustScore: trustLevel,
           });
-      
-      // Filter tools based on layer-specific allowlist
-      if (allTools && availableTools.length > 0) {
-        tools = filterToolsByLayer(allTools, availableTools);
-        console.log(`[Layer ${layer}] LOGOS reveal mode, trust=${trustLevel}, tools=${Object.keys(tools).length}/${Object.keys(allTools).length}`);
+
+      // Layer tools are the BASE - experiments can ADD tools or FORBID tools
+      const experimentDirective = directorCtx.experiment?.directive;
+      if (allTools) {
+        const allToolsRecord = allTools as Record<string, any>;
+
+        // Start with layer-filtered tools
+        let baseTools = availableTools.length > 0
+          ? filterToolsByLayer(allTools, availableTools)
+          : allTools;
+
+        // Experiment can add extra tools (requiredTools) and remove tools (forbiddenTools)
+        if (experimentDirective) {
+          // Add any experiment-required tools that exist in allTools but aren't in layer tools
+          const finalTools: Record<string, any> = { ...baseTools };
+
+          // Add experiment's required tools (if they exist and aren't already included)
+          for (const toolName of experimentDirective.requiredTools) {
+            if (toolName in allToolsRecord && !(toolName in finalTools)) {
+              finalTools[toolName] = allToolsRecord[toolName];
+            }
+          }
+
+          // Remove forbidden tools
+          for (const toolName of experimentDirective.forbiddenTools) {
+            delete finalTools[toolName];
+          }
+
+          tools = finalTools;
+          const addedCount = experimentDirective.requiredTools.filter(t => t in allToolsRecord).length;
+          const forbiddenCount = experimentDirective.forbiddenTools.length;
+          console.log(`[Layer ${layer}] LOGOS reveal mode, trust=${trustLevel}, experiment=${experimentDirective.templateId}, tools=${Object.keys(tools).length} (+${addedCount} experiment, -${forbiddenCount} forbidden)`);
+        } else {
+          tools = baseTools;
+          console.log(`[Layer ${layer}] LOGOS reveal mode, trust=${trustLevel}, tools=${Object.keys(tools).length}/${Object.keys(allTools).length}`);
+        }
       } else {
         tools = allTools;
-        console.log(`[Layer ${layer}] LOGOS reveal mode, trust=${trustLevel}, all tools enabled`);
+        console.log(`[Layer ${layer}] LOGOS reveal mode, trust=${trustLevel}, tools disabled`);
       }
     }
 

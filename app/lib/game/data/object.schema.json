@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Object File",
+  "description": "A collection of game objects for a region",
+  "type": "object",
+  "required": ["region", "objects"],
+  "properties": {
+    "region": {
+      "type": "string",
+      "description": "The game region these objects belong to"
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/object"
+      }
+    }
+  },
+  "definitions": {
+    "object": {
+      "type": "object",
+      "required": ["id", "name", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Unique object identifier (kebab-case)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable object name"
+        },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Alternative names the player can use"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description when examined"
+        },
+        "location": {
+          "type": ["string", "null"],
+          "description": "Room ID where object starts, or null if contained/carried"
+        },
+        "containedIn": {
+          "type": ["string", "null"],
+          "description": "ID of container object this is inside"
+        },
+        "properties": {
+          "type": "object",
+          "properties": {
+            "isWearable": { "type": "boolean", "default": false },
+            "isWorn": { "type": "boolean", "default": false },
+            "isOpenable": { "type": "boolean", "default": false },
+            "isOpen": { "type": "boolean", "default": false },
+            "isLockable": { "type": "boolean", "default": false },
+            "isLocked": { "type": "boolean", "default": false },
+            "isLit": { "type": "boolean", "default": false },
+            "isFixed": { "type": "boolean", "default": false },
+            "isScenery": { "type": "boolean", "default": false },
+            "isContainer": { "type": "boolean", "default": false },
+            "isSwitchable": { "type": "boolean", "default": false },
+            "isSwitchedOn": { "type": "boolean", "default": false }
+          },
+          "description": "Object properties/capabilities"
+        },
+        "customState": {
+          "type": "object",
+          "description": "Custom state properties for this object"
+        },
+        "interactions": {
+          "type": "object",
+          "properties": {
+            "use": { "type": "string" },
+            "useWith": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "read": { "type": "string" },
+            "push": { "type": "string" },
+            "pull": { "type": "string" },
+            "wear": { "type": "string" },
+            "remove": { "type": "string" },
+            "focus": { "type": "string" },
+            "listen": { "type": "string" },
+            "smell": { "type": "string" },
+            "touch": { "type": "string" },
+            "examine": { "type": "string" }
+          },
+          "description": "Custom interaction responses"
+        }
+      }
+    }
+  }
+}

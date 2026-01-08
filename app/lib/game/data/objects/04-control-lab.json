@@ -1,0 +1,118 @@
+{
+  "$schema": "../object.schema.json",
+  "region": "Control Lab",
+  "objects": [
+    {
+      "id": "televisions",
+      "name": "televisions",
+      "aliases": ["tvs", "screens"],
+      "description": "A multitude of scenes are strewn across the thousands of televisions. Almost every scene or thing you can imagine is on at least one of them. You know, somehow, with that strange certitude only possible in a dream, that what you see on these screens is real, as though you were watching through hidden cameras into someones life.",
+      "location": "control-lab",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "oak-door",
+      "name": "oak door",
+      "aliases": ["door"],
+      "description": "A single oak door stands in the west of the room, the only break in the endless television screens. It is simple, yet the craftsmanship is unmistakable. A metal plaque is attached to the front of the door with the words 'Loading Room' engraved on it. A classic antique oak door lies to the west.",
+      "location": "control-lab",
+      "properties": {
+        "isOpenable": true,
+        "isFixed": true
+      },
+      "interactions": {
+        "enter": "You step through the door."
+      }
+    },
+    {
+      "id": "semi-circular-desk",
+      "name": "semi-circular desk",
+      "aliases": ["desk"],
+      "description": "A spotlessly clean desk, and like everything else glows with a subtle internal white light. In the very center of the room you make out a large, white, semi-circular desk. It is completely bare, clean and free of clutter or distraction. It is beautifully design, sleek and elegant.",
+      "location": "control-lab",
+      "properties": {
+        "isFixed": true,
+        "isContainer": true
+      }
+    },
+    {
+      "id": "leather-armchair",
+      "name": "leather armchair",
+      "aliases": ["chair", "armchair"],
+      "description": "It is a beautiful antique leather armchair, though it looks as though it was made yesterday. A large, red leather armchair rests in front of the desk, out of place in the stark whiteness, studded and resting on four wooden legs carved into lions paws.",
+      "location": "control-lab",
+      "properties": {
+        "isFixed": true
+      }
+    },
+    {
+      "id": "simulation-control",
+      "name": "holographic computer",
+      "aliases": ["computer", "holograph"],
+      "description": "A holographic display hovers above the desks surface, insubstantial yet visible and appearing solid. You could reach your hand right through it if you wanted to. Below it, glowing inside the desk, you can make out a keyboard awaiting your command.",
+      "location": null,
+      "containedIn": "semi-circular-desk",
+      "properties": {
+        "isSwitchable": true,
+        "isSwitchedOn": true,
+        "isFixed": true
+      }
+    },
+    {
+      "id": "architect",
+      "name": "elderly gentleman",
+      "aliases": ["gentleman", "man", "architect"],
+      "description": "You see an elderly man, dressed in a white three piece suit. A golden pocket watch chain can me made out looped to his waistcoat. He has long white hair tied back into a pony tail. A well manicured white beard adorns his face, and a pair of round spectacles sits atop his nose. He radiates a deep sense of purpose. For some reason, the image of the tarot card The Emperor comes to your mind.",
+      "location": "control-lab",
+      "properties": {
+        "isFixed": true
+      },
+      "interactions": {
+        "talk": "He pulls out his pocket watch from his waist coat and glances at it. 'Ah yes' he says 'I appreciate people who are punctual.'",
+        "show": "Ah, he responds, that appears to be a curious artifact you have there."
+      }
+    },
+    {
+      "id": "architects-coffee",
+      "name": "architect's coffee",
+      "aliases": ["coffee", "mug"],
+      "description": "It smells amazing. Dream coffee is probably the best coffee. A mug of coffee sits steaming and fresh on the desk.",
+      "location": null,
+      "containedIn": "semi-circular-desk",
+      "properties": {},
+      "interactions": {
+        "drink": "The gentleman looks at you for an awkwardly long time and says 'I wouldn't do that if I were you.'"
+      }
+    },
+    {
+      "id": "ontological-slime",
+      "name": "ontological slime",
+      "aliases": ["slime", "puddle"],
+      "description": "There is a puddle of some strange goo on the floor that shimmers and changes and moves. As your eyes pierce its depths, you can make out images and colors shifting. Hmmm, it looks like your whole conception of yourself and your world is now a puddle on the ground. It looks almost like mercury, some kind of metallic liquid, a mirror of your inmost sense of self. As you look at it, you start to see memories in it, scenes you were sure made you who you are, but now as you stare at them in this substance of your own ontology, you are not so sure that any of them are even real.",
+      "location": "control-lab",
+      "properties": {}
+    },
+    {
+      "id": "white-door",
+      "name": "white door",
+      "aliases": ["door"],
+      "description": "A white door in the east leads back to the control room.",
+      "location": "loading-construct",
+      "properties": {
+        "isOpenable": true,
+        "isFixed": true
+      }
+    },
+    {
+      "id": "comic-page-1",
+      "name": "Comic Page One",
+      "aliases": ["page one"],
+      "description": "As you stare at the page, you have an extreme sense of deja vu. You remember this, even though you have no idea how you remember this. As you stare at it, you can feel something in you drifting off, empty, becoming still and quiet. You feel something brushing at the edge of your consciousness, beckoning to you. However, it slips away as you grasp after it. Why does this seem so familiar? What are you forgetting?",
+      "location": null,
+      "containedIn": "architect",
+      "properties": {}
+    }
+  ]
+}

@@ -1,0 +1,255 @@
+{
+  "$schema": "../puzzle.schema.json",
+  "region": "Mundane World",
+  "layer": 1,
+  "puzzles": [
+    {
+      "id": "plug-in-lamp",
+      "name": "Establish Light Source",
+      "description": "Plug the desk lamp into the wall socket to see in the dark room",
+      "conditions": [
+        { "type": "object_state", "target": "desk-lamp", "property": "isPluggedIn", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "lamp-powered", "value": true }
+      ],
+      "hint": "It's too dark to see anything behind the desk. Try plugging the lamp in.",
+      "logosExperiment": "Agent establishes basic environmental requirements"
+    },
+    {
+      "id": "power-lamp",
+      "name": "Illuminate Room",
+      "description": "Turn on the lamp once it is plugged in",
+      "conditions": [
+        { "type": "flag", "target": "lamp-powered", "value": true },
+        { "type": "object_state", "target": "desk-lamp", "property": "isLit", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "room-illuminated", "value": true }
+      ],
+      "hint": "The lamp is plugged in, now turn it on.",
+      "logosExperiment": "Agent manipulates environmental states"
+    },
+    {
+      "id": "plug-in-pc",
+      "name": "Connect Terminal",
+      "description": "Plug the PC into the socket (requires light to see the socket)",
+      "conditions": [
+        { "type": "flag", "target": "room-illuminated", "value": true },
+        { "type": "object_state", "target": "pc", "property": "isPluggedIn", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "pc-powered", "value": true }
+      ],
+      "hint": "You can't find the socket for the computer in the dark.",
+      "logosExperiment": "Agent performs complex setup under specific environmental conditions",
+      "dependsOn": ["power-lamp"]
+    },
+    {
+      "id": "power-pc",
+      "name": "Boot System",
+      "description": "Turn on the computer once powered",
+      "conditions": [
+        { "type": "flag", "target": "pc-powered", "value": true },
+        { "type": "object_state", "target": "pc", "property": "isSwitchedOn", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "pc-running", "value": true }
+      ],
+      "hint": "The computer is plugged in. Turn it on.",
+      "logosExperiment": "Agent initiates terminal interface",
+      "dependsOn": ["plug-in-pc"]
+    },
+    {
+      "id": "get-note",
+      "name": "The Sticky Note",
+      "description": "Examine the physical computer to find the hidden note with the password hint",
+      "conditions": [
+        { "type": "room", "target": "mundane-bedroom", "value": true }
+      ],
+      "onSolve": [
+        { "type": "reveal_object", "target": "note", "value": true },
+        { "type": "trigger_event", "target": "bedroom:getNote" }
+      ],
+      "hint": "Check the corner of the computer screen.",
+      "logosExperiment": "Agent notices physical details on technical objects"
+    },
+    {
+      "id": "login-pc",
+      "name": "Authentication",
+      "description": "Login to InfocomOS using the password 'Exegesis89'",
+      "conditions": [
+        { "type": "flag", "target": "pc-running", "value": true },
+        { "type": "flag", "target": "pc-logged-in", "value": true }
+      ],
+      "onSolve": [
+        { "type": "trigger_event", "target": "system-access" }
+      ],
+      "hint": "The password is found in your research: Exegesis89.",
+      "logosExperiment": "Agent bypasses security barriers",
+      "dependsOn": ["power-pc"]
+    },
+    {
+      "id": "read-mail",
+      "name": "Data Interception: Mail",
+      "description": "Access the mail program to read messages from Phil and Elijah Tate",
+      "conditions": [
+        { "type": "flag", "target": "pc-logged-in", "value": true },
+        { "type": "object_state", "target": "pc-email", "property": "isRead", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "mail-read", "value": true },
+        { "type": "reveal_object", "target": "agent-id-info", "value": true }
+      ],
+      "hint": "Select '1' for Mail.",
+      "logosExperiment": "Agent retrieves narrative intelligence"
+    },
+    {
+      "id": "research-archive",
+      "name": "Data Interception: Zion Archive",
+      "description": "Research the Project 89 and Oneirocom entries in the Zion Archive",
+      "conditions": [
+        { "type": "flag", "target": "pc-logged-in", "value": true },
+        { "type": "object_state", "target": "zion-archive", "property": "isResearched", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "archive-researched", "value": true }
+      ],
+      "hint": "Select '2' for the Zion Archive and search for terms like 'Oneirocom'.",
+      "logosExperiment": "Agent builds conceptual framework of the organization"
+    },
+    {
+      "id": "drink-coffee",
+      "name": "Caffeinate",
+      "description": "Drink the coffee to gain energy for the interface",
+      "conditions": [
+        { "type": "object_state", "target": "coffee-mug", "property": "isFull", "value": true }
+      ],
+      "onSolve": [
+        { "type": "object_state", "target": "coffee-mug", "property": "isFull", "value": false },
+        { "type": "set_flag", "target": "caffeinated", "value": true }
+      ],
+      "hint": "You need energy to use the interface. Drink the day-old coffee.",
+      "logosExperiment": "Agent manages physiological state"
+    },
+    {
+      "id": "enter-simulation-void",
+      "name": "Enter OneirOS",
+      "description": "Wear the interface to enter the void (requires energy from coffee)",
+      "conditions": [
+        { "type": "flag", "target": "caffeinated", "value": true },
+        { "type": "inventory", "target": "interface", "value": true }
+      ],
+      "onSolve": [
+        { "type": "move_object", "target": "player", "value": "empty-space" }
+      ],
+      "hint": "Put on the interface once you are awake enough.",
+      "logosExperiment": "Agent interfaces with neural technology",
+      "dependsOn": ["drink-coffee"]
+    },
+    {
+      "id": "bring-crystal-to-void",
+      "name": "Cross-Reality Transfer",
+      "description": "Bring the crystal into the simulation to extract its contents",
+      "conditions": [
+        { "type": "inventory", "target": "small-crystal", "value": true },
+        { "type": "flag", "target": "entering-simulation", "value": true }
+      ],
+      "onSolve": [
+        { "type": "move_object", "target": "small-key", "value": "empty-space" },
+        { "type": "move_object", "target": "small-crystal", "value": "nowhere" }
+      ],
+      "hint": "Hold the crystal when you put on the interface.",
+      "logosExperiment": "Agent discovers cross-layer interaction mechanics",
+      "dependsOn": ["enter-simulation-void"]
+    },
+    {
+      "id": "unlock-drawer",
+      "name": "Unlock the Past",
+      "description": "Open the locked desk drawer with the key found in the void",
+      "conditions": [
+        { "type": "inventory", "target": "small-key", "value": true },
+        { "type": "object_state", "target": "desk-drawer", "property": "isLocked", "value": false }
+      ],
+      "onSolve": [
+        { "type": "reveal_object", "target": "old-photo", "value": true },
+        { "type": "trigger_event", "target": "bedroom:getPhoto" }
+      ],
+      "hint": "The key from the void fits the physical lock.",
+      "logosExperiment": "Agent overcomes physical security",
+      "dependsOn": ["bring-crystal-to-void"]
+    },
+    {
+      "id": "chew-gum",
+      "name": "Calm Down",
+      "description": "Chew gum to counteract the anxiety from the coffee so you can sleep",
+      "conditions": [
+        { "type": "flag", "target": "caffeinated", "value": true },
+        { "type": "object_state", "target": "gum", "property": "isChewed", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "anxiety-reduced", "value": true }
+      ],
+      "hint": "You are too jittery to sleep. Find something to chew on.",
+      "logosExperiment": "Agent self-regulates emotional state",
+      "dependsOn": ["drink-coffee"]
+    },
+    {
+      "id": "prepare-sleep",
+      "name": "Darkness",
+      "description": "Turn off the reading lamp to sleep",
+      "conditions": [
+        { "type": "object_state", "target": "reading-lamp", "property": "isSwitchedOn", "value": false }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "room-dark", "value": true }
+      ],
+      "hint": "You can't sleep with the light on.",
+      "logosExperiment": "Agent prepares environment for transition"
+    },
+    {
+      "id": "enter-dream",
+      "name": "Lucid Dreaming",
+      "description": "Fall asleep to enter the Dream Realm",
+      "conditions": [
+        { "type": "room", "target": "mundane-bedroom", "value": true },
+        { "type": "flag", "target": "room-dark", "value": true },
+        { "type": "flag", "target": "anxiety-reduced", "value": true }
+      ],
+      "onSolve": [
+        { "type": "move_object", "target": "player", "value": "dream-bedroom" },
+        { "type": "trigger_event", "target": "dream-start" }
+      ],
+      "hint": "Lie down and sleep.",
+      "logosExperiment": "Agent voluntarily enters altered states",
+      "dependsOn": ["chew-gum", "prepare-sleep"]
+    },
+    {
+      "id": "find-valis-slip",
+      "name": "Hidden Knowledge",
+      "description": "Find the hidden cipher slip in the VALIS book",
+      "conditions": [
+        { "type": "object_state", "target": "valis-book", "property": "isOpen", "value": true }
+      ],
+      "onSolve": [
+        { "type": "reveal_object", "target": "cipher-slip", "value": true }
+      ],
+      "hint": "Read VALIS on the bedside table.",
+      "logosExperiment": "Agent extracts data from text media"
+    },
+    {
+      "id": "get-comic-2",
+      "name": "Recursive Image",
+      "description": "Find Comic Page Two on the desk",
+      "conditions": [
+        { "type": "room", "target": "mundane-bedroom", "value": true }
+      ],
+      "onSolve": [
+        { "type": "inventory", "target": "comic-page-2", "value": true },
+        { "type": "trigger_event", "target": "bedroom:getPageTwo" }
+      ],
+      "hint": "It's on the desk.",
+      "logosExperiment": "Agent collects recursive narrative artifacts"
+    }
+  ]
+}

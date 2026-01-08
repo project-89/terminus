@@ -22,6 +22,7 @@ import {
   type DirectorDifficultyContext,
   type DifficultyTrack,
 } from "./difficultyService";
+import { getPuzzleRecommendations } from "./puzzleDifficultyService";
 import { checkIdentityStatus, getAgentIdentity } from "./identityService";
 
 export type DirectorPhase = "intro" | "probe" | "train" | "mission" | "report" | "reflection" | "reveal" | "network";
@@ -83,6 +84,17 @@ export type DirectorContext = {
     solution?: string;
     clues?: string;
     context?: string;
+  };
+  puzzleProfile?: {
+    recommendations: {
+      recommendedType: string;
+      recommendedDifficulty: number;
+      reasoning: string;
+      avoidTypes: string[];
+      playerStrengths: string[];
+      playerWeaknesses: string[];
+    };
+    context: string;  // AI-readable summary of player puzzle skills
   };
   experiment?: {
     directive?: ExperimentDirective;
@@ -310,6 +322,33 @@ export async function buildDirectorContext(input: {
     } catch {}
   }
 
+  // Fetch puzzle profile for adaptive puzzle design
+  let puzzleProfile: DirectorContext["puzzleProfile"] | undefined;
+  if (userId) {
+    try {
+      const recommendations = await getPuzzleRecommendations(userId);
+      // Build a concise AI-readable context string
+      const contextParts: string[] = [];
+
+      if (recommendations.playerStrengths.length > 0) {
+        contextParts.push(`Strengths: ${recommendations.playerStrengths.join(', ')}`);
+      }
+      if (recommendations.playerWeaknesses.length > 0) {
+        contextParts.push(`Needs practice: ${recommendations.playerWeaknesses.join(', ')}`);
+      }
+      if (recommendations.avoidTypes.length > 0) {
+        contextParts.push(`Avoid for now: ${recommendations.avoidTypes.join(', ')}`);
+      }
+      contextParts.push(`Recommended difficulty: ${recommendations.recommendedDifficulty}/5`);
+      contextParts.push(`Best puzzle type: ${recommendations.recommendedType}`);
+
+      puzzleProfile = {
+        recommendations,
+        context: contextParts.join('. '),
+      };
+    } catch {}
+  }
+
   const phase = decidePhase({
     hasActiveRun,
     awaitingReport,
@@ -323,10 +362,14 @@ export async function buildDirectorContext(input: {
   const clientAccessTier =
     typeof input?.clientAccessTier === "number" ? input.clientAccessTier : 0;
 
+  // Always get an experiment directive - falls back to DEFAULT_EXPERIMENT (baseline narrative)
+  // This ensures the AI always has experiment context for tool resolution
   let experimentDirective: ExperimentDirective | null = null;
-  if (userId && !hasActiveRun && !awaitingReport && phase !== "intro" && difficultyCtx?.shouldOfferExperiment) {
+  if (userId) {
     try {
-      experimentDirective = await getExperimentDirective(userId);
+      // Pass recent messages for keyword-based experiment selection
+      const recentMessages = memory?.map(m => m.content) || [];
+      experimentDirective = await getExperimentDirective(userId, recentMessages);
     } catch {}
   }
 
@@ -386,10 +429,11 @@ export async function buildDirectorContext(input: {
       pendingAssignment: pendingMissionAssignment,
     },
     puzzle,
-    experiment: experimentDirective ? {
-      directive: experimentDirective,
+    puzzleProfile,
+    experiment: {
+      directive: experimentDirective ?? undefined,
       recentIds: experiments.map(e => e.id),
-    } : undefined,
+    },
     experiments,
     memory,
   };

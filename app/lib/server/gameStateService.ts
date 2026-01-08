@@ -1,5 +1,6 @@
 import prisma from "@/app/lib/prisma";
 import { GameEngine, GameState } from "@/app/lib/game";
+import { WorldExtraction, createEmptyWorld } from "@/app/lib/game/narrativeParser";
 
 export async function getOrCreateGameState(sessionId: string): Promise<GameEngine> {
   const session = await prisma.gameSession.findUnique({
@@ -7,15 +8,31 @@ export async function getOrCreateGameState(sessionId: string): Promise<GameEngin
     select: { gameState: true },
   });
 
+  let engine: GameEngine;
+
   if (session?.gameState) {
     try {
-      return GameEngine.deserialize(JSON.stringify(session.gameState));
+      engine = GameEngine.deserialize(JSON.stringify(session.gameState));
     } catch (e) {
       console.error("Failed to deserialize game state, creating new:", e);
+      engine = new GameEngine();
+    }
+  } else {
+    engine = new GameEngine();
+  }
+
+  // Load dynamic world content (AI-created rooms, objects, puzzles)
+  const gameState = session?.gameState as Record<string, any> | undefined;
+  if (gameState?.worldExtraction) {
+    try {
+      engine.loadDynamicWorld(gameState.worldExtraction as WorldExtraction);
+      console.log("[GameState] Loaded dynamic world content from session");
+    } catch (e) {
+      console.error("[GameState] Failed to load dynamic world:", e);
     }
   }
 
-  return new GameEngine();
+  return engine;
 }
 
 export async function saveGameState(sessionId: string, engine: GameEngine): Promise<void> {

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
+import { getPlayerDifficulty } from "@/app/lib/server/difficultyService";
+import {
+  getPlayerPuzzleProfile,
+  getPuzzleRecommendations,
+} from "@/app/lib/server/puzzleDifficultyService";
 
 export const dynamic = "force-dynamic";
 
@@ -146,6 +151,51 @@ export async function GET(
 
     const totalMessages = gameSessions.reduce((acc: number, s: any) => acc + s.messages.length, 0);
     const totalRewards = agent.rewards.reduce((acc: number, r: any) => acc + r.amount, 0);
+
+    // Fetch puzzle difficulty data
+    let puzzleDifficultyData = null;
+    try {
+      const [difficulty, profile, recommendations] = await Promise.all([
+        getPlayerDifficulty(id),
+        getPlayerPuzzleProfile(id),
+        getPuzzleRecommendations(id),
+      ]);
+
+      puzzleDifficultyData = {
+        skillRatings: {
+          logic: Math.round(difficulty.logic * 100),
+          perception: Math.round(difficulty.perception * 100),
+          creation: Math.round(difficulty.creation * 100),
+          field: Math.round(difficulty.field * 100),
+        },
+        profile: {
+          totalAttempted: profile.totalAttempted,
+          totalSolved: profile.totalSolved,
+          successRate: Math.round(profile.overallSuccessRate * 100),
+          strongestType: profile.strongestPuzzleType,
+          weakestType: profile.weakestPuzzleType,
+          typeStats: profile.typeStats,
+          trackStats: profile.trackStats,
+          flags: {
+            hasNeverSolvedCipher: profile.hasNeverSolvedCipher,
+            hasNeverSolvedStego: profile.hasNeverSolvedStego,
+            hasNeverSolvedAudio: profile.hasNeverSolvedAudio,
+            prefersTechPuzzles: profile.prefersTechPuzzles,
+            prefersExplorationPuzzles: profile.prefersExplorationPuzzles,
+          },
+        },
+        recommendations: {
+          recommendedType: recommendations.recommendedType,
+          recommendedDifficulty: recommendations.recommendedDifficulty,
+          reasoning: recommendations.reasoning,
+          avoidTypes: recommendations.avoidTypes,
+          playerStrengths: recommendations.playerStrengths,
+          playerWeaknesses: recommendations.playerWeaknesses,
+        },
+      };
+    } catch (e) {
+      console.warn("Could not fetch puzzle difficulty data:", e);
+    }
 
     return NextResponse.json({
       id: agent.id,
@@ -316,6 +366,8 @@ export async function GET(
         metadata: r.metadata,
         createdAt: r.createdAt,
       })),
+
+      puzzleDifficulty: puzzleDifficultyData,
 
       puzzles: {
         solved: agent.puzzleSolves?.length || 0,

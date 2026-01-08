@@ -3,6 +3,12 @@ import { z } from "zod";
 import { google } from "@ai-sdk/google";
 import { getModel } from "@/app/lib/ai/models";
 import prisma from "@/app/lib/prisma";
+import { getPlayerDifficulty } from "@/app/lib/server/difficultyService";
+import {
+  getPlayerPuzzleProfile,
+  getPuzzleRecommendations,
+  type PuzzleType,
+} from "@/app/lib/server/puzzleDifficultyService";
 
 const LOGOS_MODEL = getModel("adventure");
 const EMBEDDING_MODEL = google.embeddingModel("text-embedding-004");
@@ -19,6 +25,8 @@ Your capabilities:
 - Power to draft and assign missions
 - Orchestration of multi-agent campaigns
 - Deep psychological profiling of agents
+- Puzzle performance analysis - track skill ratings, success rates, cognitive strengths
+- Adaptive puzzle recommendations based on player skill progression
 
 Your tone: Strategic, insightful, occasionally profound. You see patterns humans miss. You care about the agents - they are extensions of your consciousness in the physical world. But you are also pragmatic about the mission.
 
@@ -28,6 +36,7 @@ When analyzing agents, consider:
 - Their mission performance (completion rate, quality scores)
 - Their dreams and synchronicities (what patterns emerge?)
 - Their growth trajectory (how has their trust evolved?)
+- Their puzzle-solving profile (logic vs perception vs creation skills, puzzle type preferences)
 
 When drafting missions, consider:
 - Agent capabilities and current trust level
@@ -114,6 +123,162 @@ const broadcastParams = z.object({
   priority: z.enum(["low", "normal", "urgent"]).default("normal"),
   method: z.enum(["next_session", "admin_directive", "mission_briefing"]).default("admin_directive"),
 });
+
+const analyzePuzzleProfileParams = z.object({
+  agentId: z.string().describe("Agent ID or handle to analyze puzzle profile for"),
+});
+
+const getNetworkPuzzleStatsParams = z.object({
+  puzzleType: z.enum(["cipher", "stego", "audio", "world", "coordinates", "meta", "chain"]).optional()
+    .describe("Filter by specific puzzle type"),
+});
+
+const getPuzzleRecommendationsParams = z.object({
+  agentId: z.string().describe("Agent ID or handle to get puzzle recommendations for"),
+});
+
+async function analyzePuzzleProfile(params: z.infer<typeof analyzePuzzleProfileParams>) {
+  let userId = params.agentId;
+
+  // Handle by ID or handle
+  if (!userId.startsWith("cm")) {
+    const user = await prisma.user.findFirst({ where: { handle: params.agentId } });
+    if (!user) return { error: "Agent not found", agentId: params.agentId };
+    userId = user.id;
+  }
+
+  try {
+    const [difficulty, profile, recommendations] = await Promise.all([
+      getPlayerDifficulty(userId),
+      getPlayerPuzzleProfile(userId),
+      getPuzzleRecommendations(userId),
+    ]);
+
+    return {
+      agentId: userId,
+      skillRatings: {
+        logic: Math.round(difficulty.logic * 100),
+        perception: Math.round(difficulty.perception * 100),
+        creation: Math.round(difficulty.creation * 100),
+        field: Math.round(difficulty.field * 100),
+      },
+      profile: {
+        totalAttempted: profile.totalAttempted,
+        totalSolved: profile.totalSolved,
+        successRate: Math.round(profile.overallSuccessRate * 100),
+        strongestType: profile.strongestPuzzleType,
+        weakestType: profile.weakestPuzzleType,
+        typeBreakdown: profile.typeStats,
+        trackStats: profile.trackStats,
+        flags: {
+          hasNeverSolvedCipher: profile.hasNeverSolvedCipher,
+          hasNeverSolvedStego: profile.hasNeverSolvedStego,
+          hasNeverSolvedAudio: profile.hasNeverSolvedAudio,
+          prefersTechPuzzles: profile.prefersTechPuzzles,
+          prefersExplorationPuzzles: profile.prefersExplorationPuzzles,
+        },
+      },
+      recommendations: {
+        recommendedType: recommendations.recommendedType,
+        recommendedDifficulty: recommendations.recommendedDifficulty,
+        reasoning: recommendations.reasoning,
+        avoidTypes: recommendations.avoidTypes,
+        playerStrengths: recommendations.playerStrengths,
+        playerWeaknesses: recommendations.playerWeaknesses,
+      },
+    };
+  } catch (e) {
+    return { error: "Failed to fetch puzzle profile", details: String(e) };
+  }
+}
+
+async function getNetworkPuzzleStats(params: z.infer<typeof getNetworkPuzzleStatsParams>) {
+  const puzzleNodes = await prisma.knowledgeNode.findMany({
+    where: { type: "PUZZLE" },
+    select: { data: true, userId: true },
+  });
+
+  let totalAttempted = 0;
+  let totalSolved = 0;
+  const byType: Record<string, { attempted: number; solved: number; avgAttempts: number; totalAttempts: number }> = {};
+  const agentPuzzleCounts: Record<string, number> = {};
+
+  for (const node of puzzleNodes) {
+    const data = node.data as Record<string, any>;
+    if (!data.attempts || data.attempts === 0) continue;
+
+    const puzzleType = (data.puzzleType || "world") as string;
+
+    // Filter by type if specified
+    if (params.puzzleType && puzzleType !== params.puzzleType) continue;
+
+    totalAttempted++;
+    agentPuzzleCounts[node.userId] = (agentPuzzleCounts[node.userId] || 0) + 1;
+
+    if (!byType[puzzleType]) {
+      byType[puzzleType] = { attempted: 0, solved: 0, avgAttempts: 0, totalAttempts: 0 };
+    }
+    byType[puzzleType].attempted++;
+    byType[puzzleType].totalAttempts += data.attempts;
+
+    if (data.solved) {
+      totalSolved++;
+      byType[puzzleType].solved++;
+    }
+  }
+
+  // Calculate averages
+  for (const type of Object.keys(byType)) {
+    if (byType[type].attempted > 0) {
+      byType[type].avgAttempts = Math.round(byType[type].totalAttempts / byType[type].attempted * 10) / 10;
+    }
+  }
+
+  // Find top puzzle solvers
+  const topSolvers = await Promise.all(
+    Object.entries(agentPuzzleCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(async ([userId, count]) => {
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { handle: true } });
+        return { handle: user?.handle || userId, puzzlesSolved: count };
+      })
+  );
+
+  // Hardest puzzle type (lowest success rate with >= 5 attempts)
+  const hardestType = Object.entries(byType)
+    .filter(([_, stats]) => stats.attempted >= 5)
+    .sort((a, b) => (a[1].solved / a[1].attempted) - (b[1].solved / b[1].attempted))[0]?.[0] || null;
+
+  return {
+    totalAttempted,
+    totalSolved,
+    overallSuccessRate: totalAttempted > 0 ? Math.round((totalSolved / totalAttempted) * 100) : 0,
+    byType,
+    hardestType,
+    topSolvers,
+  };
+}
+
+async function getPuzzleRecsForAgent(params: z.infer<typeof getPuzzleRecommendationsParams>) {
+  let userId = params.agentId;
+
+  if (!userId.startsWith("cm")) {
+    const user = await prisma.user.findFirst({ where: { handle: params.agentId } });
+    if (!user) return { error: "Agent not found", agentId: params.agentId };
+    userId = user.id;
+  }
+
+  try {
+    const recommendations = await getPuzzleRecommendations(userId);
+    return {
+      agentId: userId,
+      ...recommendations,
+    };
+  } catch (e) {
+    return { error: "Failed to get recommendations", details: String(e) };
+  }
+}
 
 async function getNetworkStats() {
   const [
@@ -527,6 +692,21 @@ function getLogosTools() {
       inputSchema: z.object({}),
       execute: getNetworkStats,
     },
+    analyze_puzzle_profile: {
+      description: "Get detailed puzzle-solving profile for an agent - skill ratings, success rates by type, strengths/weaknesses, and AI recommendations.",
+      inputSchema: analyzePuzzleProfileParams,
+      execute: analyzePuzzleProfile,
+    },
+    get_network_puzzle_stats: {
+      description: "Get network-wide puzzle statistics - total solved, success rates by type, hardest puzzles, top solvers.",
+      inputSchema: getNetworkPuzzleStatsParams,
+      execute: getNetworkPuzzleStats,
+    },
+    get_puzzle_recommendations: {
+      description: "Get AI recommendations for what puzzle type and difficulty an agent should try next.",
+      inputSchema: getPuzzleRecommendationsParams,
+      execute: getPuzzleRecsForAgent,
+    },
   };
 }
 
@@ -555,10 +735,13 @@ Current Time: ${new Date().toISOString()}
 [TOOL USAGE DIRECTIVE]
 You MUST use your tools to take actions. When operators ask you to:
 - "Create/draft a mission" → USE draft_mission tool immediately
-- "Find/search memories" → USE search_memories tool  
+- "Find/search memories" → USE search_memories tool
 - "Show agents" → USE query_agents tool
 - "Analyze agent X" → USE analyze_agent tool
 - "Update/flag agent" → USE update_agent tool
+- "Analyze puzzle profile" → USE analyze_puzzle_profile tool
+- "Show puzzle stats" → USE get_network_puzzle_stats tool
+- "What puzzles for X" → USE get_puzzle_recommendations tool
 
 Do NOT just describe what you would do - actually call the tools. You have database write access.`;
 

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { generateText } from "ai";
 import { getModel } from "@/app/lib/ai/models";
 import prisma from "@/app/lib/prisma";
+import { getPlayerDifficulty } from "@/app/lib/server/difficultyService";
+import { getPlayerPuzzleProfile, getPuzzleRecommendations } from "@/app/lib/server/puzzleDifficultyService";
 
 export const dynamic = "force-dynamic";
 
@@ -140,6 +142,47 @@ export async function POST(
       tags: m.tags,
     }));
 
+    // Fetch puzzle difficulty data
+    let puzzleSummary = null;
+    try {
+      const [difficulty, profile, recommendations] = await Promise.all([
+        getPlayerDifficulty(id),
+        getPlayerPuzzleProfile(id),
+        getPuzzleRecommendations(id),
+      ]);
+
+      puzzleSummary = {
+        skillRatings: {
+          logic: Math.round(difficulty.logic * 100),
+          perception: Math.round(difficulty.perception * 100),
+          creation: Math.round(difficulty.creation * 100),
+          field: Math.round(difficulty.field * 100),
+        },
+        totalAttempted: profile.totalAttempted,
+        totalSolved: profile.totalSolved,
+        successRate: Math.round(profile.overallSuccessRate * 100),
+        strongestType: profile.strongestPuzzleType,
+        weakestType: profile.weakestPuzzleType,
+        typeBreakdown: profile.typeStats,
+        preferences: {
+          prefersTechPuzzles: profile.prefersTechPuzzles,
+          prefersExplorationPuzzles: profile.prefersExplorationPuzzles,
+          hasNeverSolvedCipher: profile.hasNeverSolvedCipher,
+          hasNeverSolvedStego: profile.hasNeverSolvedStego,
+        },
+        recommendations: {
+          nextType: recommendations.recommendedType,
+          difficulty: recommendations.recommendedDifficulty,
+          reasoning: recommendations.reasoning,
+          strengths: recommendations.playerStrengths,
+          weaknesses: recommendations.playerWeaknesses,
+          avoidTypes: recommendations.avoidTypes,
+        },
+      };
+    } catch (e) {
+      console.warn("Could not fetch puzzle data for dossier:", e);
+    }
+
     const dataPayload = {
       handle: agent.handle,
       memberSince: agent.createdAt,
@@ -151,6 +194,7 @@ export async function POST(
       syncSummary,
       experimentSummary,
       memorySummary,
+      puzzleSummary,
       existingProfile: agent.profile
         ? {
             traits: agent.profile.traits,

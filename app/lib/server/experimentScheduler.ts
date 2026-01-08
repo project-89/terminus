@@ -4,6 +4,7 @@ import {
   ExperimentTemplate,
   ExperimentTrigger,
   EXPERIMENT_TEMPLATES,
+  DEFAULT_EXPERIMENT,
   getTemplatesForLayer,
 } from "./experimentTemplates";
 import { createExperiment } from "./experimentService";
@@ -256,20 +257,42 @@ export type ExperimentDirective = {
   narrativeHook: string;
   successCriteria: string;
   covert: boolean;
+  // Tool control from experiment
+  requiredTools: string[];
+  forbiddenTools: string[];
+  isDefault: boolean;  // True if this is the baseline experiment
 };
 
+// Always returns an experiment - falls back to DEFAULT_EXPERIMENT
 export async function getExperimentDirective(
   userId: string,
   recentMessages?: string[]
-): Promise<ExperimentDirective | null> {
+): Promise<ExperimentDirective> {
   const shouldRun = await shouldRunExperiment(userId);
-  if (!shouldRun) return null;
-  
-  const scheduled = await selectExperiment(userId, { recentMessages });
-  if (!scheduled) return null;
-  
+
+  // Try to select a specific experiment
+  let scheduled: ScheduledExperiment | null = null;
+  if (shouldRun) {
+    scheduled = await selectExperiment(userId, { recentMessages });
+  }
+
+  // Fall back to default experiment if nothing selected
+  if (!scheduled) {
+    return {
+      experimentId: `baseline-${userId}-${Date.now()}`,
+      templateId: DEFAULT_EXPERIMENT.id,
+      type: DEFAULT_EXPERIMENT.type,
+      narrativeHook: DEFAULT_EXPERIMENT.narrativeHook,
+      successCriteria: DEFAULT_EXPERIMENT.successCriteria,
+      covert: DEFAULT_EXPERIMENT.covert,
+      requiredTools: DEFAULT_EXPERIMENT.requiredTools || [],
+      forbiddenTools: DEFAULT_EXPERIMENT.forbiddenTools || [],
+      isDefault: true,
+    };
+  }
+
   const experimentId = await activateExperiment(userId, scheduled);
-  
+
   return {
     experimentId,
     templateId: scheduled.template.id,
@@ -277,5 +300,8 @@ export async function getExperimentDirective(
     narrativeHook: scheduled.narrativeHook,
     successCriteria: scheduled.template.successCriteria,
     covert: scheduled.template.covert,
+    requiredTools: scheduled.template.requiredTools || [],
+    forbiddenTools: scheduled.template.forbiddenTools || [],
+    isDefault: false,
   };
 }

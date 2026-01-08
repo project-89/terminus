@@ -6,13 +6,19 @@
  */
 
 import prisma from "@/app/lib/prisma";
-import { 
-  parseNarrativeResponse, 
-  mergeExtractions, 
+import {
+  parseNarrativeResponse,
+  mergeExtractions,
   generateConsistencyContext as generateConsistencyContextFromParser,
   createEmptyWorld,
-  WorldExtraction 
+  WorldExtraction
 } from "@/app/lib/game/narrativeParser";
+import {
+  checkPuzzleAppropriate,
+  recordPuzzleAttempt,
+  getPuzzleTrack,
+  PuzzleType as PuzzleDifficultyType,
+} from "./puzzleDifficultyService";
 
 export { generateConsistencyContextFromParser as generateConsistencyContext };
 
@@ -650,4 +656,380 @@ function getOppositeDirection(dir: string): string | null {
     out: 'in',
   };
   return opposites[dir.toLowerCase()] || null;
+}
+
+// ============================================
+// AI Puzzle Design
+// LOGOS can create puzzles that integrate with both
+// the game engine (world-based) and PuzzleChain (multimedia/ARG)
+// ============================================
+
+export type AIPuzzleCondition = {
+  type: 'object_state' | 'object_location' | 'flag' | 'inventory' | 'room' | 'cipher_solved' | 'stego_decoded';
+  target: string;
+  property?: string;
+  value: any;
+};
+
+export type AIPuzzleEffect = {
+  type: 'unlock_exit' | 'reveal_object' | 'set_flag' | 'move_object' | 'change_description' | 'trigger_event' | 'award_points' | 'play_sound' | 'show_image';
+  target: string;
+  value?: any;
+};
+
+export type AIPuzzleMultimedia = {
+  // Cipher encoding for text clues
+  cipher?: {
+    type: 'caesar' | 'vigenere' | 'rot13' | 'atbash' | 'morse' | 'binary' | 'a1z26';
+    key?: string; // For caesar (shift number) or vigenere (keyword)
+    message: string; // The decoded message
+  };
+  // Steganography for hidden image data
+  stego?: {
+    imagePrompt: string; // Prompt to generate carrier image
+    hiddenMessage: string;
+    visualPattern?: 'grid89' | 'spiral' | 'qr_ghost';
+  };
+  // Audio clue
+  audio?: {
+    description: string; // Description for AI audio generation
+    hiddenMessage?: string; // If audio contains encoded message
+  };
+  // Visual clue
+  image?: {
+    prompt: string;
+    displayMode: 'modal' | 'subliminal' | 'peripheral' | 'corruption';
+  };
+};
+
+export type AICreatedPuzzle = {
+  id: string;
+  name: string;
+  description: string; // For LOGOS's notes, not shown to player
+
+  // Puzzle type determines how it's solved
+  type: 'world' | 'cipher' | 'stego' | 'audio' | 'coordinates' | 'meta' | 'chain';
+
+  // For world-based puzzles: conditions in the game engine
+  conditions?: AIPuzzleCondition[];
+
+  // What happens when solved
+  effects?: AIPuzzleEffect[];
+
+  // The solution (keyword, action, or answer)
+  solution?: string;
+
+  // Progressive hints (revealed after failed attempts)
+  hints: string[];
+
+  // Multimedia components for richer puzzles
+  multimedia?: AIPuzzleMultimedia;
+
+  // Location in the game world (optional)
+  location?: string; // Room ID where puzzle is active
+
+  // Difficulty 1-5
+  difficulty: 1 | 2 | 3 | 4 | 5;
+
+  // Chain linkage
+  prerequisites?: string[]; // Puzzle IDs that must be solved first
+  unlocksNext?: string[]; // Puzzle IDs this unlocks when solved
+
+  // Points awarded on solve
+  pointsReward?: number;
+
+  // Link to experiment testing player behavior
+  experimentId?: string;
+};
+
+export async function aiCreatePuzzle(
+  sessionId: string,
+  userId: string,
+  puzzle: AICreatedPuzzle
+): Promise<{
+  success: boolean;
+  message: string;
+  puzzleId?: string;
+  warnings?: string[];
+  suggestions?: string[];
+}> {
+  try {
+    const world = await getSessionWorld(sessionId);
+
+    // Check if puzzle already exists
+    if (world.puzzles.some(p => p.name.toLowerCase() === puzzle.name.toLowerCase())) {
+      return { success: false, message: `Puzzle "${puzzle.name}" already exists` };
+    }
+
+    // Check if puzzle is appropriate for player's skill level
+    const difficultyNormalized = (puzzle.difficulty - 1) / 4; // Convert 1-5 to 0-1
+    const appropriateCheck = await checkPuzzleAppropriate(
+      userId,
+      puzzle.type as PuzzleDifficultyType,
+      difficultyNormalized,
+      puzzle.multimedia
+    );
+
+    // Log warnings but don't block creation (AI can override)
+    if (!appropriateCheck.appropriate) {
+      console.warn(`[AI WORLD] Puzzle may be too hard for player:`, appropriateCheck.warnings);
+      console.log(`[AI WORLD] Suggestions:`, appropriateCheck.suggestions);
+    }
+
+    // Generate encoded content if cipher is specified
+    let encodedContent: string | undefined;
+    if (puzzle.multimedia?.cipher) {
+      const { type, key, message } = puzzle.multimedia.cipher;
+      // Note: actual encoding happens client-side via tools
+      // We store the intent and solution
+      encodedContent = `[CIPHER:${type}${key ? `:${key}` : ''}] ${message}`;
+    }
+
+    // Add puzzle to world extraction (narrative-level)
+    world.puzzles.push({
+      name: puzzle.name,
+      description: puzzle.description,
+      hints: puzzle.hints,
+      solved: false,
+      location: puzzle.location || 'unknown',
+    });
+
+    await saveSessionWorld(sessionId, world);
+
+    // Get the track this puzzle will test
+    const track = getPuzzleTrack(puzzle.type as PuzzleDifficultyType);
+
+    // Also persist to knowledge graph for tracking
+    await prisma.knowledgeNode.create({
+      data: {
+        userId,
+        type: 'PUZZLE',
+        label: puzzle.name,
+        data: {
+          id: puzzle.id,
+          puzzleType: puzzle.type,
+          description: puzzle.description,
+          difficulty: puzzle.difficulty,
+          difficultyNormalized,
+          track, // Track this puzzle tests (logic, perception, creation, field)
+          location: puzzle.location,
+          solution: puzzle.solution, // Stored securely, not exposed
+          conditions: puzzle.conditions,
+          effects: puzzle.effects,
+          hints: puzzle.hints,
+          multimedia: puzzle.multimedia ? {
+            hasCipher: !!puzzle.multimedia.cipher,
+            hasStego: !!puzzle.multimedia.stego,
+            hasAudio: !!puzzle.multimedia.audio,
+            hasImage: !!puzzle.multimedia.image,
+            cipherType: puzzle.multimedia.cipher?.type,
+          } : undefined,
+          prerequisites: puzzle.prerequisites,
+          unlocksNext: puzzle.unlocksNext,
+          pointsReward: puzzle.pointsReward,
+          experimentId: puzzle.experimentId,
+          aiCreated: true,
+          sessionId,
+          attempts: 0,
+          solved: false,
+        },
+        discoveredAt: new Date(),
+      },
+    });
+
+    console.log(`[AI WORLD] Created puzzle: ${puzzle.name} (type: ${puzzle.type}, difficulty: ${puzzle.difficulty}/5, track: ${track})`);
+
+    // If puzzle has multimedia components, log them
+    if (puzzle.multimedia) {
+      const components: string[] = [];
+      if (puzzle.multimedia.cipher) components.push(`cipher:${puzzle.multimedia.cipher.type}`);
+      if (puzzle.multimedia.stego) components.push('stego');
+      if (puzzle.multimedia.audio) components.push('audio');
+      if (puzzle.multimedia.image) components.push('image');
+      console.log(`[AI WORLD] Puzzle multimedia: ${components.join(', ')}`);
+    }
+
+    // Build response with warnings if applicable
+    const response: {
+      success: boolean;
+      message: string;
+      puzzleId?: string;
+      warnings?: string[];
+      suggestions?: string[];
+    } = {
+      success: true,
+      message: `Created puzzle "${puzzle.name}"`,
+      puzzleId: puzzle.id,
+    };
+
+    if (!appropriateCheck.appropriate) {
+      response.warnings = appropriateCheck.warnings;
+      response.suggestions = appropriateCheck.suggestions;
+      response.message += ` (NOTE: ${appropriateCheck.warnings.length} warning(s) - puzzle may be challenging for this player)`;
+    }
+
+    return response;
+  } catch (error) {
+    console.error('[AI WORLD] Failed to create puzzle:', error);
+    return { success: false, message: `Failed to create puzzle: ${error}` };
+  }
+}
+
+/**
+ * Check if a puzzle solution is correct and handle effects
+ */
+export async function aiCheckPuzzleSolution(
+  sessionId: string,
+  userId: string,
+  puzzleId: string,
+  answer: string
+): Promise<{
+  correct: boolean;
+  message: string;
+  hint?: string;
+  pointsAwarded?: number;
+  unlockedPuzzles?: string[];
+  skillUpdate?: {
+    track: string;
+    oldRating: number;
+    newRating: number;
+    change: number;
+  };
+}> {
+  try {
+    // Get puzzle from knowledge graph
+    const puzzleNode = await prisma.knowledgeNode.findFirst({
+      where: {
+        userId,
+        type: 'PUZZLE',
+        data: {
+          path: ['id'],
+          equals: puzzleId,
+        },
+      },
+    });
+
+    if (!puzzleNode) {
+      return { correct: false, message: 'Puzzle not found' };
+    }
+
+    const puzzleData = puzzleNode.data as Record<string, any>;
+    const solution = puzzleData.solution?.toLowerCase().trim();
+    const normalizedAnswer = answer.toLowerCase().trim();
+
+    if (!solution) {
+      return { correct: false, message: 'This puzzle requires a different method to solve' };
+    }
+
+    // Track attempts
+    const attempts = (puzzleData.attempts || 0) + 1;
+    await prisma.knowledgeNode.update({
+      where: { id: puzzleNode.id },
+      data: {
+        data: {
+          ...puzzleData,
+          attempts,
+        },
+      },
+    });
+
+    if (normalizedAnswer !== solution) {
+      // Provide hint based on attempt count
+      const hints = puzzleData.hints || [];
+      const hintIndex = Math.min(Math.floor(attempts / 2), hints.length - 1);
+      const hint = hints[hintIndex];
+
+      return {
+        correct: false,
+        message: 'Incorrect',
+        hint,
+      };
+    }
+
+    // Check if already solved - don't double-reward
+    if (puzzleData.solved) {
+      console.log(`[AI WORLD] Puzzle already solved: ${puzzleNode.label}`);
+      return {
+        correct: true,
+        message: 'Already solved!',
+        // No points awarded on re-solve
+      };
+    }
+
+    // Correct! Mark as solved and update player skill
+    const puzzleType = (puzzleData.puzzleType || 'world') as PuzzleDifficultyType;
+    const puzzleDifficulty = puzzleData.difficultyNormalized || (puzzleData.difficulty - 1) / 4;
+
+    // Record the outcome and update player's skill rating
+    const skillResult = await recordPuzzleAttempt(
+      userId,
+      puzzleId,
+      puzzleType,
+      puzzleDifficulty,
+      true, // solved
+      attempts
+    );
+
+    // Update puzzle node with solve data
+    await prisma.knowledgeNode.update({
+      where: { id: puzzleNode.id },
+      data: {
+        data: {
+          ...puzzleData,
+          attempts,
+          solved: true,
+          solvedAt: new Date().toISOString(),
+          attemptsToSolve: attempts,
+          skillRatingBefore: skillResult.newRating - skillResult.ratingChange,
+          skillRatingAfter: skillResult.newRating,
+        },
+      },
+    });
+
+    // Update world extraction
+    const world = await getSessionWorld(sessionId);
+    const worldPuzzle = world.puzzles.find(p =>
+      p.name.toLowerCase() === puzzleNode.label.toLowerCase()
+    );
+    if (worldPuzzle) {
+      worldPuzzle.solved = true;
+    }
+    await saveSessionWorld(sessionId, world);
+
+    // Award points if specified
+    let pointsAwarded: number | undefined;
+    if (puzzleData.pointsReward) {
+      await prisma.reward.create({
+        data: {
+          userId,
+          type: 'CREDIT',
+          amount: puzzleData.pointsReward,
+          metadata: {
+            reason: `Solved puzzle: ${puzzleNode.label}`,
+            puzzleId,
+            category: 'puzzle_progress',
+          },
+        },
+      });
+      pointsAwarded = puzzleData.pointsReward;
+    }
+
+    console.log(`[AI WORLD] Puzzle solved: ${puzzleNode.label} by ${userId} (${skillResult.track} skill: ${((skillResult.newRating - skillResult.ratingChange) * 100).toFixed(0)}% → ${(skillResult.newRating * 100).toFixed(0)}%)`);
+
+    return {
+      correct: true,
+      message: 'Correct!',
+      pointsAwarded,
+      unlockedPuzzles: puzzleData.unlocksNext,
+      skillUpdate: {
+        track: skillResult.track,
+        oldRating: skillResult.newRating - skillResult.ratingChange,
+        newRating: skillResult.newRating,
+        change: skillResult.ratingChange,
+      },
+    };
+  } catch (error) {
+    console.error('[AI WORLD] Failed to check puzzle solution:', error);
+    return { correct: false, message: 'Error checking solution' };
+  }
 }

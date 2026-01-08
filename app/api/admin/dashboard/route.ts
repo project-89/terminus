@@ -15,6 +15,32 @@ export async function GET(request: Request) {
       where: { status: "COMPLETED" },
     });
 
+    // 1b. Fetch Puzzle Stats from Knowledge Graph
+    const puzzleNodes = await prisma.knowledgeNode.findMany({
+      where: { type: "PUZZLE" },
+      select: { data: true },
+    });
+
+    let totalPuzzlesAttempted = 0;
+    let totalPuzzlesSolved = 0;
+    const puzzleTypeStats: Record<string, { attempted: number; solved: number }> = {};
+
+    for (const node of puzzleNodes) {
+      const data = node.data as Record<string, any>;
+      if (data.attempts && data.attempts > 0) {
+        totalPuzzlesAttempted++;
+        const puzzleType = data.puzzleType || "world";
+        if (!puzzleTypeStats[puzzleType]) {
+          puzzleTypeStats[puzzleType] = { attempted: 0, solved: 0 };
+        }
+        puzzleTypeStats[puzzleType].attempted++;
+        if (data.solved) {
+          totalPuzzlesSolved++;
+          puzzleTypeStats[puzzleType].solved++;
+        }
+      }
+    }
+
     // 2. Fetch Recent Agents (Limit 10)
     const agents = await prisma.user.findMany({
       take: 10,
@@ -56,6 +82,19 @@ export async function GET(request: Request) {
         totalAgents,
         activeMissions,
         completedMissions,
+        puzzlesAttempted: totalPuzzlesAttempted,
+        puzzlesSolved: totalPuzzlesSolved,
+        puzzleSuccessRate: totalPuzzlesAttempted > 0
+          ? Math.round((totalPuzzlesSolved / totalPuzzlesAttempted) * 100)
+          : 0,
+      },
+      puzzleStats: {
+        byType: puzzleTypeStats,
+        mostPopular: Object.entries(puzzleTypeStats)
+          .sort((a, b) => b[1].attempted - a[1].attempted)[0]?.[0] || null,
+        hardestType: Object.entries(puzzleTypeStats)
+          .filter(([_, stats]) => stats.attempted >= 3)
+          .sort((a, b) => (a[1].solved / a[1].attempted) - (b[1].solved / b[1].attempted))[0]?.[0] || null,
       },
       agents: agents.map((a: any) => ({
         id: a.id,

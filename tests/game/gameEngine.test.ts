@@ -18,7 +18,7 @@ describe("Game Engine", () => {
   let engine: GameEngine;
 
   beforeEach(() => {
-    engine = new GameEngine();
+    engine = new GameEngine(undefined, true);
   });
 
   describe("Initialization", () => {
@@ -58,7 +58,7 @@ describe("Game Engine", () => {
         objectStates: {},
       };
 
-      const restoredEngine = new GameEngine(savedState);
+      const restoredEngine = new GameEngine(savedState, true);
       const state = restoredEngine.getState();
 
       expect(state.currentRoom).toBe("forest");
@@ -449,26 +449,26 @@ describe("Game Engine", () => {
 
 describe("Game Engine Edge Cases", () => {
   it("should handle empty input gracefully", () => {
-    const engine = new GameEngine();
+    const engine = new GameEngine(undefined, true);
     const result = engine.execute("");
     expect(result).toBeDefined();
   });
 
   it("should handle whitespace-only input", () => {
-    const engine = new GameEngine();
+    const engine = new GameEngine(undefined, true);
     const result = engine.execute("   ");
     expect(result).toBeDefined();
   });
 
   it("should handle very long input", () => {
-    const engine = new GameEngine();
+    const engine = new GameEngine(undefined, true);
     const longInput = "look ".repeat(100);
     const result = engine.execute(longInput);
     expect(result).toBeDefined();
   });
 
   it("should handle special characters in input", () => {
-    const engine = new GameEngine();
+    const engine = new GameEngine(undefined, true);
     const result = engine.execute("look @#$%");
     expect(result).toBeDefined();
   });

@@ -102,6 +102,38 @@ interface AgentDossier {
   }>;
   experiments?: Experiment[];
   memory?: MemoryEvent[];
+  puzzleDifficulty?: {
+    skillRatings: {
+      logic: number;
+      perception: number;
+      creation: number;
+      field: number;
+    };
+    profile: {
+      totalAttempted: number;
+      totalSolved: number;
+      successRate: number;
+      strongestType: string | null;
+      weakestType: string | null;
+      typeStats: Record<string, { attempted: number; solved: number; successRate: number }>;
+      trackStats: Record<string, { attempted: number; solved: number; avgAttempts: number }>;
+      flags: {
+        hasNeverSolvedCipher: boolean;
+        hasNeverSolvedStego: boolean;
+        hasNeverSolvedAudio: boolean;
+        prefersTechPuzzles: boolean;
+        prefersExplorationPuzzles: boolean;
+      };
+    };
+    recommendations: {
+      recommendedType: string;
+      recommendedDifficulty: number;
+      reasoning: string;
+      avoidTypes: string[];
+      playerStrengths: string[];
+      playerWeaknesses: string[];
+    };
+  } | null;
   puzzles?: {
     solved: number;
     chainsCreated: number;
@@ -1027,25 +1059,113 @@ export default function AgentDossierPage() {
         {activeTab === "puzzles" && (
           <div className="grid grid-cols-12 gap-6">
             <div className="col-span-4 space-y-6">
+              <Section title="COGNITIVE SKILL RATINGS">
+                {dossier.puzzleDifficulty?.skillRatings ? (
+                  <div className="space-y-3">
+                    <StatBar label="Logic" value={dossier.puzzleDifficulty.skillRatings.logic / 100} color="#00ff88" />
+                    <StatBar label="Perception" value={dossier.puzzleDifficulty.skillRatings.perception / 100} color="#00aaff" />
+                    <StatBar label="Creation" value={dossier.puzzleDifficulty.skillRatings.creation / 100} color="#ff00ff" />
+                    <StatBar label="Field" value={dossier.puzzleDifficulty.skillRatings.field / 100} color="#ffaa00" />
+                  </div>
+                ) : (
+                  <div className="text-cyan-700 text-sm">No skill data available</div>
+                )}
+              </Section>
+
               <Section title="PUZZLE STATS">
                 <div className="grid grid-cols-2 gap-3 text-center">
                   <div className="bg-cyan-900/20 border border-cyan-800 p-3">
-                    <div className="text-2xl font-bold text-green-400">{dossier.puzzles?.solved || 0}</div>
+                    <div className="text-2xl font-bold text-green-400">{dossier.puzzleDifficulty?.profile?.totalSolved || dossier.puzzles?.solved || 0}</div>
                     <div className="text-xs text-cyan-700">SOLVED</div>
                   </div>
                   <div className="bg-cyan-900/20 border border-cyan-800 p-3">
-                    <div className="text-2xl font-bold text-cyan-300">{dossier.puzzles?.chainsCreated || 0}</div>
-                    <div className="text-xs text-cyan-700">CHAINS CREATED</div>
+                    <div className="text-2xl font-bold text-cyan-300">{dossier.puzzleDifficulty?.profile?.totalAttempted || 0}</div>
+                    <div className="text-xs text-cyan-700">ATTEMPTED</div>
                   </div>
                   <div className="bg-cyan-900/20 border border-cyan-800 p-3 col-span-2">
-                    <div className="text-2xl font-bold text-purple-400">{dossier.puzzles?.chainsCompleted || 0}</div>
-                    <div className="text-xs text-cyan-700">CHAINS COMPLETED</div>
+                    <div className="text-2xl font-bold text-purple-400">{dossier.puzzleDifficulty?.profile?.successRate || 0}%</div>
+                    <div className="text-xs text-cyan-700">SUCCESS RATE</div>
                   </div>
                 </div>
+                {dossier.puzzleDifficulty?.profile && (
+                  <div className="mt-4 pt-4 border-t border-cyan-800 space-y-2 text-sm">
+                    {dossier.puzzleDifficulty.profile.strongestType && (
+                      <div className="flex justify-between">
+                        <span className="text-cyan-700">STRONGEST</span>
+                        <span className="text-green-400 font-bold">{dossier.puzzleDifficulty.profile.strongestType}</span>
+                      </div>
+                    )}
+                    {dossier.puzzleDifficulty.profile.weakestType && (
+                      <div className="flex justify-between">
+                        <span className="text-cyan-700">WEAKEST</span>
+                        <span className="text-red-400 font-bold">{dossier.puzzleDifficulty.profile.weakestType}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </Section>
 
-              <Section title="PUZZLE TYPES SOLVED">
-                {dossier.puzzles?.solves?.length ? (
+              <Section title="AI RECOMMENDATIONS">
+                {dossier.puzzleDifficulty?.recommendations ? (
+                  <div className="space-y-3">
+                    <div className="bg-green-900/20 border border-green-800 p-3">
+                      <div className="text-xs text-green-600 mb-1">RECOMMENDED NEXT</div>
+                      <div className="text-green-400 font-bold">{dossier.puzzleDifficulty.recommendations.recommendedType}</div>
+                      <div className="text-xs text-green-700 mt-1">
+                        Difficulty: {Math.round(dossier.puzzleDifficulty.recommendations.recommendedDifficulty * 100)}%
+                      </div>
+                    </div>
+                    <div className="text-cyan-500 text-xs">{dossier.puzzleDifficulty.recommendations.reasoning}</div>
+                    {dossier.puzzleDifficulty.recommendations.avoidTypes.length > 0 && (
+                      <div className="bg-red-900/20 border border-red-800 p-2">
+                        <div className="text-xs text-red-600 mb-1">AVOID</div>
+                        <div className="flex flex-wrap gap-1">
+                          {dossier.puzzleDifficulty.recommendations.avoidTypes.map((t) => (
+                            <span key={t} className="bg-red-900/50 px-2 py-1 text-xs text-red-400">{t}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {dossier.puzzleDifficulty.recommendations.playerStrengths.length > 0 && (
+                      <div>
+                        <div className="text-xs text-cyan-600 mb-1">STRENGTHS</div>
+                        <ul className="text-xs text-green-400 space-y-1">
+                          {dossier.puzzleDifficulty.recommendations.playerStrengths.map((s, i) => (
+                            <li key={i}>+ {s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {dossier.puzzleDifficulty.recommendations.playerWeaknesses.length > 0 && (
+                      <div>
+                        <div className="text-xs text-cyan-600 mb-1">WEAKNESSES</div>
+                        <ul className="text-xs text-red-400/80 space-y-1">
+                          {dossier.puzzleDifficulty.recommendations.playerWeaknesses.map((w, i) => (
+                            <li key={i}>- {w}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-cyan-700 text-sm">No recommendations available</div>
+                )}
+              </Section>
+
+              <Section title="PUZZLE TYPE BREAKDOWN">
+                {dossier.puzzleDifficulty?.profile?.typeStats && Object.keys(dossier.puzzleDifficulty.profile.typeStats).length > 0 ? (
+                  <div className="space-y-2">
+                    {Object.entries(dossier.puzzleDifficulty.profile.typeStats).map(([type, stats]) => (
+                      <div key={type} className="flex justify-between items-center text-sm">
+                        <span className="text-cyan-500">{type}</span>
+                        <span className="text-cyan-300">
+                          {stats.solved}/{stats.attempted}
+                          <span className="text-cyan-700 ml-2">({stats.successRate}%)</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : dossier.puzzles?.solves?.length ? (
                   <div className="space-y-2">
                     {Object.entries(
                       dossier.puzzles.solves.reduce((acc: Record<string, number>, s) => {

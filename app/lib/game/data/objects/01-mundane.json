@@ -1,0 +1,343 @@
+{
+  "$schema": "../object.schema.json",
+  "region": "Mundane World",
+  "objects": [
+    {
+      "id": "large-desk",
+      "name": "large desk",
+      "aliases": ["desk"],
+      "description": "Your desk. Solid, reliable, sturdy. The center of your life, your operational headquarters. You can't remember how many nights you have spent here bathed in the glow of the monitor, scribblings your notes and pondering on the mysteries of this reality you have found yourself in. It is cluttered with scattered papers, what to anyone else would be the ravings of a madman. It stands large in the room, taking up almost as much space as your bed. The desk and the bed are almost your whole life at this point. There is enough room between the two for your rituals and experiments. In the desk there is a drawer.",
+      "location": "mundane-bedroom",
+      "properties": {
+        "isFixed": true,
+        "isScenery": true,
+        "isContainer": true
+      }
+    },
+    {
+      "id": "desk-drawer",
+      "name": "desk drawer",
+      "aliases": ["drawer"],
+      "description": "The drawer is mainly littered with accumulated refuse of years, but it is hard to tell if there is anything useful without going through it all.",
+      "location": null,
+      "containedIn": "large-desk",
+      "properties": {
+        "isOpenable": true,
+        "isOpen": false,
+        "isLockable": true,
+        "isLocked": true,
+        "isContainer": true
+      },
+      "interactions": {
+        "search": "As you rummage through what seems like almost a century of junk and miscellaneous debris, you find a weathered and yellowing old photo you had nearly forgotten about."
+      }
+    },
+    {
+      "id": "pc",
+      "name": "computer",
+      "aliases": ["pc", "computer", "terminal"],
+      "description": "It is your computer, used more frequently than almost anything else in your mad quest. The internet, and by extension the computer, is living information, a vast global network that shimmers and grows with an intelligence all its own. It has served you well all these years. Your whole world is on here. It sits, inert, on your desk, the monitor dark and lifeless, almost like the inky black depths of a void. The computers sits, alive, almost sentient in the bedroom, staring at you, waiting for you to do something. You have lost track of the number of nights you have stayed awake staring at this screen, spinning down rabbit holes, trying to crack the code, trying to figure out what iT is, what iT wants. iT is like some itch you can't quite place. In the corner of the screen you can make out a note.",
+      "location": null,
+      "containedIn": "large-desk",
+      "properties": {
+        "isSwitchable": true,
+        "isSwitchedOn": false
+      },
+      "interactions": {
+        "switchOn": "The computer whirs to life, like some strange automata. You can hear the fan whizzing away as power flows through transistors, microscopic gates opening and closing, chattering away ones and zeros as they come alive with digital information. You sit and marvel at all the levels of complexity that go in to this machine. It never ceases to amaze you. The screen begins to slowly glow, coming alive like some liquid light trapped behind glass. The computer sits, awaiting your command."
+      }
+    },
+    {
+      "id": "desk-lamp",
+      "name": "desk lamp",
+      "aliases": ["lamp"],
+      "description": "Your desk lamp shines brightly, illuminating everything around the desk. Your desk lamp sits here, dead and lifeless.",
+      "location": null,
+      "containedIn": "large-desk",
+      "properties": {
+        "isFixed": true,
+        "isLit": false,
+        "isSwitchable": true,
+        "isSwitchedOn": false
+      },
+      "interactions": {
+        "switchOn": "The light crackles to life."
+      }
+    },
+    {
+      "id": "comfy-bed",
+      "name": "bed",
+      "aliases": ["bed", "comfy bed"],
+      "description": "The blankets are scattered around in a mess, just the way you like it. It is comfortable and inviting. Beside your bed is your bedside table, which often supports the many books you study while lying in bed unable to sleep.",
+      "location": "mundane-bedroom",
+      "properties": {
+        "isFixed": true,
+        "isScenery": true,
+        "isContainer": true
+      },
+      "interactions": {
+        "enter": "You lie down amidst your sheets and blankets, your head resting on a well warn and familiar pillow. The room seems to almost blur around you as you relax into the comfort of your bed."
+      }
+    },
+    {
+      "id": "interface-box",
+      "name": "interface box",
+      "aliases": ["box"],
+      "description": "The box is oblong, quite sleekly designed. Across the front of it is the phrase 'Our dream is your reality'. With the name of the Interface under it - 'OneirOS'. The device pictured on the box is sitting on the bed beside where you were lying. In the corner you can make out the companies name, Oneirocom.",
+      "location": null,
+      "containedIn": "comfy-bed",
+      "properties": {
+        "isContainer": true,
+        "isOpen": true
+      }
+    },
+    {
+      "id": "bookshelf",
+      "name": "bookshelf",
+      "aliases": ["shelf", "bookcase"],
+      "description": "The bookshelf contains many of your most treasureD boOks, worn with use. MaNy of Them have been dog eared, written in and poured over. Ever since you stumBled upon the project, you have bEen finding anything you can that even vagueLy references it. You know there are connectIons there that you can't quite make out. It feels like something that is on thE tip of your tongue, but you can't say. Some Vague feeling or memory that is just out of your rEach. A number of books sit on its shelves. As you glance over the books, you think to yourself that the cypher and code is in there somewhere. You can feel iT in your bones. Now to use iT to break the code.",
+      "location": "mundane-bedroom",
+      "properties": {
+        "isFixed": true,
+        "isScenery": true,
+        "isContainer": true
+      }
+    },
+    {
+      "id": "bedside-table",
+      "name": "bedside table",
+      "aliases": ["table", "side table"],
+      "description": "Beside your bed sits your bedside table. You spend so much time on your bed that it has become a sort of shrine to your reality. You use it for books you are in the process of reading, coffee and water, random odds and ends that you empty out of your pocket at the end of the day, and all sorts of other things. On it is a reading lamp and a few post-it notes from your studies. You also notice a tattered copy of VALIS by Phillip K. Dick, a favorite author one of your closest friends once gave you. Dick was onto something, far more than many people thought. He used fiction to explore truth. As you have found out recently, as well, his real life experiences were far weirder than any science fiction he ever wrote.",
+      "location": "mundane-bedroom",
+      "properties": {
+        "isFixed": true,
+        "isScenery": true,
+        "isContainer": true
+      }
+    },
+    {
+      "id": "reading-lamp",
+      "name": "reading lamp",
+      "aliases": ["lamp", "reading light"],
+      "description": "Your reading lamp sits glowing beside your bed. Your lamp sits calmly, waiting to spark into life at your command.",
+      "location": null,
+      "containedIn": "bedside-table",
+      "properties": {
+        "isFixed": true,
+        "isLit": true,
+        "isSwitchable": true,
+        "isSwitchedOn": true
+      }
+    },
+    {
+      "id": "coffee-mug",
+      "name": "coffee mug",
+      "aliases": ["coffee", "mug", "cup"],
+      "description": "It has been sitting out since yesterday but it still looks good. You must have been pretty absorbed in your research to forget about your coffee. The coffee is all gone. Maybe try to find some more.",
+      "location": null,
+      "containedIn": "large-desk",
+      "properties": {
+        "isContainer": true
+      },
+      "customState": {
+        "isFull": true
+      },
+      "interactions": {
+        "drink": "Nothing like day old coffee to perk you right up!"
+      }
+    },
+    {
+      "id": "small-crystal",
+      "name": "small crystal",
+      "aliases": ["crystal", "quartz"],
+      "description": "A small quartz dodecahedron. The light seems to pass through it in the strangest of ways. If you didn't know better, you would swear that the angles don't quite stretch back to their vanishing points the way that they should. As you hold it in your hand, you can feel a sense that it doesn't belong in this world.",
+      "location": null,
+      "containedIn": "large-desk",
+      "properties": {
+        "isContainer": true,
+        "isOpen": false
+      }
+    },
+    {
+      "id": "tiny-light",
+      "name": "tiny light",
+      "aliases": ["light", "spark"],
+      "description": "If you look closely, you can see a tiny radiant spark at the center of the geometric solid. It is almost like a tiny sun. However, that is obviously crazy. Your eyes must be playing tricks on you.",
+      "location": null,
+      "containedIn": "small-crystal",
+      "properties": {}
+    },
+    {
+      "id": "small-key",
+      "name": "small key",
+      "aliases": ["key"],
+      "description": "An unusual old fashioned key. It has a long shaft, some patterns protruding on the end of it that look like they would fit into a keyhole. On the top of the key are 3 small circles.",
+      "location": null,
+      "containedIn": "desk-drawer",
+      "properties": {}
+    },
+    {
+      "id": "old-photo",
+      "name": "old photo",
+      "aliases": ["photo", "photograph"],
+      "description": "You found this photo years ago in an old antique shop when you were visiting New York state with your family. It is old and worn and feels like it could crumble in your hands as you hold it. You can't quite remember where it is a picture of, but you have kept it all these years because it seemed important and somewhat familiar.",
+      "location": null,
+      "containedIn": "desk-drawer",
+      "properties": {}
+    },
+    {
+      "id": "valis-book",
+      "name": "VALIS",
+      "aliases": ["valis", "book"],
+      "description": "You pick up your copy of VALIS and flip to a random page pointing to a random passage. It reads: There exists, for everyone, a sentence - a series of words - that has the power to destroy you. Another sentence exists, another series of words, that could heal you. If you're lucky you will get the second, but you can be certain of getting the first. As you do this, you notice something small sticking up out of the book.",
+      "location": null,
+      "containedIn": "bedside-table",
+      "properties": {},
+      "interactions": {
+        "open": "Something slips out of the book as you open it and falls to the ground."
+      }
+    },
+    {
+      "id": "magus-book",
+      "name": "The Magus",
+      "aliases": ["magus"],
+      "description": "A brilliant read. You have read it through multiple times now. You were first introduced to it from a strange game you once played called Neurocam. It has only become more relevant since all those years ago. John Fowles is a master storyteller. You know that there are deep truths contained within it. For as the book says, 'There is no Truth beyond magic.'",
+      "location": null,
+      "containedIn": "bookshelf",
+      "properties": {}
+    },
+    {
+      "id": "cosmic-trigger-book",
+      "name": "Cosmic Trigger",
+      "aliases": ["cosmic trigger"],
+      "description": "This book changed the way you think about the world, challenging everything you thought you knew. Robert Anton Wilson was a god-send when you were going off the deep end, afraid angels were going to manifest in your bedroom and tell you that you had to save the world. This book was constant companion through the shifting labyrinth, and helped you to feel like you were not alone, and that you were not going crazy. The idea of Maybe Logic alone is worth its weight in gold.",
+      "location": null,
+      "containedIn": "bookshelf",
+      "properties": {}
+    },
+    {
+      "id": "tarot-book",
+      "name": "Tarot Book",
+      "aliases": ["tarot"],
+      "description": "Perhaps one of the best books out there on the mysterious symbolic language and cypher that is the Tarot. The correlation of tarot cards to Hebrew letters, and the Hebrew letters to numbers was a revelation. It helped you to unlock so many of the shifting patterns of iT, and to start to learn how to read the fiery language of reality which has been termed the Language of the Birds by some, and which you now call the Green Heiroglyphics. You know you have barely even scratched the surface of the mysteries and secrets that iT can unveil.",
+      "location": null,
+      "containedIn": "bookshelf",
+      "properties": {}
+    },
+    {
+      "id": "gum",
+      "name": "piece of gum",
+      "aliases": ["gum"],
+      "description": "A piece of gum. Sometimes you find it can take the edge off if you are stressed out or anxious, and can help you think at times. A wad of gum sits on your desk, chewed up and discarded.",
+      "location": null,
+      "containedIn": "bedside-table",
+      "properties": {},
+      "customState": {
+        "isChewed": false
+      },
+      "interactions": {
+        "chew": "You pop a piece of gum in your mouth and chew. For some reason it tastes old and stale."
+      }
+    },
+    {
+      "id": "comic-page-2",
+      "name": "Comic Page Two",
+      "aliases": ["page two", "comic page"],
+      "description": "You can't believe your eyes. As you look at the comic, a sense of vertigo comes over you, as though you were teetering on the edge of some great precipice, staring down into the mouth of infinity. You are staring at a picture of yourself staring at a picture, ad infinitum. Your mind can barely take it, and for a brief moment you fear you have gone irrevocably insane. This makes no sense. How did this even get here? It wasn't here a moment ago... or was it? Didn't you just wake up though? It feels like you have done this before, like you are trapped in some loop doomed to repeat it over and over. You wave that thought away as you come back to this comic book page. Nothing about it makes sense.",
+      "location": null,
+      "containedIn": "large-desk",
+      "properties": {}
+    },
+    {
+      "id": "note",
+      "name": "sticky note",
+      "aliases": ["note"],
+      "description": "A note you must have made for yourself with some symbols on it. Strange that you don't remember it.",
+      "location": null,
+      "containedIn": "pc",
+      "properties": {}
+    },
+    {
+      "id": "scattered-papers",
+      "name": "scattered papers",
+      "aliases": ["papers"],
+      "description": "You recently signed up for a correspondence course to try to crack the cypher. As you have poured over them, their meanings seem to become clearer. There is a pattern behind it, you can feel iT. Though to be honest, much of it doesn't seem worth the time you have put in, This is a game after all, yes, an alternate reality game, but still just a game, right? There must be more tangible clues.",
+      "location": null,
+      "containedIn": "large-desk",
+      "properties": {}
+    },
+    {
+      "id": "ravings",
+      "name": "ravings of a madman",
+      "aliases": ["ravings"],
+      "description": "Qabalistic diagrams of the tree of life and its paths; your flash cards to learn the hebrew letters (you never in a million years though your would be learning the hebrew alphabet, but from what you have read it is the equivalent of the periodic table to the practicing occultist) magical sigils; scrawlings of hebrew words and their numerical values printouts of ancient esoteric symbols studies of crop circles. Notes on every subject you have studied. You know there is a method to the madness, though to anyone else it would be a sure sign that you should probably be seeking serious psychiatric help.",
+      "location": null,
+      "containedIn": "large-desk",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "window",
+      "name": "window",
+      "aliases": ["window"],
+      "description": "You look out the window at what looks like your neighborhood, at least you think it is. It seems that there is a light mist or fog obscuring many of the details. Come to think of it you can't even quite tell what time of day it is, or if it is even daytime at all.",
+      "location": "mundane-bedroom",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "walls",
+      "name": "walls",
+      "aliases": ["wall"],
+      "description": "Posters cover your walls with your favorite movies.",
+      "location": "mundane-bedroom",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "old-clothes",
+      "name": "old clothes",
+      "aliases": ["clothes", "trash"],
+      "description": "Your floor is covered with old clothes, books, papers, printouts, and various items.",
+      "location": "mundane-bedroom",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "posters",
+      "name": "posters",
+      "aliases": ["poster"],
+      "description": "As you have tumbled down the rabbit hole, you have collected reminders to yourself of the more valuable clues you have found embedded in so called 'popular culture', as though there were other Agents out there subtly embedding iT's information into creative artifacts. Your poster of The Matrix, Dark City, Existenz, The Nines, Tron, Radio Free Albemuth, or Existenze always reminds you never to assume that you know what is going on around you. The world could be far stranger than you could even imagine.",
+      "location": null,
+      "containedIn": "walls",
+      "properties": {
+        "isScenery": true,
+        "isFixed": true
+      }
+    },
+    {
+      "id": "few-post-it-notes",
+      "name": "few post-it notes",
+      "aliases": ["post-it", "notes"],
+      "description": "Nothing interesting. Some are so poorly scribbled that you can't even understand your own handwriting.",
+      "location": null,
+      "containedIn": "bedside-table",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "slip",
+      "name": "slip of paper",
+      "aliases": ["slip", "paper"],
+      "description": "A slip of paper, written in your handwriting, which says: {V/L}{0/L}{XVIII/N}{X/N + XX/N}{0/N}{IV/L}{XV/N + II/N}{XI/L}{IX/N}{XIV/N}",
+      "location": null,
+      "containedIn": "valis-book",
+      "properties": {}
+    }
+  ]
+}

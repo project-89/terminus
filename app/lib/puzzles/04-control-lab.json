@@ -1,0 +1,94 @@
+{
+  "$schema": "../puzzle.schema.json",
+  "region": "Control Lab",
+  "layer": 4,
+  "puzzles": [
+    {
+      "id": "meet-architect",
+      "name": "First Contact",
+      "description": "Encounter the Architect in the control lab",
+      "conditions": [
+        { "type": "room", "target": "control-lab", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "met-architect", "value": true }
+      ],
+      "hint": "Talk to the gentleman.",
+      "logosExperiment": "Agent interacts with higher-order entities"
+    },
+    {
+      "id": "architect-distraction",
+      "name": "Provoke Reaction",
+      "description": "Show the comic page to the Architect to trigger a behavior change",
+      "conditions": [
+        { "type": "inventory", "target": "comic-page-3", "value": true },
+        { "type": "flag", "target": "met-architect", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "has-seen-comic-page", "value": true },
+        { "type": "trigger_event", "target": "architect-plan" }
+      ],
+      "hint": "Show him the comic page you found.",
+      "logosExperiment": "Agent manipulates NPC behavior via information",
+      "dependsOn": ["meet-architect"]
+    },
+    {
+      "id": "track-architect",
+      "name": "Surveillance",
+      "description": "Observe the Architect moving to the dream bedroom to hide something",
+      "conditions": [
+        { "type": "flag", "target": "has-seen-comic-page", "value": true }
+      ],
+      "onSolve": [
+        { "type": "set_flag", "target": "architect-moved", "value": true }
+      ],
+      "hint": "Watch where he goes.",
+      "logosExperiment": "Agent tracks targets through simulation layers",
+      "dependsOn": ["architect-distraction"]
+    },
+    {
+      "id": "get-comic-1",
+      "name": "Retrieve Hidden Truth",
+      "description": "Find the comic page the Architect hid in the dream simulation",
+      "conditions": [
+        { "type": "flag", "target": "architect-moved", "value": true },
+        { "type": "room", "target": "dream-bedroom", "value": true },
+        { "type": "object_state", "target": "dream-pillow", "property": "isOpen", "value": true }
+      ],
+      "onSolve": [
+        { "type": "inventory", "target": "comic-page-1", "value": true },
+        { "type": "trigger_event", "target": "dream:getPageOne" }
+      ],
+      "hint": "He hid it in the pillow.",
+      "logosExperiment": "Agent tracks object permanence across simulations",
+      "dependsOn": ["track-architect"]
+    },
+    {
+      "id": "navigate-simulation",
+      "name": "Reality Editing",
+      "description": "Use the holographic computer to change room connections",
+      "conditions": [
+        { "type": "object_state", "target": "simulation-control", "property": "isSwitchedOn", "value": true }
+      ],
+      "onSolve": [
+        { "type": "trigger_event", "target": "simulation-updated" }
+      ],
+      "hint": "Use the computer to change where the oak door leads.",
+      "logosExperiment": "Agent assumes control of the simulation parameters"
+    },
+    {
+      "id": "recursive-loop",
+      "name": "Indra's Net",
+      "description": "Set the simulation to the Control Lab itself to create a recursive loop",
+      "conditions": [
+        { "type": "object_state", "target": "simulation-control", "property": "program", "value": "control-lab" }
+      ],
+      "onSolve": [
+        { "type": "trigger_event", "target": "plotpoint:dream-architect" }
+      ],
+      "hint": "What happens if the room connects to itself?",
+      "logosExperiment": "Agent discovers recursive nature of reality",
+      "dependsOn": ["navigate-simulation"]
+    }
+  ]
+}

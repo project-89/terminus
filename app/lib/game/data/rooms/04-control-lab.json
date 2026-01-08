@@ -1,0 +1,28 @@
+{
+  "$schema": "../room.schema.json",
+  "region": "Control Lab",
+  "layer": 4,
+  "rooms": [
+    {
+      "id": "control-lab",
+      "name": "Control Lab",
+      "description": "You find yourself in large circular room. All around you, lining the walls, are thousands of televisions, all playing various images as though it were a thousands reality TV shows. Your head swims as you look around, struggling at times to stay lucid and clear minded as you try to take it all in. Your senses are overwhelmed as you scan over the TV's. One one, a man in his apartment, on another a woman lying on a hospital bed, and another with children playing in a yard. A thousand realities playing in realtime.",
+      "isDark": false,
+      "exits": [
+        { "direction": "west", "destination": "loading-construct", "isLocked": false },
+        { "direction": "down", "destination": "service-passage", "isLocked": false }
+      ],
+      "objects": ["televisions", "oak-door", "semi-circular-desk", "leather-armchair", "simulation-control", "architect", "architects-coffee", "ontological-slime"]
+    },
+    {
+      "id": "loading-construct",
+      "name": "Loading Construct",
+      "description": "A large empty room. The floor, walls and ceiling are all white. You can make out no light source, but everything is visible and clear. You can barely make out the edges of the room, since without a light source there are no shadows.",
+      "isDark": false,
+      "exits": [
+        { "direction": "east", "destination": "control-lab", "isLocked": false }
+      ],
+      "objects": ["white-door"]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "../room.schema.json",
+  "region": "Mundane World",
+  "layer": 1,
+  "rooms": [
+    {
+      "id": "mundane-bedroom",
+      "name": "Your Bedroom",
+      "description": "It is your bedroom, so familiar to you now after all these years. Posters cover your walls with your favorite movies, musicians and reminders. Your bed is pushed up against a wall, close to a large window, closed to the outside world. The bed sheets are a mess. Your floor is covered with old clothes, books, papers, printouts, and various items. Across from your bed there is a large desk, strewn with the remnants and artifacts of your near frenzied research. Atop it is your computer, awaiting life. Beside your bed is a bedside table, on which is a reading lamp, and an assortment of odds and ends that have accumulated over time. To the right of the bed is a bookshelf against the wall filled with the collection of materials you have been accumulating ever since you heard about the Project. As you look around, you realize that the door you remembered being in your room is gone. There IS no way out. You could have sworn it was there before you put the interface on... though you can't even seem to remember if or when you put it on. What is happening?",
+      "isDark": true,
+      "darkDescription": "It is pitch black. You can't see anything.",
+      "exits": [],
+      "objects": ["large-desk", "comfy-bed", "bookshelf", "bedside-table", "window", "walls", "old-clothes"]
+    }
+  ]
+}

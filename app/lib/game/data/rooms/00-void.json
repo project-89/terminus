@@ -1,0 +1,15 @@
+{
+  "$schema": "../room.schema.json",
+  "region": "OneirOS",
+  "layer": 0,
+  "rooms": [
+    {
+      "id": "empty-space",
+      "name": "Empty Space",
+      "description": "You are floating in nondescript space. There is no height, no width, no depth. You have no body, no sense of selfhood or otherness, no volume or mass, and no sense of time. You remember nothing for you are nothing.",
+      "isDark": false,
+      "exits": [],
+      "objects": ["void", "vision", "shapes", "interface", "identity-self", "nothing-thing", "entirety"]
+    }
+  ]
+}

@@ -1,0 +1,207 @@
+{
+  "$schema": "../object.schema.json",
+  "region": "Dream Realm",
+  "objects": [
+    {
+      "id": "dream-self",
+      "name": "Dream Self",
+      "aliases": ["self", "body"],
+      "description": "You can vaguely make out your body. As you look down, your hands seem to fade in an out of existence. You have heard that is one sign that you are dreaming.",
+      "location": "dream-bedroom",
+      "properties": {
+        "isFixed": true
+      }
+    },
+    {
+      "id": "dream-desk",
+      "name": "dream desk",
+      "aliases": ["desk"],
+      "description": "Like everything else, the desk is hazy and insubstantial, as though it were made of the substance of a dream, or some distant memory of your real desk. You can make out the distinct outlines of the familiar desk in your bedroom with all of the features you remember. There seem to be things on it, but you still can't make any of them out. Your act of focusing is stretched to its limit.",
+      "location": "dream-bedroom",
+      "properties": {
+        "isFixed": true,
+        "isContainer": true
+      },
+      "customState": {
+        "focused": false
+      },
+      "interactions": {
+        "focus": "The desk shifts into focus slowly, becoming more tangible and real through the power of your attention."
+      }
+    },
+    {
+      "id": "dream-drawer",
+      "name": "dream drawer",
+      "aliases": ["drawer"],
+      "description": "You remembered there being a drawer in the desk, and it appears that your memory was correct. You can vaguely make out the shape of the drawer in the desk.",
+      "location": null,
+      "containedIn": "dream-desk",
+      "properties": {
+        "isOpenable": true,
+        "isOpen": false,
+        "isContainer": true,
+        "isScenery": true
+      },
+      "customState": {
+        "visible": false
+      }
+    },
+    {
+      "id": "long-candle",
+      "name": "long candle",
+      "aliases": ["candle", "golden candle"],
+      "description": "A long golden candle. Sitting in the middle of the floor lies a golden candle, elegant and seeming to almost glow with an internal light of its own.",
+      "location": null,
+      "containedIn": "dream-drawer",
+      "properties": {
+        "isLit": false
+      },
+      "interactions": {
+        "burn": "The flame catches on the wick, and the candle gives off a gentle glow.",
+        "extinguish": "You put out the candle."
+      }
+    },
+    {
+      "id": "dream-bed",
+      "name": "dream bed",
+      "aliases": ["bed"],
+      "description": "It appears to be a bed, though it is hazy and nondescript. You can make out few details of it, such as your pillow, fuzzy, vague, and comfortable.",
+      "location": "dream-bedroom",
+      "properties": {
+        "isFixed": true
+      },
+      "interactions": {
+        "enter": "You lie down on the dream bed. It is unbelievably soft and comfortable."
+      }
+    },
+    {
+      "id": "dream-pillow",
+      "name": "dream pillow",
+      "aliases": ["pillow"],
+      "description": "It is your pillow, inviting you to lay your bed back down and do to sleep again.",
+      "location": null,
+      "containedIn": "dream-bed",
+      "properties": {
+        "isOpenable": true,
+        "isOpen": false,
+        "isContainer": true,
+        "isScenery": true,
+        "isFixed": true
+      }
+    },
+    {
+      "id": "dream-door",
+      "name": "wooden door",
+      "aliases": ["door"],
+      "description": "In front of you in the north, you see your door. Your beautiful door. It is solid and substantial and real. You knew your bedroom had a door!",
+      "location": "dream-bedroom",
+      "properties": {
+        "isOpenable": true,
+        "isOpen": false,
+        "isFixed": true
+      }
+    },
+    {
+      "id": "tree-door",
+      "name": "tree door",
+      "aliases": ["door"],
+      "description": "A wooden door is neatly embedded in the center of a huge tree that stretches up far beyond where your eyes can see.",
+      "location": "forest",
+      "properties": {
+        "isOpenable": true,
+        "isOpen": true,
+        "isFixed": true
+      }
+    },
+    {
+      "id": "shrubs",
+      "name": "shrubs",
+      "aliases": ["shrubbery"],
+      "description": "Shrubberies of all sizes dot the landscape under the tree canopy.",
+      "location": "forest",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "pitcher-plants",
+      "name": "pitcher plants",
+      "aliases": ["plants"],
+      "description": "Huge pitcher plants hang from the trees. They must be hundreds of feet up off the ground, and they still look gigantic. Pitcher plants are generally carnivorous, so you have no idea what these plants might eat. If you were standing inside one, you would not be able to get out.",
+      "location": "forest",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "pile-of-leaves",
+      "name": "pile of leaves",
+      "aliases": ["leaves"],
+      "description": "The leaves seem to glow golden as the dappled sunlight hits them. Light scatters off their surface, refracting and swirling in the air around them. They fill you with a longing for the autumns of your childhood. Their aroma brings back fond memories of childhood as vividly as if you were there again.",
+      "location": "forest",
+      "properties": {
+        "isScenery": true
+      },
+      "interactions": {
+        "search": "You ruffle through the leaves absent-mindedly, unsure of what you are looking for. After some searching, you uncover an old lighter buried under them.",
+        "burn": "In an instant, the leaves burst into flames. The smoke curls upwards towards the sky, weaving between the trees, swirling around the pitcher plants up towards the sky."
+      }
+    },
+    {
+      "id": "lighter",
+      "name": "lighter",
+      "aliases": ["old lighter"],
+      "description": "An old lighter, but it seems to work.",
+      "location": null,
+      "containedIn": "pile-of-leaves",
+      "properties": {}
+    },
+    {
+      "id": "tall-trees",
+      "name": "tall trees",
+      "aliases": ["trees"],
+      "description": "They truly are magnificent, stretching up seemingly to infinity. The bark on them moves and shifts as you try to make out its details. Bodies, eyes, faces and forms of all sorts seem to dance all over them the longer you look. The leaves are burn with their own internal fire, flaming with spiritual light. Each tree is like a universe, a vast cosmos, its roots stretching deep into the primordial earth and its branches reaching to the very heights of heaven, stretching and straining eternally for the light.",
+      "location": "forest",
+      "properties": {
+        "isScenery": true
+      }
+    },
+    {
+      "id": "cement-building",
+      "name": "cement building",
+      "aliases": ["building", "structure"],
+      "description": "A large cement structure that seems out of place in the midst of this tranquil forest that resonates and pulses with infinity. It is a reminder that someone else has, probably human, has been here.",
+      "location": "clearing",
+      "properties": {
+        "isFixed": true,
+        "isScenery": true
+      }
+    },
+    {
+      "id": "subway-entrance",
+      "name": "subway entrance",
+      "aliases": ["metal doors"],
+      "description": "Vines crawl all over what appears to be a set metal doors, but you care barely make them out under the greenery. You see two large metal doors, rusted and aged, in the cement structure. They are imposing and alien feeling in the midst of this serene forest. You make out heavy metal doors under the vines, Two metal doors stand open, the forest just beyond them or closed.",
+      "location": "clearing",
+      "properties": {
+        "isOpenable": true,
+        "isOpen": false,
+        "isFixed": true
+      }
+    },
+    {
+      "id": "subway-vines",
+      "name": "subway vines",
+      "aliases": ["vines"],
+      "description": "The vines almost completely cover the metal doors, consuming them in their green foliage. They bar the way into the cement structure.",
+      "location": null,
+      "containedIn": "subway-entrance",
+      "properties": {
+        "isScenery": true
+      },
+      "interactions": {
+        "burn": "It takes a little while to get the vines to burn, since they are so fresh. Eventually, the fire spreads and consumed them. You step back from the heat as the vines are reduced to ash."
+      }
+    }
+  ]
+}
