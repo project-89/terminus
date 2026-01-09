@@ -149,6 +149,7 @@ export const adventureMiddleware: TerminalMiddleware = async (
     const stream = await getAdventureResponse(chatHistory, {
       sessionId,
       handle,
+      userId: state.userId,
       activeMissionRunId: context.getState().activeMissionRunId,
       reportJustSubmitted: Boolean(reportSummary),
       accessTier: state.accessTier ?? 0,

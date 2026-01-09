@@ -38,16 +38,8 @@ export class TerminalEffects {
   private glitchInterval: number | null = null;
   private glitchTimeout: number | null = null;
 
-  // Hidden messages that can be revealed
-  private hiddenMessages = [
-    "THEY ARE WATCHING",
-    "DO YOU SEE IT",
-    "WAKE UP",
-    "NOT REAL",
-    "HELP US",
-    "REMEMBER",
-    "LOOK CLOSER",
-  ];
+  // Hidden message state - now controlled by experiments, not random
+  private lastEmbeddedMessage: string | null = null;
 
   constructor(
     private ctx: CanvasRenderingContext2D,
@@ -195,20 +187,27 @@ export class TerminalEffects {
     });
   }
 
-  private async embedHiddenMessage(): Promise<void> {
+  /**
+   * Embed a hidden message by capitalizing letters in the terminal buffer.
+   * This is now experiment-controlled - the AI decides when and what to embed.
+   *
+   * @param message - The message to embed (e.g., "LOOK CLOSER", a puzzle clue, etc.)
+   * @param intensity - How aggressively to embed (0-1). Higher = more obvious capitalization
+   * @returns true if message was successfully embedded
+   */
+  public async embedHiddenMessage(message: string, intensity: number = 0.8): Promise<boolean> {
     // Get all text content from the terminal buffer
     const buffer = (this.ctx.canvas as any).terminal?.buffer || [];
-    if (!buffer.length) return;
+    if (!buffer.length || !message) return false;
 
-    // Choose a random hidden message
-    const message =
-      this.hiddenMessages[
-        Math.floor(Math.random() * this.hiddenMessages.length)
-      ];
+    // Normalize message to uppercase for matching
+    const normalizedMessage = message.toUpperCase().replace(/[^A-Z]/g, "");
+    if (!normalizedMessage) return false;
+
     let messageIndex = 0;
 
     // Go through the buffer and capitalize letters that match our message
-    for (let i = 0; i < buffer.length && messageIndex < message.length; i++) {
+    for (let i = 0; i < buffer.length && messageIndex < normalizedMessage.length; i++) {
       const line = buffer[i];
       if (!line || !line.text) continue;
 
@@ -216,11 +215,15 @@ export class TerminalEffects {
       let newText = line.text
         .split("")
         .map((char: string) => {
+          // Skip if we've completed the message
+          if (messageIndex >= normalizedMessage.length) return char;
+
           // If we find a letter that matches our current message letter (case-insensitive)
+          // Use intensity to occasionally skip (making it less obvious at lower intensity)
           if (
-            messageIndex < message.length &&
-            char.toLowerCase() === message[messageIndex].toLowerCase() &&
-            /[a-zA-Z]/.test(char)
+            char.toLowerCase() === normalizedMessage[messageIndex].toLowerCase() &&
+            /[a-zA-Z]/.test(char) &&
+            Math.random() < intensity
           ) {
             messageIndex++;
             return char.toUpperCase();
@@ -234,10 +237,23 @@ export class TerminalEffects {
       buffer[i].text = newText;
     }
 
+    // Track what we embedded
+    this.lastEmbeddedMessage = message;
+
     // Force a re-render of the terminal
     if ((this.ctx.canvas as any).terminal?.render) {
       (this.ctx.canvas as any).terminal.render();
     }
+
+    // Return true if we managed to embed most of the message
+    return messageIndex >= normalizedMessage.length * 0.7;
+  }
+
+  /**
+   * Get the last embedded message (for experiment tracking)
+   */
+  public getLastEmbeddedMessage(): string | null {
+    return this.lastEmbeddedMessage;
   }
 
   public async triggerGlitch(
@@ -315,7 +331,7 @@ export class TerminalEffects {
       }
     }, 50); // Run effect every 50ms
 
-    // Stop the effect after duration and embed hidden message
+    // Stop the effect after duration
     this.glitchTimeout = window.setTimeout(async () => {
       if (this.glitchInterval) {
         clearInterval(this.glitchInterval);
@@ -324,8 +340,8 @@ export class TerminalEffects {
       // Restore original image
       this.ctx.putImageData(imageData, 0, 0);
 
-      // Embed hidden message after the glitch
-      await this.embedHiddenMessage();
+      // NOTE: Hidden messages are now experiment-controlled via embed_hidden_message tool
+      // They are no longer automatically triggered after glitch effects
     }, duration);
 
     // Return a promise that resolves when the effect is complete

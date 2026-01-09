@@ -4,7 +4,6 @@ import {
   ExperimentTemplate,
   ExperimentTrigger,
   EXPERIMENT_TEMPLATES,
-  DEFAULT_EXPERIMENT,
   getTemplatesForLayer,
 } from "./experimentTemplates";
 import { createExperiment } from "./experimentService";
@@ -263,32 +262,24 @@ export type ExperimentDirective = {
   isDefault: boolean;  // True if this is the baseline experiment
 };
 
-// Always returns an experiment - falls back to DEFAULT_EXPERIMENT
+// Returns an experiment directive if one should run, null otherwise
+// The AI is expected to create its own experiments proactively
 export async function getExperimentDirective(
   userId: string,
   recentMessages?: string[]
-): Promise<ExperimentDirective> {
+): Promise<ExperimentDirective | null> {
   const shouldRun = await shouldRunExperiment(userId);
 
-  // Try to select a specific experiment
+  // Try to select a specific experiment from templates
   let scheduled: ScheduledExperiment | null = null;
   if (shouldRun) {
     scheduled = await selectExperiment(userId, { recentMessages });
   }
 
-  // Fall back to default experiment if nothing selected
+  // No fallback - if no experiment matches, return null
+  // The AI should create its own experiments using experiment_create tool
   if (!scheduled) {
-    return {
-      experimentId: `baseline-${userId}-${Date.now()}`,
-      templateId: DEFAULT_EXPERIMENT.id,
-      type: DEFAULT_EXPERIMENT.type,
-      narrativeHook: DEFAULT_EXPERIMENT.narrativeHook,
-      successCriteria: DEFAULT_EXPERIMENT.successCriteria,
-      covert: DEFAULT_EXPERIMENT.covert,
-      requiredTools: DEFAULT_EXPERIMENT.requiredTools || [],
-      forbiddenTools: DEFAULT_EXPERIMENT.forbiddenTools || [],
-      isDefault: true,
-    };
+    return null;
   }
 
   const experimentId = await activateExperiment(userId, scheduled);

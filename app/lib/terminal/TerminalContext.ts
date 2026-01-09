@@ -22,6 +22,7 @@ export interface TerminalState {
   isReferred?: boolean;
   identityLocked?: boolean;
   lastIdentityCheck?: number;
+  signalInstabilityShownCount?: number;
 }
 
 export class TerminalContext {
@@ -221,11 +222,14 @@ export class TerminalContext {
       return this.state.sessionId;
     }
 
+    // Get userId from state or localStorage to ensure session is tied to the correct user
+    const userId = this.state.userId || (typeof window !== "undefined" ? localStorage.getItem("p89_userId") : null);
+
     const attempt = async (reset: boolean) => {
       const res = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle, reset }),
+        body: JSON.stringify({ handle, reset, userId }),
       });
       if (!res.ok) {
         throw new Error(`Session request failed: ${res.status}`);
@@ -318,7 +322,15 @@ export class TerminalContext {
 
   async checkIdentityStatus(): Promise<{ promptIdentityLock: boolean; narrative: string | null; isReferred: boolean; identityLocked: boolean } | undefined> {
     const now = Date.now();
-    if (this.state.lastIdentityCheck && now - this.state.lastIdentityCheck < 60000) {
+
+    // Adaptive cooldown: starts at 5 minutes, increases after each showing
+    // Max 3 showings, then stop entirely (player gets the point)
+    const shownCount = this.state.signalInstabilityShownCount ?? 0;
+    const MAX_SHOWINGS = 3;
+    const BASE_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+    const cooldown = BASE_COOLDOWN * Math.pow(2, shownCount); // 5min, 10min, 20min...
+
+    if (this.state.lastIdentityCheck && now - this.state.lastIdentityCheck < cooldown) {
       return undefined;
     }
 
@@ -333,18 +345,33 @@ export class TerminalContext {
       });
       if (!res.ok) return undefined;
       const data = await res.json();
-      
+
+      const isReferred = data.status?.isReferred ?? false;
+      const identityLocked = !data.status?.canLockIdentity && isReferred;
+
       this.setState({
         lastIdentityCheck: now,
-        isReferred: data.status?.isReferred ?? false,
-        identityLocked: !data.status?.canLockIdentity && data.status?.isReferred,
+        isReferred,
+        identityLocked,
       });
-      
+
+      // Don't show signal instability message if already shown enough times
+      // or if player is now referred/locked
+      let narrative = data.narrative ?? null;
+      if (narrative && !isReferred && !identityLocked) {
+        if (shownCount >= MAX_SHOWINGS) {
+          narrative = null; // Stop showing after MAX_SHOWINGS
+        } else {
+          // Increment shown count
+          this.setState({ signalInstabilityShownCount: shownCount + 1 });
+        }
+      }
+
       return {
         promptIdentityLock: data.status?.promptIdentityLock ?? false,
-        narrative: data.narrative ?? null,
-        isReferred: data.status?.isReferred ?? false,
-        identityLocked: !data.status?.canLockIdentity && data.status?.isReferred,
+        narrative,
+        isReferred,
+        identityLocked,
       };
     } catch (e) {
       console.warn("Identity check failed", e);

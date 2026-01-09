@@ -137,6 +137,186 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
   const terminalContext = TerminalContext.getInstance();
   const raw = ctx.command.trim();
   if (!raw) return next();
+
+  // Handle bang commands for dev debugging (only in dev mode)
+  if (isDev && raw.startsWith("!")) {
+    const bangCmd = raw.slice(1).toLowerCase().split(/\s+/)[0];
+    const userId = typeof window !== "undefined" ? localStorage.getItem("p89_userId") : null;
+
+    const printDebug = async (
+      text: string,
+      color: string = TERMINAL_COLORS.system,
+      speed: "fast" | "normal" | "instant" = "instant"
+    ) => {
+      await ctx.terminal.print(text, { color, speed });
+    };
+
+    if (!userId) {
+      await printDebug("No user session. Play the game first.", TERMINAL_COLORS.warning);
+      ctx.handled = true;
+      return;
+    }
+
+    // !experiment or !exp - show current experiment info
+    if (bangCmd === "experiment" || bangCmd === "exp") {
+      try {
+        const res = await fetch("/api/dev", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, action: "experiment" }),
+        });
+        const data = await res.json();
+
+        await printDebug("\n◈ EXPERIMENT DEBUG ◈", TERMINAL_COLORS.system);
+
+        if (data.experiments?.length > 0) {
+          await printDebug("\nActive Experiments:", TERMINAL_COLORS.primary);
+          for (const exp of data.experiments) {
+            await printDebug(`  [${exp.status}] ${exp.name} (${exp.type})`, TERMINAL_COLORS.secondary);
+            await printDebug(`    Hypothesis: ${exp.hypothesis}`, TERMINAL_COLORS.secondary);
+          }
+        } else {
+          await printDebug("\nNo active experiments", TERMINAL_COLORS.warning);
+        }
+
+        if (data.experimentNotes?.length > 0) {
+          await printDebug("\nRecent Experiment Notes:", TERMINAL_COLORS.primary);
+          for (const note of data.experimentNotes.slice(0, 5)) {
+            const content = typeof note.content === "string" ? note.content : JSON.stringify(note.content);
+            await printDebug(`  [${note.type}] ${content.slice(0, 80)}...`, TERMINAL_COLORS.secondary);
+          }
+        }
+      } catch (e: any) {
+        await printDebug(`Error: ${e?.message || e}`, TERMINAL_COLORS.error);
+      }
+      ctx.handled = true;
+      return;
+    }
+
+    // !tools - show recent tool calls
+    if (bangCmd === "tools") {
+      try {
+        const res = await fetch("/api/dev", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, action: "tools" }),
+        });
+        const data = await res.json();
+
+        await printDebug("\n◈ TOOL CALLS DEBUG ◈", TERMINAL_COLORS.system);
+
+        if (data.toolNotes?.length > 0) {
+          await printDebug("\nRecent Tool Calls:", TERMINAL_COLORS.primary);
+          for (const note of data.toolNotes) {
+            const content = typeof note.content === "string" ? note.content : JSON.stringify(note.content);
+            await printDebug(`  ${note.tool}: ${content.slice(0, 60)}...`, TERMINAL_COLORS.secondary);
+          }
+        } else {
+          await printDebug("\nNo recent tool calls logged", TERMINAL_COLORS.warning);
+        }
+
+        await printDebug(`\nRecent messages: ${data.recentMessages}`, TERMINAL_COLORS.secondary);
+      } catch (e: any) {
+        await printDebug(`Error: ${e?.message || e}`, TERMINAL_COLORS.error);
+      }
+      ctx.handled = true;
+      return;
+    }
+
+    // !state - show game/session state
+    if (bangCmd === "state") {
+      try {
+        const res = await fetch("/api/dev", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, action: "state" }),
+        });
+        const data = await res.json();
+
+        await printDebug("\n◈ STATE DEBUG ◈", TERMINAL_COLORS.system);
+
+        await printDebug("\nUser:", TERMINAL_COLORS.primary);
+        await printDebug(`  ID:       ${data.user?.id}`, TERMINAL_COLORS.secondary);
+        await printDebug(`  Handle:   ${data.user?.handle}`, TERMINAL_COLORS.secondary);
+        await printDebug(`  Agent ID: ${data.user?.agentId || "none"}`, TERMINAL_COLORS.secondary);
+        await printDebug(`  Locked:   ${data.user?.identityLocked}`, TERMINAL_COLORS.secondary);
+
+        await printDebug("\nProfile:", TERMINAL_COLORS.primary);
+        await printDebug(`  Trust:    ${((data.profile?.trustScore || 0) * 100).toFixed(1)}%`, TERMINAL_COLORS.secondary);
+        await printDebug(`  Layer:    ${data.profile?.layer} (${data.profile?.layerName})`, TERMINAL_COLORS.secondary);
+
+        if (data.session) {
+          await printDebug("\nSession:", TERMINAL_COLORS.primary);
+          await printDebug(`  ID:       ${data.session.id}`, TERMINAL_COLORS.secondary);
+          await printDebug(`  Status:   ${data.session.status}`, TERMINAL_COLORS.secondary);
+          await printDebug(`  Messages: ${data.session.messageCount}`, TERMINAL_COLORS.secondary);
+        }
+
+        if (data.recentMissions?.length > 0) {
+          await printDebug("\nRecent Missions:", TERMINAL_COLORS.primary);
+          for (const m of data.recentMissions) {
+            await printDebug(`  [${m.status}] ${m.title} (score: ${m.score || "n/a"})`, TERMINAL_COLORS.secondary);
+          }
+        }
+      } catch (e: any) {
+        await printDebug(`Error: ${e?.message || e}`, TERMINAL_COLORS.error);
+      }
+      ctx.handled = true;
+      return;
+    }
+
+    // !puzzles - show puzzle status
+    if (bangCmd === "puzzles") {
+      try {
+        const res = await fetch("/api/dev", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, action: "puzzles" }),
+        });
+        const data = await res.json();
+
+        await printDebug("\n◈ PUZZLE DEBUG ◈", TERMINAL_COLORS.system);
+        await printDebug(`\nTotal: ${data.totalPuzzles} | Solved: ${data.solvedCount}`, TERMINAL_COLORS.primary);
+
+        // Group by region
+        const byRegion: Record<string, any[]> = {};
+        for (const p of data.puzzles || []) {
+          const region = p.region || "Unknown";
+          if (!byRegion[region]) byRegion[region] = [];
+          byRegion[region].push(p);
+        }
+
+        for (const [region, puzzles] of Object.entries(byRegion)) {
+          await printDebug(`\n${region}:`, TERMINAL_COLORS.primary);
+          for (const p of puzzles) {
+            const status = p.solved ? "✓" : "○";
+            const deps = p.dependsOn?.length ? ` (needs: ${p.dependsOn.join(", ")})` : "";
+            await printDebug(`  ${status} ${p.name}${deps}`, p.solved ? TERMINAL_COLORS.success : TERMINAL_COLORS.secondary);
+          }
+        }
+      } catch (e: any) {
+        await printDebug(`Error: ${e?.message || e}`, TERMINAL_COLORS.error);
+      }
+      ctx.handled = true;
+      return;
+    }
+
+    // !help - show all debug commands
+    if (bangCmd === "help" || bangCmd === "debug") {
+      await printDebug("\n◈ DEBUG COMMANDS ◈", TERMINAL_COLORS.system);
+      await printDebug("", TERMINAL_COLORS.primary);
+      await printDebug("  !experiment  Show current experiment info", TERMINAL_COLORS.primary);
+      await printDebug("  !tools       Show recent AI tool calls", TERMINAL_COLORS.primary);
+      await printDebug("  !state       Show user/session/game state", TERMINAL_COLORS.primary);
+      await printDebug("  !puzzles     Show puzzle status & dependencies", TERMINAL_COLORS.primary);
+      await printDebug("  !help        Show this help", TERMINAL_COLORS.primary);
+      await printDebug("", TERMINAL_COLORS.secondary);
+      await printDebug("  These commands only work in development.", TERMINAL_COLORS.secondary);
+      ctx.handled = true;
+      return;
+    }
+  }
+
   const normalized = raw.startsWith("/") ? raw.slice(1) : raw;
   const parts = normalized.split(/\s+/);
   const commandKey = parts[0].toLowerCase();

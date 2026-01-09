@@ -9,6 +9,15 @@ export class Renderer {
     topPadding: 40,
   };
 
+  // Calculate dynamic left margin to center content on wide screens
+  private getContentLeftMargin(): number {
+    const canvasWidth = this.options.width;
+    if (canvasWidth > this.layout.maxWidth) {
+      return (canvasWidth - this.layout.maxWidth) / 2 + this.layout.sidePadding;
+    }
+    return this.layout.sidePadding;
+  }
+
   constructor(
     private terminal: Terminal,
     private canvas: HTMLCanvasElement,
@@ -37,6 +46,13 @@ export class Renderer {
   private setupCanvas() {
     const dpr = window.devicePixelRatio || 1;
     const { width, height } = this.options;
+
+    // Guard against invalid dimensions - minimum 100x100 to prevent shrinking bugs
+    const MIN_SIZE = 100;
+    if (width < MIN_SIZE || height < MIN_SIZE) {
+      console.warn(`[Renderer] Ignoring invalid canvas dimensions: ${width}x${height}`);
+      return;
+    }
 
     this.canvas.width = width * dpr;
     this.canvas.height = height * dpr;
@@ -82,7 +98,10 @@ export class Renderer {
       this.ctx.font = `14px ${this.options.fontFamily}`;
       this.ctx.fillStyle = this.options.colors?.secondary || "#2fb7c3";
       this.ctx.textAlign = "right";
-      this.ctx.fillText(`${phrase} ${frame}`, this.options.width - 20, 30);
+      // Position relative to content area, not canvas edge
+      const contentRightEdge = this.getContentLeftMargin() + this.layout.maxWidth - this.layout.sidePadding;
+      const indicatorX = Math.min(contentRightEdge, this.options.width - 20);
+      this.ctx.fillText(`${phrase} ${frame}`, indicatorX, 30);
       this.ctx.restore();
     }
   }
@@ -90,6 +109,7 @@ export class Renderer {
   public renderBuffer(timestamp: number) {
     let currentY = this.layout.topPadding - this.terminal.scrollOffset;
     const lineHeight = this.options.fontSize * 1.5;
+    const leftMargin = this.getContentLeftMargin();
 
     this.terminal.buffer.forEach((line) => {
       const yOffset = Math.sin(timestamp * 0.001) * 0.8;
@@ -99,13 +119,13 @@ export class Renderer {
         this.ctx.fillStyle = "rgba(255, 0, 255, 0.15)";
         this.ctx.fillText(
           line.text,
-          this.layout.sidePadding + xOffset + 1.5,
+          leftMargin + xOffset + 1.5,
           currentY + yOffset
         );
         this.ctx.fillStyle = "rgba(0, 255, 255, 0.15)";
         this.ctx.fillText(
           line.text,
-          this.layout.sidePadding + xOffset - 1.5,
+          leftMargin + xOffset - 1.5,
           currentY + yOffset
         );
       }
@@ -113,7 +133,7 @@ export class Renderer {
       this.ctx.fillStyle = line.color || this.options.foregroundColor;
       this.ctx.fillText(
         line.text,
-        this.layout.sidePadding + xOffset,
+        leftMargin + xOffset,
         currentY + yOffset
       );
 
@@ -172,6 +192,7 @@ export class Renderer {
   }
 
   private getCursorStartX(): number {
+    const leftMargin = this.getContentLeftMargin();
     if (this.options.cursor.centered) {
       const terminalWidth = Math.min(
         this.terminal.getWidth(),
@@ -181,9 +202,9 @@ export class Renderer {
       const inputWidth = this.terminal.inputHandler.getInputBuffer().length;
       const totalWidth = promptWidth + inputWidth;
       const padding = Math.max(0, Math.floor((terminalWidth - totalWidth) / 2));
-      return this.layout.sidePadding + padding;
+      return leftMargin + padding;
     }
-    return this.layout.sidePadding + (this.options.cursor.leftPadding || 10);
+    return leftMargin + (this.options.cursor.leftPadding || 10);
   }
 
   public resize(width: number, height: number) {

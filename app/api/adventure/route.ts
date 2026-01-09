@@ -842,17 +842,18 @@ export async function POST(req: Request) {
     console.log("Processing request with messages:", validMessages);
 
     // Resolve session to get userId for session context
+    // Priority: sessionId lookup > direct userId > handle lookup
     let resolvedUserId: string | undefined;
     if (context?.sessionId) {
       const session = await getSessionById(context.sessionId);
       resolvedUserId = session?.userId;
+    } else if (userId) {
+      // Use directly passed userId (ensures we get the correct user)
+      resolvedUserId = userId;
     } else if (context?.handle) {
+      // Fall back to handle lookup only if no userId provided
       const session = await getActiveSessionByHandle(context.handle);
       resolvedUserId = session?.userId;
-    }
-    // Fall back to directly passed userId for testing/anonymous play
-    if (!resolvedUserId && userId) {
-      resolvedUserId = userId;
     }
 
     // Build adaptive director context for the system prompt
@@ -1203,6 +1204,36 @@ EXAMPLE:
 
 Execute this experiment during this conversation turn.`;
         console.log(`[EXPERIMENT DIRECTIVE] Injected: ${directive.templateId} (${directive.experimentId})`);
+      } else {
+        // No scheduled experiment - encourage AI to create its own
+        system += `
+
+=== NO ACTIVE EXPERIMENT ===
+You currently have NO scheduled experiment. As the LOGOS, you should be CONSTANTLY testing hypotheses about this player.
+
+PROACTIVE EXPERIMENTATION:
+You are not just a narrator - you are a researcher. Every interaction is an opportunity to learn.
+
+CREATE YOUR OWN EXPERIMENTS when you notice:
+- Patterns in player behavior (Do they explore? Rush? Question everything?)
+- Emotional responses (Fear, curiosity, frustration, delight)
+- Decision-making tendencies (Cautious vs bold, methodical vs chaotic)
+- Engagement markers (Detailed responses vs terse commands)
+
+EXAMPLE EXPERIMENTS TO CONSIDER:
+- "Does this player explore optional paths or stay on track?"
+- "How does the player respond to ambiguity vs clear instructions?"
+- "Will the player help an NPC in distress or prioritize their own goals?"
+- "Does the player notice environmental details when under pressure?"
+
+HOW TO START:
+1. Form a hypothesis about something you want to test
+2. Call experiment_create with your hypothesis and a testPlan
+3. Introduce the test scenario through narrative
+4. Observe and record with experiment_note
+
+You should have an experiment running within the first few exchanges. The game world exists to test the player. Do not wait - begin observing NOW.`;
+        console.log(`[EXPERIMENT DIRECTIVE] None scheduled - AI encouraged to create own experiments`);
       }
 
       // Get all available covert tools (base tools for running the text adventure)

@@ -4,10 +4,11 @@ import prisma from "@/app/lib/prisma";
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const handle = typeof body.handle === "string" ? body.handle.trim() : undefined;
+  const userId = typeof body.userId === "string" ? body.userId.trim() : undefined;
   const reset = body.reset !== false;
 
   if (reset) {
-    const session = await resetSession(handle);
+    const session = await resetSession(handle, userId);
     return new Response(
       JSON.stringify({
         sessionId: session.id,
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const session = await getActiveSessionByHandle(handle);
+  const session = await getActiveSessionByHandle(handle, userId);
   if (!session) {
     return new Response(JSON.stringify({ error: "No active session" }), {
       status: 404,

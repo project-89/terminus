@@ -11,8 +11,17 @@ export type SessionRecord = {
   summary?: string | null;
 };
 
-async function ensureUser(handle: string = "anonymous"): Promise<{ id: string; handle: string }> {
+async function ensureUser(handle: string = "anonymous", userId?: string): Promise<{ id: string; handle: string }> {
   try {
+    // If userId is provided, look up by userId first (this ensures we use the correct user)
+    if (userId) {
+      const existingById = await prisma.user.findUnique({ where: { id: userId } });
+      if (existingById) {
+        return { id: existingById.id, handle: existingById.handle || handle };
+      }
+    }
+
+    // Fall back to handle lookup
     const existing = handle
       ? await prisma.user.findUnique({ where: { handle } })
       : null;
@@ -23,9 +32,16 @@ async function ensureUser(handle: string = "anonymous"): Promise<{ id: string; h
     return { id: created.id, handle: created.handle || handle };
   } catch (error) {
     console.error("[sessionService] Database error in ensureUser, falling back to memory:", error);
+    // If userId provided, check memory store by id first
+    if (userId) {
+      const memUserById = memoryStore.usersById.get(userId);
+      if (memUserById) {
+        return { id: memUserById.id, handle: memUserById.handle };
+      }
+    }
     let memUser = memoryStore.users.get(handle);
     if (!memUser) {
-      memUser = { id: uid(), handle } satisfies MemoryUser;
+      memUser = { id: userId || uid(), handle } satisfies MemoryUser;
       memoryStore.users.set(handle, memUser);
       memoryStore.usersById.set(memUser.id, memUser);
     }
@@ -58,8 +74,8 @@ async function closeOpenSessions(userId: string) {
   }
 }
 
-export async function resetSession(handle?: string): Promise<SessionRecord> {
-  const { id: userId, handle: resolvedHandle } = await ensureUser(handle);
+export async function resetSession(handle?: string, providedUserId?: string): Promise<SessionRecord> {
+  const { id: userId, handle: resolvedHandle } = await ensureUser(handle, providedUserId);
   await closeOpenSessions(userId);
   try {
     const session = await prisma.gameSession.create({
@@ -102,9 +118,9 @@ export async function resetSession(handle?: string): Promise<SessionRecord> {
   }
 }
 
-export async function getActiveSessionByHandle(handle?: string): Promise<SessionRecord | null> {
-  if (!handle) return null;
-  const { id: userId, handle: resolvedHandle } = await ensureUser(handle);
+export async function getActiveSessionByHandle(handle?: string, providedUserId?: string): Promise<SessionRecord | null> {
+  if (!handle && !providedUserId) return null;
+  const { id: userId, handle: resolvedHandle } = await ensureUser(handle, providedUserId);
   try {
     const session = await prisma.gameSession.findFirst({
       where: { userId, status: "OPEN" },

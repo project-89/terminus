@@ -161,16 +161,15 @@ ${r.logosNote ? `\n[OBSERVATION: ${r.logosNote}]` : ""}`;
 [ENGINE: FAILED]
 Engine message: "${r.message}"
 
-Default behavior: Return a terse failure. "You can't do that." / "Nothing happens."
-Override ONLY if an active experiment requires testing this type of action.
-If you override, log why with experiment_note.`;
+RESPOND WITH THE ENGINE MESSAGE. You may add brief atmospheric flavor but DO NOT invent objects, exits, or actions that don't exist. The world is what the engine says it is.`;
       }
     } else {
       engineContext = `
 [ENGINE: NO MATCH]
-This wasn't a standard command.
-Default: "I don't understand that."
-Override only if the input is clearly an attempt at a sensible action AND you have experimental reason to allow it.`;
+This wasn't a recognized game command.
+If the player is attempting conversation, respond in character.
+If they're trying an action that doesn't exist, say so: "Nothing happens." / "You can't do that here."
+DO NOT invent new game elements just because the player asked for them.`;
     }
     
     const constraintBlock = `

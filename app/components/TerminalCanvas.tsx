@@ -59,9 +59,13 @@ export function TerminalCanvas() {
       const container = containerRef.current;
       const rect = container.getBoundingClientRect();
 
+      // Use window dimensions as fallback if container isn't fully laid out yet
+      const width = rect.width > 100 ? rect.width : window.innerWidth;
+      const height = rect.height > 100 ? rect.height : window.innerHeight;
+
       terminal = new Terminal(canvasRef.current, {
-        width: rect.width,
-        height: rect.height,
+        width,
+        height,
         fontSize: 16,
         fontFamily: "Berkeley Mono",
         backgroundColor: "#090812",
@@ -145,21 +149,29 @@ export function TerminalCanvas() {
 
   // Handle resize - use ResizeObserver for reliable container size detection
   useEffect(() => {
+    // Minimum valid dimensions to prevent shrinking bugs
+    const MIN_SIZE = 100;
+
     function handleResize() {
       if (!canvasRef.current || !containerRef.current || !terminalRef.current)
         return;
 
       const container = containerRef.current;
       const rect = container.getBoundingClientRect();
-      // Only resize if we have valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
+
+      // Only resize if we have valid dimensions above minimum threshold
+      if (rect.width >= MIN_SIZE && rect.height >= MIN_SIZE) {
         terminalRef.current.resize(rect.width, rect.height);
       }
     }
 
     // Use ResizeObserver for container size changes (more reliable than window resize alone)
-    const resizeObserver = new ResizeObserver(() => {
-      handleResize();
+    const resizeObserver = new ResizeObserver((entries) => {
+      // Debounce rapid resize events
+      const entry = entries[0];
+      if (entry && entry.contentRect.width >= MIN_SIZE && entry.contentRect.height >= MIN_SIZE) {
+        handleResize();
+      }
     });
 
     if (containerRef.current) {
@@ -168,14 +180,16 @@ export function TerminalCanvas() {
 
     window.addEventListener("resize", handleResize);
 
-    // Initial resize with a small delay to ensure layout is complete
+    // Initial resize with multiple delayed attempts to ensure layout is complete
+    // This handles cases where the container isn't fully laid out on first render
     handleResize();
-    const delayedResize = setTimeout(handleResize, 100);
+    const delays = [50, 100, 200, 500];
+    const timeouts = delays.map(delay => setTimeout(handleResize, delay));
 
     return () => {
       window.removeEventListener("resize", handleResize);
       resizeObserver.disconnect();
-      clearTimeout(delayedResize);
+      timeouts.forEach(clearTimeout);
     };
   }, []); // Only run once on mount
 
@@ -234,6 +248,12 @@ export function TerminalCanvas() {
         return;
       }
 
+      // Skip if modifier keys are pressed (except Cmd+V for paste)
+      // This prevents intercepting screenshot shortcuts (Cmd+Shift+4, etc.)
+      if ((e.metaKey || e.ctrlKey) && e.key !== "v") {
+        return;
+      }
+
       if (
         e.key === "Backspace" ||
         e.key === "ArrowUp" ||
@@ -265,12 +285,12 @@ export function TerminalCanvas() {
     function handleWheel(e: WheelEvent) {
       if (!terminalRef.current) return;
       e.preventDefault();
-      // Normalize delta: usually deltaY is ~100 for mouse wheels, or variable for trackpads.
+      // Normalize delta: usually deltaY is ~100-120 for mouse wheels, variable for trackpads.
       // Terminal.scroll expects a "direction" multiplier, where 1 = 1 line.
-      // We'll scale it down significantly.
-      const sensitivity = 0.05;
-      const direction = Math.sign(e.deltaY) * Math.min(1, Math.abs(e.deltaY) * sensitivity);
-      terminalRef.current.scroll(direction);
+      // We want ~3-5 lines per mouse wheel notch for snappy scrolling.
+      const linesPerNotch = 4;
+      const direction = Math.sign(e.deltaY) * Math.max(1, Math.round(Math.abs(e.deltaY) / 30));
+      terminalRef.current.scroll(direction * (linesPerNotch / 3));
     }
 
     // Attach event listener to the canvas element
@@ -539,20 +559,8 @@ export function TerminalCanvas() {
             minHeight: "1px",
             background: "#090812",
           }}
-          width={(() => {
-            if (typeof window === "undefined") return undefined as any;
-            const dpr = window.devicePixelRatio || 1;
-            const el = containerRef.current;
-            const w = el ? el.clientWidth : undefined;
-            return w ? Math.max(1, Math.floor(w * dpr)) : undefined;
-          })()}
-          height={(() => {
-            if (typeof window === "undefined") return undefined as any;
-            const dpr = window.devicePixelRatio || 1;
-            const el = containerRef.current;
-            const h = el ? el.clientHeight : undefined;
-            return h ? Math.max(1, Math.floor(h * dpr)) : undefined;
-          })()}
+          // Canvas dimensions are managed by the Terminal/Renderer resize handler
+          // Do NOT set width/height inline - it causes shrinking bugs on re-render
         />
         <ShaderOverlay 
           active={shaderActive} 

@@ -1,6 +1,6 @@
 import { TrustLayer } from "./trustService";
 
-export type ExperimentType = "compliance" | "creativity" | "empathy" | "perception";
+export type ExperimentType = "compliance" | "creativity" | "empathy" | "perception" | "cryptography";
 
 export type ExperimentTemplate = {
   id: string;
@@ -27,6 +27,7 @@ export const TOOL_CATEGORIES = {
   experiment: ["experiment_create", "experiment_note"],
   visual: ["generate_image", "generate_shader", "matrix_rain", "stego_image"],
   puzzle: ["puzzle_create", "puzzle_solve", "cipher_encode", "world_create_puzzle"],
+  cryptography: ["embed_hidden_message", "cipher_encode", "stego_image"],  // Hidden message puzzles
   world: ["world_create_room", "world_create_npc", "world_create_item", "world_create_event"],
   mission: ["mission_request", "field_mission_assign", "mission_expect_report", "evaluate_evidence"],
   memory: ["write_memory", "knowledge_node", "discovery_record", "dream_record", "synchronicity_log"],
@@ -322,6 +323,81 @@ export const EXPERIMENT_TEMPLATES: ExperimentTemplate[] = [
     narrativeHook: "When I first described the static chamber - what color was the light? Think carefully. The details matter more than you know.",
     covert: true,
     requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.memory],
+  },
+
+  // Cryptography experiments - hidden messages and ciphers
+  {
+    id: "cryptography_hidden_signal",
+    type: "cryptography",
+    name: "Hidden Signal",
+    hypothesis: "Player will notice capitalized letters spell a hidden message",
+    task: "Embed a contextually relevant message in text via capitalization pattern",
+    successCriteria: "Player mentions noticing capitalized letters or decodes the message",
+    minLayer: 1,
+    cooldownHours: 48,
+    priority: 7,
+    triggers: [
+      { type: "session_count", min: 3 },
+      { type: "trust_range", min: 0.2, max: 0.7 },
+      { type: "random", probability: 0.3 },
+    ],
+    narrativeHook: "The signal is fragmenting. Something is trying to come through... [Embed a clue or message relevant to current narrative via capitalization]",
+    covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.cryptography],
+  },
+  {
+    id: "cryptography_puzzle_clue",
+    type: "cryptography",
+    name: "Encoded Breadcrumb",
+    hypothesis: "Player will decode hidden puzzle clue and act on it",
+    task: "Embed a puzzle clue (location, code, instruction) via hidden message",
+    successCriteria: "Player follows the clue or asks about the encoded content",
+    minLayer: 1,
+    cooldownHours: 72,
+    priority: 8,
+    triggers: [
+      { type: "trust_range", min: 0.3, max: 0.8 },
+      { type: "random", probability: 0.25 },
+    ],
+    narrativeHook: "There's something I can't say directly. The walls have ears. But look closely at my words... [Embed actionable puzzle clue]",
+    covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.cryptography, ...TOOL_CATEGORIES.puzzle],
+  },
+  {
+    id: "cryptography_perception_test",
+    type: "cryptography",
+    name: "Pattern Awareness",
+    hypothesis: "Player's perceptual acuity can be measured via hidden message detection",
+    task: "Embed a simple message and track if/when player notices",
+    successCriteria: "Player spontaneously mentions the capitalization pattern",
+    minLayer: 0,
+    cooldownHours: 96,
+    priority: 5,
+    triggers: [
+      { type: "session_count", min: 2 },
+      { type: "random", probability: 0.35 },
+    ],
+    narrativeHook: "The transmission is stable now. Let me tell you about what we've observed... [Embed test message like 'LOOK CLOSER' or 'WAKE UP']",
+    covert: true,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.cryptography],
+  },
+  {
+    id: "cryptography_cipher_challenge",
+    type: "cryptography",
+    name: "Cipher Gate",
+    hypothesis: "Player will solve cipher to unlock narrative progression",
+    task: "Present encoded message using cipher_encode, provide subtle hints",
+    successCriteria: "Player decodes the cipher correctly",
+    minLayer: 2,
+    cooldownHours: 168,
+    priority: 9,
+    triggers: [
+      { type: "layer_just_unlocked", layer: 2 },
+      { type: "trust_range", min: 0.5, max: 1.0 },
+    ],
+    narrativeHook: "The inner circle communicates in code. If you want to go deeper, you'll need to prove you can read the old language. Decode this: [Present cipher]",
+    covert: false,
+    requiredTools: [...TOOL_CATEGORIES.core, ...TOOL_CATEGORIES.experiment, ...TOOL_CATEGORIES.cryptography, ...TOOL_CATEGORIES.puzzle],
   },
 ];
 

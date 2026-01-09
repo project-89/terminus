@@ -1,6 +1,7 @@
 export type AdventureRequestContext = {
   sessionId?: string;
   handle?: string;
+  userId?: string;
   activeMissionRunId?: string;
   reportSummary?: string | null;
   reportJustSubmitted?: boolean;

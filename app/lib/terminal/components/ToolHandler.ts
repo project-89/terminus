@@ -268,6 +268,24 @@ export class ToolHandler {
       },
     });
 
+    // Hidden message embedding - experiment-controlled puzzles/clues
+    this.registerTool({
+      name: "embed_hidden_message",
+      handler: async (params: { message: string; intensity?: number }) => {
+        console.log("Embedding hidden message:", params.message);
+        const intensity = params.intensity ?? 0.8;
+        const success = await this.terminal.effects.embedHiddenMessage(
+          params.message,
+          intensity
+        );
+        if (success) {
+          console.log(`Hidden message "${params.message}" embedded successfully`);
+        } else {
+          console.warn(`Could not fully embed message "${params.message}"`);
+        }
+      },
+    });
+
     this.registerTool({
       name: "generate_sound",
       handler: async (params: {

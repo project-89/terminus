@@ -1017,6 +1017,18 @@ Special: BECOME [thing] - Transform or merge`
     for (const puzzle of this.puzzles) {
       if (puzzle.solved || this.state.puzzlesSolved.includes(puzzle.id)) continue;
 
+      // GATE: Check that all prerequisite puzzles are solved first
+      // This enforces the puzzle dependency graph
+      if (puzzle.dependsOn && puzzle.dependsOn.length > 0) {
+        const allDependenciesSolved = puzzle.dependsOn.every(
+          depId => this.state.puzzlesSolved.includes(depId)
+        );
+        if (!allDependenciesSolved) {
+          // Dependencies not met - skip this puzzle even if conditions are met
+          continue;
+        }
+      }
+
       const allConditionsMet = puzzle.conditions.every(cond => {
         switch (cond.type) {
           case "object_state": {
@@ -1042,7 +1054,7 @@ Special: BECOME [thing] - Transform or merge`
       if (allConditionsMet) {
         puzzle.solved = true;
         this.state.puzzlesSolved.push(puzzle.id);
-        
+
         for (const effect of puzzle.onSolve) {
           this.applyPuzzleEffect(effect);
         }

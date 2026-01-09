@@ -362,8 +362,8 @@ export async function buildDirectorContext(input: {
   const clientAccessTier =
     typeof input?.clientAccessTier === "number" ? input.clientAccessTier : 0;
 
-  // Always get an experiment directive - falls back to DEFAULT_EXPERIMENT (baseline narrative)
-  // This ensures the AI always has experiment context for tool resolution
+  // Try to get an experiment directive from templates
+  // If null, the AI should create its own experiments using experiment_create tool
   let experimentDirective: ExperimentDirective | null = null;
   if (userId) {
     try {

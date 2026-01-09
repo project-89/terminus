@@ -258,6 +258,13 @@ export class Terminal extends EventEmitter {
   }
 
   public resize(width: number, height: number) {
+    // Guard against invalid dimensions - minimum 100x100 to prevent shrinking bugs
+    const MIN_SIZE = 100;
+    if (width < MIN_SIZE || height < MIN_SIZE) {
+      console.warn(`[Terminal] Ignoring invalid resize: ${width}x${height}`);
+      return;
+    }
+
     this.options.width = width;
     this.options.height = height;
     this.effects.resize(width, height);
@@ -541,6 +548,18 @@ export class Terminal extends EventEmitter {
         if (done) break;
 
         const chunk = new TextDecoder().decode(value);
+
+        // Fix: Add space when concatenating chunks if needed to prevent word collision
+        // Only add space if: buffer doesn't end with whitespace/newline AND chunk doesn't start with whitespace/newline/punctuation
+        if (buffer.length > 0 && chunk.length > 0) {
+          const lastChar = buffer[buffer.length - 1];
+          const firstChar = chunk[0];
+          const needsSpace = !/[\s\n]/.test(lastChar) &&
+                            !/[\s\n.,!?;:)\]}"']/.test(firstChar);
+          if (needsSpace) {
+            buffer += " ";
+          }
+        }
         buffer += chunk;
 
         // Process complete lines

@@ -82,6 +82,7 @@ export function loadPuzzles(): Puzzle[] {
           onSolve: def.onSolve,
           hint: def.hint,
           logosExperiment: def.logosExperiment,
+          dependsOn: def.dependsOn,  // Preserve dependency graph
         };
 
         puzzles.push(puzzle);

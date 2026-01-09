@@ -74,6 +74,7 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
 
           ctx.terminal.startGeneration();
 
+          const state = terminalContext.getState();
           const handle = terminalContext.ensureHandle("agent");
           const sessionId = await terminalContext.ensureSession({ handle });
           const stream = await getAdventureResponse(
@@ -87,6 +88,7 @@ export const overrideMiddleware: TerminalMiddleware = async (ctx, next) => {
             {
               sessionId,
               handle,
+              userId: state.userId,
             }
           );
 

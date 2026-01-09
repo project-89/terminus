@@ -58,6 +58,7 @@ export type Puzzle = {
   onSolve: PuzzleEffect[];
   hint?: string;
   logosExperiment?: string;
+  dependsOn?: string[];  // Puzzle IDs that must be solved before this one can trigger
 };
 
 export type PuzzleEffect = {

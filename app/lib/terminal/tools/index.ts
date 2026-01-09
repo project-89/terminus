@@ -47,3 +47,23 @@ registerTool({
     },
   },
 });
+
+// Register hidden message embedding tool (experiment-controlled)
+registerTool({
+  name: "embed_hidden_message",
+  description:
+    "Embeds a hidden message in the terminal buffer by capitalizing letters that spell out the message. " +
+    "Use for puzzles, clues, narrative hints, or perception experiments. " +
+    "Players must notice the capitalized letter pattern.",
+  parameters: {
+    message: {
+      type: "string",
+      description:
+        "The message to embed (e.g., 'LOOK CLOSER', 'CODE IS 89', coordinates, character names)",
+    },
+    intensity: {
+      type: "number",
+      description: "How obvious (0-1). Higher = more letters. Default 0.8",
+    },
+  },
+});
