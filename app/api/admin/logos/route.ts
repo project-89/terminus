@@ -655,71 +655,103 @@ async function embedAndStoreMemory(memoryId: string, content: string) {
   }
 }
 
-function getLogosTools() {
+function getLogosTools(): Record<string, any> {
   return {
     query_agents: {
       description: "Search and filter agents in the network. Returns list of agents matching criteria.",
-      inputSchema: queryAgentsParams,
+      parameters: queryAgentsParams,
       execute: queryAgents,
     },
     analyze_agent: {
       description: "Deep analysis of a specific agent - psychology, performance, dreams, patterns, potential.",
-      inputSchema: analyzeAgentParams,
+      parameters: analyzeAgentParams,
       execute: analyzeAgent,
     },
     search_memories: {
       description: "Semantic search across all agent memories, dreams, and reports. Use to find patterns, themes, or specific content across the network.",
-      inputSchema: searchMemoriesParams,
+      parameters: searchMemoriesParams,
       execute: searchMemories,
     },
     draft_mission: {
       description: "Create a new field mission in the database. ALWAYS USE THIS TOOL when asked to create/draft a mission. Required: title, type (decode/observe/photograph/document/locate/verify/contact), and briefing text.",
-      inputSchema: draftMissionParams,
+      parameters: draftMissionParams,
       execute: draftMission,
     },
     assign_mission: {
       description: "Assign a mission to one or more agents.",
-      inputSchema: assignMissionParams,
+      parameters: assignMissionParams,
       execute: assignMission,
     },
     update_agent: {
       description: "Update agent profile - admin notes, directives, flags, trust adjustments.",
-      inputSchema: updateAgentParams,
+      parameters: updateAgentParams,
       execute: updateAgent,
     },
     get_network_stats: {
       description: "Get current network statistics - total agents, active missions, recent activity.",
-      inputSchema: z.object({}),
+      parameters: z.object({}),
       execute: getNetworkStats,
     },
     analyze_puzzle_profile: {
       description: "Get detailed puzzle-solving profile for an agent - skill ratings, success rates by type, strengths/weaknesses, and AI recommendations.",
-      inputSchema: analyzePuzzleProfileParams,
+      parameters: analyzePuzzleProfileParams,
       execute: analyzePuzzleProfile,
     },
     get_network_puzzle_stats: {
       description: "Get network-wide puzzle statistics - total solved, success rates by type, hardest puzzles, top solvers.",
-      inputSchema: getNetworkPuzzleStatsParams,
+      parameters: getNetworkPuzzleStatsParams,
       execute: getNetworkPuzzleStats,
     },
     get_puzzle_recommendations: {
       description: "Get AI recommendations for what puzzle type and difficulty an agent should try next.",
-      inputSchema: getPuzzleRecommendationsParams,
+      parameters: getPuzzleRecommendationsParams,
       execute: getPuzzleRecsForAgent,
     },
   };
 }
 
+// Convert UI messages from useChat to core messages for streamText
+function convertUIMessagesToCoreMessages(uiMessages: any[]): Array<{ role: "user" | "assistant"; content: string }> {
+  return uiMessages
+    .filter((msg) => msg.role === "user" || msg.role === "assistant")
+    .map((msg) => {
+      // Extract content from parts array (new format) or content string (old format)
+      let content = "";
+      if (typeof msg.content === "string") {
+        content = msg.content;
+      } else if (Array.isArray(msg.parts)) {
+        content = msg.parts
+          .filter((p: any) => p.type === "text")
+          .map((p: any) => p.text)
+          .join("");
+      }
+      return {
+        role: msg.role as "user" | "assistant",
+        content,
+      };
+    })
+    .filter((msg) => msg.content.trim().length > 0);
+}
+
 export async function POST(req: Request) {
   try {
-    const { messages } = await req.json();
+    const body = await req.json();
+    console.log("[LOGOS] Request body keys:", Object.keys(body));
 
-    if (!Array.isArray(messages)) {
-      return new Response(JSON.stringify({ error: "Messages array required" }), {
+    // AI SDK's useChat sends messages in 'messages' field
+    const rawMessages = body.messages;
+
+    if (!Array.isArray(rawMessages)) {
+      console.log("[LOGOS] Invalid messages format. Body:", JSON.stringify(body).slice(0, 500));
+      return new Response(JSON.stringify({ error: "Messages array required", received: Object.keys(body) }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
     }
+
+    // Convert UI messages to core messages format
+    const messages = convertUIMessagesToCoreMessages(rawMessages);
+    console.log("[LOGOS] Converted messages:", messages.length, "from", rawMessages.length);
 
     const stats = await getNetworkStats();
     
@@ -747,6 +779,8 @@ Do NOT just describe what you would do - actually call the tools. You have datab
 
     const tools = getLogosTools();
 
+    console.log("[LOGOS] Received messages:", messages.length);
+
     const result = streamText({
       model: LOGOS_MODEL,
       messages: [
@@ -755,9 +789,13 @@ Do NOT just describe what you would do - actually call the tools. You have datab
       ],
       tools,
       stopWhen: stepCountIs(5),
+      onFinish: (result) => {
+        console.log("[LOGOS] Finished. Steps:", result.steps?.length, "Text length:", result.text?.length);
+      },
     });
 
-    return result.toTextStreamResponse();
+    // Use toUIMessageStreamResponse for useChat compatibility (includes tool calls)
+    return result.toUIMessageStreamResponse();
   } catch (error) {
     console.error("LOGOS API Error:", error);
     return new Response(

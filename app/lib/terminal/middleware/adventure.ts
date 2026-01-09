@@ -36,7 +36,8 @@ export const adventureMiddleware: TerminalMiddleware = async (
   try {
     const context = TerminalContext.getInstance();
     const handle = context.ensureHandle("agent");
-    const sessionId = await context.ensureSession({ handle });
+    // IMPORTANT: Pass reset: false to reuse existing session, not create new one
+    const sessionId = await context.ensureSession({ handle, reset: false });
     if (!sessionId) {
       await ctx.terminal.print("Failed to establish session with the Logos.", {
         color: TERMINAL_COLORS.error,
@@ -170,6 +171,20 @@ export const adventureMiddleware: TerminalMiddleware = async (
 
     // Update chat history with both messages
     context.setGameMessages(chatHistory);
+
+    // CRITICAL: Sync messages to database immediately (don't rely on reconnect)
+    try {
+      await fetch("/api/session", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          messages: chatHistory,
+        }),
+      });
+    } catch (syncError) {
+      console.error("[Adventure] Failed to sync messages to server:", syncError);
+    }
 
     // Check identity status periodically and show prompts
     const identityStatus = await context.checkIdentityStatus();

@@ -5,7 +5,9 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const handle = typeof body.handle === "string" ? body.handle.trim() : undefined;
   const userId = typeof body.userId === "string" ? body.userId.trim() : undefined;
-  const reset = body.reset !== false;
+  // Default to NOT resetting - only reset if explicitly requested
+  // This preserves session continuity and message history
+  const reset = body.reset === true;
 
   if (reset) {
     const session = await resetSession(handle, userId);
@@ -115,7 +117,7 @@ export async function PUT(req: Request) {
     });
 
     const newMessages = messages.slice(existingCount);
-    
+
     if (newMessages.length > 0) {
       await prisma.gameMessage.createMany({
         data: newMessages.map((msg: { role: string; content: string }) => ({
@@ -124,6 +126,12 @@ export async function PUT(req: Request) {
           content: msg.content,
         })),
         skipDuplicates: true,
+      });
+
+      // Update session's updatedAt for accurate engagement tracking
+      await prisma.gameSession.update({
+        where: { id: sessionId },
+        data: { updatedAt: new Date() },
       });
     }
 
