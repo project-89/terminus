@@ -62,8 +62,9 @@ export async function cleanupTestData() {
       testPrisma.session.deleteMany({ where: { userId: { in: testUserIds } } }),
       testPrisma.playerProfile.deleteMany({ where: { userId: { in: testUserIds } } }),
       testPrisma.agentNote.deleteMany({ where: { userId: { in: testUserIds } } }),
+      // Delete memory embeddings through the memory relation (MemoryEmbedding -> MemoryEvent -> User)
+      testPrisma.memoryEmbedding.deleteMany({ where: { memory: { userId: { in: testUserIds } } } }),
       testPrisma.memoryEvent.deleteMany({ where: { userId: { in: testUserIds } } }),
-      testPrisma.memoryEmbedding.deleteMany({ where: { userId: { in: testUserIds } } }),
     ];
 
     // Execute all deletes, catching individual errors
