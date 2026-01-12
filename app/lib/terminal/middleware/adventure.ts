@@ -174,7 +174,7 @@ export const adventureMiddleware: TerminalMiddleware = async (
 
     // CRITICAL: Sync messages to database immediately (don't rely on reconnect)
     try {
-      await fetch("/api/session", {
+      const syncRes = await fetch("/api/session", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -182,6 +182,15 @@ export const adventureMiddleware: TerminalMiddleware = async (
           messages: chatHistory,
         }),
       });
+      if (!syncRes.ok) {
+        if (syncRes.status === 404) {
+          // Session doesn't exist - clear cached sessionId so next command creates a new one
+          console.warn("[Adventure] Session not found during sync, clearing cached sessionId");
+          context.setSessionId(undefined);
+        } else {
+          console.error("[Adventure] Sync failed:", syncRes.status);
+        }
+      }
     } catch (syncError) {
       console.error("[Adventure] Failed to sync messages to server:", syncError);
     }

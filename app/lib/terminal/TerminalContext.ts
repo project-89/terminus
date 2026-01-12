@@ -71,8 +71,31 @@ export class TerminalContext {
   }
 
   async ensureThread(handle?: string): Promise<string> {
-    if (this.state.threadId) return this.state.threadId;
-    
+    // If we have a cached threadId, validate it still exists
+    if (this.state.threadId) {
+      try {
+        const validateRes = await fetch(`/api/thread?threadId=${this.state.threadId}`);
+        if (validateRes.ok) {
+          const data = await validateRes.json();
+          // If server says reset is required (e.g., anonymous user), clear and recreate
+          if (data.resetRequired) {
+            console.log("[TerminalContext] Thread reset required, creating new thread");
+            this.setState({ threadId: undefined });
+          } else {
+            return this.state.threadId;
+          }
+        } else {
+          // Thread doesn't exist anymore, clear it
+          console.log("[TerminalContext] Cached thread no longer exists, creating new thread");
+          this.setState({ threadId: undefined });
+        }
+      } catch (e) {
+        // Network error, assume thread is valid for now
+        console.warn("[TerminalContext] Could not validate thread:", e);
+        return this.state.threadId;
+      }
+    }
+
     const resolvedHandle = handle || this.state.handle || "anonymous";
     
     try {
@@ -164,6 +187,14 @@ export class TerminalContext {
           threadId,
           messages: newMessages,
         }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          if (res.status === 404 || res.status === 500) {
+            // Thread doesn't exist or DB error - clear cached threadId
+            console.warn("[TerminalContext] Thread sync failed, clearing cached threadId");
+            this.setState({ threadId: undefined, syncedMessageCount: syncedCount });
+          }
+        }
       }).catch((err) => {
         console.error("[TerminalContext] Failed to sync messages:", err);
         this.setState({ syncedMessageCount: syncedCount });
@@ -182,9 +213,14 @@ export class TerminalContext {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId, messages }),
-    }).then(res => {
+    }).then(async res => {
       if (res.ok) {
         console.log("[TerminalContext] Synced messages to server");
+      } else if (res.status === 404) {
+        // Session doesn't exist - clear cached sessionId so next call creates a new one
+        console.warn("[TerminalContext] Session not found during sync, clearing cached sessionId");
+        this.setState({ sessionId: undefined });
+        // Don't lose messages - they'll be synced when a new session is created
       }
     }).catch(err => {
       console.warn("[TerminalContext] Failed to sync messages:", err);
@@ -218,8 +254,22 @@ export class TerminalContext {
     const handle = this.ensureHandle(options.handle || "agent");
     const shouldReset = options.reset === true;
 
+    // If we have a cached sessionId, validate it still exists in the database
     if (!shouldReset && this.state.sessionId) {
-      return this.state.sessionId;
+      try {
+        const validateRes = await fetch(`/api/session?sessionId=${this.state.sessionId}`);
+        if (validateRes.ok) {
+          // Session still exists, reuse it
+          return this.state.sessionId;
+        }
+        // Session doesn't exist anymore, clear it and continue to create new one
+        console.log("[TerminalContext] Cached session no longer exists, creating new session");
+        this.setState({ sessionId: undefined });
+      } catch (e) {
+        // Network error, assume session is valid for now
+        console.warn("[TerminalContext] Could not validate session:", e);
+        return this.state.sessionId;
+      }
     }
 
     // Get userId from state or localStorage to ensure session is tied to the correct user

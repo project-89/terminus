@@ -190,8 +190,21 @@ export async function PATCH(req: Request) {
       }
     );
   }
-  
+
   try {
+    // Validate session exists before writing messages
+    const session = await prisma.gameSession.findUnique({ where: { id: threadId } });
+    if (!session) {
+      // Check memory fallback
+      const memSession = mem.sessions.get(threadId);
+      if (!memSession) {
+        return new Response(JSON.stringify({ error: "Session not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const currentMax = await prisma.gameMessage.aggregate({
       where: { gameSessionId: threadId },
       _max: { order: true },
@@ -221,9 +234,15 @@ export async function PATCH(req: Request) {
       })),
     });
 
+    // Update session's updatedAt for accurate engagement tracking
+    await prisma.gameSession.update({
+      where: { id: threadId },
+      data: { updatedAt: new Date() },
+    });
+
     console.log(`[Thread PATCH] Saved ${validMessages.length} messages to session ${threadId}, starting at order ${startOrder}:`,
       validMessages.map((m: any) => ({ role: m.role, preview: m.content?.substring(0, 30) })));
-    
+
     return new Response(JSON.stringify({ ok: true, saved: validMessages.length }), {
       status: 200,
       headers: { "Content-Type": "application/json" },

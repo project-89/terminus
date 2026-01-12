@@ -53,9 +53,9 @@ describe("Session API Routes", () => {
       );
       const session1 = await res1.json();
 
-      // Create second session (should close first)
+      // Create second session with explicit reset=true (should close first)
       const res2 = await POST(
-        createRequest("POST", "http://localhost/api/session", { handle })
+        createRequest("POST", "http://localhost/api/session", { handle, reset: true })
       );
       const session2 = await res2.json();
 

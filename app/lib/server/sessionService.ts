@@ -196,6 +196,11 @@ export async function appendMessage(params: {
         content,
       },
     });
+    // Update session's updatedAt for accurate engagement tracking
+    await prisma.gameSession.update({
+      where: { id: sessionId },
+      data: { updatedAt: new Date() },
+    });
   } catch (error) {
     console.error("[sessionService] Failed to save message to DB, falling back to memory:", error);
     const message: MemoryMessage = {
@@ -208,6 +213,12 @@ export async function appendMessage(params: {
     const messages = touch(memoryStore.messages, sessionId);
     messages.push(message);
     memoryStore.messages.set(sessionId, messages);
+    // Update memory session's updatedAt too
+    const session = memoryStore.sessions.get(sessionId);
+    if (session) {
+      session.updatedAt = new Date();
+      memoryStore.sessions.set(sessionId, session);
+    }
   }
 }
 
