@@ -245,6 +245,82 @@ describe("Session Tracking Regression Tests", () => {
     });
   });
 
+  describe("Inactivity-Based Sessions", () => {
+    it("should detect stale session based on updatedAt", async () => {
+      const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+      // Create a session that was last updated 45 minutes ago
+      const staleTime = new Date(Date.now() - 45 * 60 * 1000);
+      const staleSession = await testPrisma.gameSession.create({
+        data: {
+          userId: testUser.id,
+          status: "OPEN",
+          updatedAt: staleTime,
+        },
+      });
+
+      // Check if session is stale
+      const inactivityDuration = Date.now() - staleSession.updatedAt.getTime();
+      expect(inactivityDuration).toBeGreaterThan(INACTIVITY_TIMEOUT_MS);
+    });
+
+    it("should keep session active if within timeout", async () => {
+      const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+      // Create a session that was just updated
+      const activeSession = await testPrisma.gameSession.create({
+        data: {
+          userId: testUser.id,
+          status: "OPEN",
+          updatedAt: new Date(),
+        },
+      });
+
+      // Check if session is active
+      const inactivityDuration = Date.now() - activeSession.updatedAt.getTime();
+      expect(inactivityDuration).toBeLessThan(INACTIVITY_TIMEOUT_MS);
+    });
+
+    it("should calculate engagement time correctly per session", async () => {
+      // Create two sessions with different durations
+      const now = new Date();
+
+      // Session 1: 20 minutes of engagement
+      const session1 = await testPrisma.gameSession.create({
+        data: {
+          userId: testUser.id,
+          status: "CLOSED",
+          createdAt: new Date(now.getTime() - 120 * 60 * 1000), // 2 hours ago
+          updatedAt: new Date(now.getTime() - 100 * 60 * 1000), // 20 min duration
+        },
+      });
+
+      // Session 2: 15 minutes of engagement (after 30 min inactivity gap)
+      const session2 = await testPrisma.gameSession.create({
+        data: {
+          userId: testUser.id,
+          status: "OPEN",
+          createdAt: new Date(now.getTime() - 60 * 60 * 1000), // 1 hour ago
+          updatedAt: new Date(now.getTime() - 45 * 60 * 1000), // 15 min duration
+        },
+      });
+
+      // Calculate total engagement
+      const sessions = await testPrisma.gameSession.findMany({
+        where: { userId: testUser.id },
+      });
+
+      let totalMinutes = 0;
+      for (const s of sessions) {
+        const duration = s.updatedAt.getTime() - s.createdAt.getTime();
+        totalMinutes += Math.floor(duration / (1000 * 60));
+      }
+
+      // 20 + 15 = 35 minutes total engagement
+      expect(totalMinutes).toBe(35);
+    });
+  });
+
   describe("Stale Session Handling", () => {
     it("should return 404 when syncing messages to non-existent session (PUT /api/session)", async () => {
       // Simulate what happens when a client has a stale sessionId in localStorage

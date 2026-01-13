@@ -1,3 +1,7 @@
+// Session inactivity timeout - after this period, a new session is created
+// This allows the adventure to continue while tracking engagement in separate sessions
+const SESSION_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
 export interface TerminalState {
   hasFullAccess: boolean;
   walletConnected: boolean;
@@ -254,17 +258,36 @@ export class TerminalContext {
     const handle = this.ensureHandle(options.handle || "agent");
     const shouldReset = options.reset === true;
 
-    // If we have a cached sessionId, validate it still exists in the database
+    // If we have a cached sessionId, validate it still exists and is not stale
     if (!shouldReset && this.state.sessionId) {
       try {
         const validateRes = await fetch(`/api/session?sessionId=${this.state.sessionId}`);
         if (validateRes.ok) {
-          // Session still exists, reuse it
-          return this.state.sessionId;
+          const sessionData = await validateRes.json();
+          const updatedAt = new Date(sessionData.updatedAt).getTime();
+          const now = Date.now();
+          const inactivityDuration = now - updatedAt;
+
+          // Check if session is stale (inactive for too long)
+          if (inactivityDuration > SESSION_INACTIVITY_TIMEOUT_MS) {
+            console.log(`[TerminalContext] Session inactive for ${Math.round(inactivityDuration / 60000)} minutes, creating new session`);
+            // Close the old session before creating new one
+            await fetch("/api/session", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sessionId: this.state.sessionId }),
+            }).catch(() => {}); // Ignore errors closing old session
+            this.setState({ sessionId: undefined });
+            // Continue to create new session below
+          } else {
+            // Session still exists and is active, reuse it
+            return this.state.sessionId;
+          }
+        } else {
+          // Session doesn't exist anymore, clear it and continue to create new one
+          console.log("[TerminalContext] Cached session no longer exists, creating new session");
+          this.setState({ sessionId: undefined });
         }
-        // Session doesn't exist anymore, clear it and continue to create new one
-        console.log("[TerminalContext] Cached session no longer exists, creating new session");
-        this.setState({ sessionId: undefined });
       } catch (e) {
         // Network error, assume session is valid for now
         console.warn("[TerminalContext] Could not validate session:", e);
