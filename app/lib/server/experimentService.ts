@@ -1,6 +1,8 @@
 import prisma from "@/app/lib/prisma";
 import { memoryStore, uid } from "./memoryStore";
 
+export type ExperimentStatus = "ACTIVE" | "RESOLVED_SUCCESS" | "RESOLVED_FAILURE" | "ABANDONED";
+
 export type ExperimentRecord = {
   id: string;
   hypothesis: string;
@@ -8,7 +10,10 @@ export type ExperimentRecord = {
   success_criteria?: string;
   timeout_s?: number | null;
   title?: string;
+  status: ExperimentStatus;
+  resolution?: string;
   createdAt: Date;
+  updatedAt?: Date;
 };
 
 export type ExperimentNoteRecord = {
@@ -29,6 +34,86 @@ function memPush(userId: string, key: string, value: string) {
   notesByUser.set(userId, arr);
 }
 
+// Get the current active experiment for a user (if any)
+export async function getActiveExperiment(userId: string): Promise<ExperimentRecord | null> {
+  try {
+    const anyPrisma = prisma as any;
+    if (anyPrisma.experiment?.findFirst) {
+      const row = await anyPrisma.experiment.findFirst({
+        where: { userId, status: "ACTIVE" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!row) return null;
+      return {
+        id: row.id,
+        hypothesis: row.hypothesis,
+        task: row.task,
+        success_criteria: row.successCriteria || undefined,
+        timeout_s: row.timeoutS || undefined,
+        title: row.title || undefined,
+        status: row.status as ExperimentStatus,
+        resolution: row.resolution || undefined,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      };
+    }
+  } catch (err) {
+    console.warn("[ExperimentService] getActiveExperiment failed:", err);
+  }
+  return null;
+}
+
+// Resolve an experiment (mark it as success, failure, or abandoned)
+export async function resolveExperiment(params: {
+  userId: string;
+  experimentId: string;
+  status: "RESOLVED_SUCCESS" | "RESOLVED_FAILURE" | "ABANDONED";
+  resolution?: string;
+  finalScore?: number;
+}): Promise<ExperimentRecord | null> {
+  try {
+    const anyPrisma = prisma as any;
+    if (anyPrisma.experiment?.update) {
+      const updated = await anyPrisma.experiment.update({
+        where: { id: params.experimentId },
+        data: {
+          status: params.status,
+          resolution: params.resolution || null,
+        },
+      });
+
+      // Also add a final note if there's a resolution or score
+      if (params.resolution || params.finalScore !== undefined) {
+        await appendExperimentNote({
+          userId: params.userId,
+          id: params.experimentId,
+          observation: params.resolution,
+          result: params.status.replace("RESOLVED_", "").toLowerCase(),
+          score: params.finalScore,
+        });
+      }
+
+      console.log(`[ExperimentService] Resolved experiment ${params.experimentId} as ${params.status}`);
+
+      return {
+        id: updated.id,
+        hypothesis: updated.hypothesis,
+        task: updated.task,
+        success_criteria: updated.successCriteria || undefined,
+        timeout_s: updated.timeoutS || undefined,
+        title: updated.title || undefined,
+        status: updated.status as ExperimentStatus,
+        resolution: updated.resolution || undefined,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      };
+    }
+  } catch (err) {
+    console.warn("[ExperimentService] resolveExperiment failed:", err);
+  }
+  return null;
+}
+
 export async function createExperiment(params: {
   userId: string;
   threadId?: string | null;
@@ -38,17 +123,26 @@ export async function createExperiment(params: {
   success_criteria?: string;
   timeout_s?: number;
   title?: string;
-}): Promise<ExperimentRecord> {
+}): Promise<ExperimentRecord | null> {
+  // CORE RULE: Only ONE active experiment at a time
+  // If there's already an active experiment, return it instead of creating a new one
+  const activeExperiment = await getActiveExperiment(params.userId);
+  if (activeExperiment) {
+    console.log(`[ExperimentService] User ${params.userId} already has active experiment ${activeExperiment.id}, returning it`);
+    return activeExperiment;
+  }
+
   const id = params.expId || `exp-${uid().slice(0, 8)}`;
-  const payload = {
+  const payload: ExperimentRecord = {
     id,
     hypothesis: params.hypothesis,
     task: params.task,
     success_criteria: params.success_criteria,
     timeout_s: params.timeout_s ?? null,
     title: params.title,
+    status: "ACTIVE",
     createdAt: new Date(),
-  } satisfies ExperimentRecord;
+  };
 
   try {
     // Prefer first-class Experiment if schema is migrated
@@ -64,6 +158,7 @@ export async function createExperiment(params: {
           successCriteria: params.success_criteria || null,
           timeoutS: params.timeout_s ?? null,
           title: params.title || null,
+          status: "ACTIVE",
         },
       });
       console.log(`[ExperimentService] Created experiment ${id} in Experiment table`);
@@ -139,13 +234,18 @@ export async function appendExperimentNote(params: {
 export async function listRecentExperiments(params: {
   userId: string;
   limit?: number;
+  statusFilter?: ExperimentStatus[];
 }): Promise<ExperimentRecord[]> {
   const limit = params.limit ?? 5;
   try {
     const anyPrisma = prisma as any;
     if (anyPrisma.experiment?.findMany) {
+      const whereClause: any = { userId: params.userId };
+      if (params.statusFilter && params.statusFilter.length > 0) {
+        whereClause.status = { in: params.statusFilter };
+      }
       const rows = await anyPrisma.experiment.findMany({
-        where: { userId: params.userId },
+        where: whereClause,
         orderBy: { createdAt: "desc" },
         take: limit,
       });
@@ -156,7 +256,10 @@ export async function listRecentExperiments(params: {
         success_criteria: r.successCriteria || undefined,
         timeout_s: r.timeoutS || undefined,
         title: r.title || undefined,
+        status: (r.status as ExperimentStatus) || "ACTIVE",
+        resolution: r.resolution || undefined,
         createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
       }));
     }
     throw new Error("experiment model not available");
@@ -175,6 +278,7 @@ export async function listRecentExperiments(params: {
         if (parts.length === 2) {
           try {
             const data = JSON.parse(n.value) as ExperimentRecord;
+            if (!data.status) data.status = "ACTIVE"; // Default for legacy
             if (!seen.has(data.id)) {
               experiments.push(data);
               seen.add(data.id);
@@ -188,12 +292,13 @@ export async function listRecentExperiments(params: {
       const arr = notesByUser.get(params.userId) || [];
       const experiments: ExperimentRecord[] = [];
       const seen = new Set<string>();
-    for (const n of [...arr].reverse() as Array<{ key: string; value: string }>) {
-      if (!n.key.startsWith("experiment:")) continue;
-      const parts = n.key.split(":");
-      if (parts.length === 2) {
-        try {
-          const data = JSON.parse(n.value) as ExperimentRecord;
+      for (const n of [...arr].reverse() as Array<{ key: string; value: string }>) {
+        if (!n.key.startsWith("experiment:")) continue;
+        const parts = n.key.split(":");
+        if (parts.length === 2) {
+          try {
+            const data = JSON.parse(n.value) as ExperimentRecord;
+            if (!data.status) data.status = "ACTIVE"; // Default for legacy
             if (!seen.has(data.id)) {
               experiments.push(data);
               seen.add(data.id);
@@ -215,6 +320,7 @@ export async function summarizeExperiments(params: {
     id: string;
     hypothesis: string;
     task: string;
+    status: ExperimentStatus;
     lastScore?: number;
     lastResult?: string;
     createdAt: string;
@@ -240,6 +346,7 @@ export async function summarizeExperiments(params: {
           id: e.id,
           hypothesis: e.hypothesis,
           task: e.task,
+          status: e.status,
           lastScore: typeof ln?.score === "number" ? ln.score : undefined,
           lastResult: ln?.result || undefined,
           createdAt: e.createdAt.toISOString(),
@@ -265,6 +372,7 @@ export async function summarizeExperiments(params: {
           id: e.id,
           hypothesis: e.hypothesis,
           task: e.task,
+          status: e.status,
           lastScore: typeof ln?.score === "number" ? ln.score : undefined,
           lastResult: ln?.result,
           createdAt: e.createdAt.toISOString(),
@@ -276,6 +384,7 @@ export async function summarizeExperiments(params: {
         id: e.id,
         hypothesis: e.hypothesis,
         task: e.task,
+        status: e.status,
         createdAt: e.createdAt.toISOString(),
       }));
     }

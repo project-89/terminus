@@ -35,6 +35,8 @@ export const adventureMiddleware: TerminalMiddleware = async (
 
   try {
     const context = TerminalContext.getInstance();
+    // Ensure identity is established before getting handle
+    await context.ensureIdentity();
     const handle = context.ensureHandle("agent");
     // IMPORTANT: Pass reset: false to reuse existing session, not create new one
     const sessionId = await context.ensureSession({ handle, reset: false });

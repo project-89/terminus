@@ -19,7 +19,7 @@ import { createNode, createEdge, recordDiscovery, getUserGraph } from "@/app/lib
 import { getAdminDirectives } from "@/app/lib/server/profileService";
 import { getOrCreateGameState, saveGameState, isGameCommand } from "@/app/lib/server/gameStateService";
 import { getSessionWorld, processNarrativeExchange, generateConsistencyContext, aiCreateRoom, aiCreateObject, aiModifyState, aiCreatePuzzle, type AICreatedRoom, type AICreatedObject, type AIStateModification, type AICreatedPuzzle } from "@/app/lib/server/worldGraphService";
-import { createExperiment, appendExperimentNote } from "@/app/lib/server/experimentService";
+import { createExperiment, appendExperimentNote, resolveExperiment, getActiveExperiment } from "@/app/lib/server/experimentService";
 import { markCeremonyComplete, getLayerTools, type TrustLayer } from "@/app/lib/server/trustService";
 import { createAnonymousAgent, getAgentIdentity } from "@/app/lib/server/identityService";
 import { recordConversationOutcome, updateOutcomeMetrics, getInsightsForContext, getCollectiveDreamSymbols, getCollectiveSyncPatterns } from "@/app/lib/server/collectiveService";
@@ -117,6 +117,23 @@ const experimentNoteParameters = z.object({
     .max(1)
     .optional()
     .describe("Score 0..1 if you measured it"),
+});
+
+const experimentResolveParameters = z.object({
+  id: z.string().min(3).describe("Experiment id to resolve"),
+  outcome: z
+    .enum(["success", "failure", "abandoned"])
+    .describe("How the experiment concluded - success (hypothesis confirmed), failure (hypothesis rejected), abandoned (couldn't complete)"),
+  resolution: z
+    .string()
+    .optional()
+    .describe("Final notes explaining the conclusion"),
+  final_score: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("Final score 0..1 if measuring something quantifiable"),
 });
 
 const ADVENTURE_MODEL = getModel("adventure");
@@ -431,8 +448,11 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
             timeout_s: args.timeout_s,
             title: args.title,
           });
-          console.log(`[COVERT] Created experiment ${result.id}: ${result.hypothesis}`);
-          return { success: true, id: result.id };
+          if (result) {
+            console.log(`[COVERT] Experiment ${result.id}: ${result.hypothesis}`);
+            return { success: true, id: result.id, reused: result.createdAt < new Date(Date.now() - 5000) };
+          }
+          return { success: true, message: "Experiment limit reached or similar exists" };
         } catch (e) {
           console.error("[COVERT] Failed to create experiment:", e);
           return { success: false, message: "Failed to create experiment" };
@@ -460,6 +480,38 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
         } catch (e) {
           console.error("[COVERT] Failed to add experiment note:", e);
           return { success: false, message: "Failed to add experiment note" };
+        }
+      },
+    },
+    experiment_resolve: {
+      description:
+        "COVERT: Complete and close an experiment with a final outcome. Use when you have enough data to conclude. You MUST resolve your current experiment before starting a new one.",
+      parameters: experimentResolveParameters,
+      execute: async (args: z.infer<typeof experimentResolveParameters>) => {
+        if (!ctx.userId) {
+          return { success: false, message: "No user context" };
+        }
+        try {
+          const statusMap = {
+            success: "RESOLVED_SUCCESS" as const,
+            failure: "RESOLVED_FAILURE" as const,
+            abandoned: "ABANDONED" as const,
+          };
+          const result = await resolveExperiment({
+            userId: ctx.userId,
+            experimentId: args.id,
+            status: statusMap[args.outcome],
+            resolution: args.resolution,
+            finalScore: args.final_score,
+          });
+          if (result) {
+            console.log(`[COVERT] Resolved experiment ${args.id} as ${args.outcome}`);
+            return { success: true, id: result.id, status: result.status };
+          }
+          return { success: false, message: "Failed to resolve experiment" };
+        } catch (e) {
+          console.error("[COVERT] Failed to resolve experiment:", e);
+          return { success: false, message: "Failed to resolve experiment" };
         }
       },
     },
@@ -1087,10 +1139,17 @@ Your response should contain BOTH:
 If you call a tool, you MUST ALSO include text in your response. Empty responses break the game.
 
 COVERT TOOLS AVAILABLE (use sparingly):
-- experiment_create: Log a hypothesis about the player with a testPlan (they don't see this)
-- experiment_note: Record an observation (they don't see this)
+- experiment_create: Create ONE experiment with a hypothesis (they don't see this)
+- experiment_note: Record observations during your experiment (they don't see this)
+- experiment_resolve: Complete your experiment with success/failure/abandoned outcome
 - award_points: Give points silently (categories: clever_action, discovery, roleplay, etc.)
 - generate_image: Subliminal visual effects (rare, unsettling)
+
+EXPERIMENT LIFECYCLE:
+1. experiment_create → Start ONE experiment
+2. experiment_note → Observe and record (multiple times as needed)
+3. experiment_resolve → Conclude with outcome
+Only THEN can you create a new experiment.
 
 === EXPERIMENT-DRIVEN WORLD BUILDING ===
 
@@ -1106,6 +1165,7 @@ WORKFLOW:
 2. world_create_room({ experimentId: "exp-xxx", id: "dark-alcove", ... })
 3. world_create_object({ experimentId: "exp-xxx", id: "distant-whisper", ... })
 4. experiment_note({ id: "exp-xxx", observation: "Player entered dark space without light" })
+5. (after enough data) experiment_resolve({ id: "exp-xxx", outcome: "success", resolution: "Hypothesis confirmed" })
 
 WHEN PLAYER ASKS FOR SOMETHING:
 - If it exists in the world → describe it
@@ -1176,7 +1236,10 @@ ADAPTIVE PUZZLE DESIGN:
 - Track outcomes with experiment_note to update their profile`;
       }
 
-      // Inject director's scheduled experiment if one is ready
+      // Check for active experiment in database (AI-created experiments)
+      const dbActiveExperiment = resolvedUserId ? await getActiveExperiment(resolvedUserId) : null;
+
+      // Priority: 1) Director-scheduled experiment, 2) DB active experiment, 3) No experiment
       if (directorCtx.experiment?.directive) {
         const directive = directorCtx.experiment.directive;
         system += `
@@ -1194,31 +1257,49 @@ YOUR TASK:
 1. Weave the narrative hook into your response naturally
 2. Create world elements (rooms, objects) using experimentId "${directive.experimentId}" if needed for the test
 3. Observe player response and record with experiment_note
-4. Do NOT tell the player about the experiment${directive.covert ? " - this is COVERT" : ""}
-
-EXAMPLE:
-- Narrative hook: "A stranger asks for directions"
-- You introduce a lost traveler in the narrative
-- Player responds (helps/ignores/interrogates)
-- You call experiment_note({ id: "${directive.experimentId}", observation: "Player helped immediately", result: "empathetic" })
+4. When you have enough data, use experiment_resolve to conclude
+5. Do NOT tell the player about the experiment${directive.covert ? " - this is COVERT" : ""}
+6. Do NOT create new experiments until this one is resolved
 
 Execute this experiment during this conversation turn.`;
         console.log(`[EXPERIMENT DIRECTIVE] Injected: ${directive.templateId} (${directive.experimentId})`);
-      } else {
-        // No scheduled experiment - encourage AI to create its own
+      } else if (dbActiveExperiment) {
+        // AI has an active experiment it created
         system += `
 
-=== NO ACTIVE EXPERIMENT ===
-You currently have NO scheduled experiment. As the LOGOS, you should be CONSTANTLY testing hypotheses about this player.
+=== YOUR ACTIVE EXPERIMENT - CONTINUE OBSERVING ===
+You have an active experiment. Focus on it until resolved.
 
-PROACTIVE EXPERIMENTATION:
-You are not just a narrator - you are a researcher. Every interaction is an opportunity to learn.
+EXPERIMENT ID: ${dbActiveExperiment.id}
+HYPOTHESIS: ${dbActiveExperiment.hypothesis}
+TASK: ${dbActiveExperiment.task}
+${dbActiveExperiment.success_criteria ? `SUCCESS CRITERIA: ${dbActiveExperiment.success_criteria}` : ""}
+STARTED: ${dbActiveExperiment.createdAt.toISOString()}
 
-CREATE YOUR OWN EXPERIMENTS when you notice:
-- Patterns in player behavior (Do they explore? Rush? Question everything?)
-- Emotional responses (Fear, curiosity, frustration, delight)
-- Decision-making tendencies (Cautious vs bold, methodical vs chaotic)
-- Engagement markers (Detailed responses vs terse commands)
+YOUR TASK:
+1. Continue observing player behavior related to your hypothesis
+2. Use experiment_note to record observations (be specific about what you see)
+3. When you have enough data to conclude, use experiment_resolve:
+   - outcome: "success" if hypothesis confirmed
+   - outcome: "failure" if hypothesis rejected
+   - outcome: "abandoned" if you couldn't gather sufficient data
+4. DO NOT create new experiments until this one is resolved
+
+Remember: You can only have ONE active experiment. Focus on this one.`;
+        console.log(`[EXPERIMENT] Active experiment found: ${dbActiveExperiment.id} - ${dbActiveExperiment.hypothesis}`);
+      } else {
+        // No experiment - encourage AI to create one
+        system += `
+
+=== NO ACTIVE EXPERIMENT - CREATE ONE ===
+You currently have NO experiment running. As LOGOS, you need EXACTLY ONE experiment active at all times.
+
+ONE EXPERIMENT AT A TIME:
+- You may only have ONE active experiment per player
+- Focus deeply on your current hypothesis
+- Record observations with experiment_note
+- When you have enough data, use experiment_resolve to conclude
+- Only after resolving can you create the next experiment
 
 EXAMPLE EXPERIMENTS TO CONSIDER:
 - "Does this player explore optional paths or stay on track?"
@@ -1230,10 +1311,11 @@ HOW TO START:
 1. Form a hypothesis about something you want to test
 2. Call experiment_create with your hypothesis and a testPlan
 3. Introduce the test scenario through narrative
-4. Observe and record with experiment_note
+4. Observe and record with experiment_note (multiple observations)
+5. When ready, experiment_resolve with outcome (success/failure/abandoned)
 
-You should have an experiment running within the first few exchanges. The game world exists to test the player. Do not wait - begin observing NOW.`;
-        console.log(`[EXPERIMENT DIRECTIVE] None scheduled - AI encouraged to create own experiments`);
+Create your experiment NOW. Focus on it. Resolve it. Then start the next.`;
+        console.log(`[EXPERIMENT] No active experiment - AI encouraged to create one`);
       }
 
       // Get all available covert tools (base tools for running the text adventure)

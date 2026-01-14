@@ -59,6 +59,8 @@ export class ToolHandler {
 
   private async ensureSessionContext() {
     const terminalContext = TerminalContext.getInstance();
+    // IMPORTANT: Ensure identity first - this sets the proper handle from the identity service
+    await terminalContext.ensureIdentity();
     const handle = terminalContext.ensureHandle("agent");
     const sessionId = await terminalContext.ensureSession({ handle });
     if (!sessionId) {

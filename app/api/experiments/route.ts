@@ -40,6 +40,12 @@ export async function POST(req: Request) {
         timeout_s: body?.timeout_s,
         title: body?.title,
       });
+      if (!rec) {
+        return new Response(JSON.stringify({ error: "Experiment limit reached" }), {
+          status: 429,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(JSON.stringify({ id: rec.id }), {
         status: 200,
         headers: { "Content-Type": "application/json" },

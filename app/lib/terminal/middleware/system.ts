@@ -327,6 +327,8 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
   }
 
   const state = terminalContext.getState();
+  // Ensure identity is established before getting handle
+  await terminalContext.ensureIdentity();
   const handle = terminalContext.ensureHandle("agent");
 
   const print = async (

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { testPrisma, createTestUser } from "../setup";
-import { createExperiment, appendExperimentNote, listRecentExperiments } from "@/app/lib/server/experimentService";
+import { createExperiment, appendExperimentNote, listRecentExperiments, resolveExperiment } from "@/app/lib/server/experimentService";
 
 describe("Experiment Service", () => {
   describe("createExperiment", () => {
@@ -117,25 +117,38 @@ describe("Experiment Service", () => {
     it("should return recent experiments for a user", async () => {
       const user = await createTestUser("test-exp-list");
 
-      // Create multiple experiments with unique timestamps
+      // Create multiple experiments - must resolve each before creating the next
+      // (Only ONE active experiment allowed at a time)
       const exp1 = await createExperiment({
         userId: user.id,
         hypothesis: "First experiment",
         task: "Task 1",
       });
-      // Small delay to ensure different timestamps
+      await resolveExperiment({
+        userId: user.id,
+        experimentId: exp1!.id,
+        status: "RESOLVED_SUCCESS",
+      });
+
       await new Promise((r) => setTimeout(r, 10));
       const exp2 = await createExperiment({
         userId: user.id,
         hypothesis: "Second experiment",
         task: "Task 2",
       });
+      await resolveExperiment({
+        userId: user.id,
+        experimentId: exp2!.id,
+        status: "RESOLVED_SUCCESS",
+      });
+
       await new Promise((r) => setTimeout(r, 10));
       const exp3 = await createExperiment({
         userId: user.id,
         hypothesis: "Third experiment",
         task: "Task 3",
       });
+      // Don't resolve exp3 - leave it active
 
       const experiments = await listRecentExperiments({
         userId: user.id,
@@ -144,20 +157,30 @@ describe("Experiment Service", () => {
 
       expect(experiments).toHaveLength(3);
       // Should be in reverse chronological order (newest first)
-      expect(experiments[0].id).toBe(exp3.id);
-      expect(experiments[2].id).toBe(exp1.id);
+      expect(experiments[0].id).toBe(exp3!.id);
+      expect(experiments[2].id).toBe(exp1!.id);
     });
 
     it("should respect limit parameter", async () => {
       const user = await createTestUser("test-exp-limit");
 
-      // Create 5 experiments
+      // Create 5 experiments - must resolve each before creating the next
+      const expIds: string[] = [];
       for (let i = 0; i < 5; i++) {
-        await createExperiment({
+        const exp = await createExperiment({
           userId: user.id,
           hypothesis: `Experiment ${i}`,
           task: `Task ${i}`,
         });
+        expIds.push(exp!.id);
+        // Resolve all but the last one
+        if (i < 4) {
+          await resolveExperiment({
+            userId: user.id,
+            experimentId: exp!.id,
+            status: "RESOLVED_SUCCESS",
+          });
+        }
       }
 
       const experiments = await listRecentExperiments({

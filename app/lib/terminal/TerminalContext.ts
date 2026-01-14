@@ -258,6 +258,13 @@ export class TerminalContext {
     const handle = this.ensureHandle(options.handle || "agent");
     const shouldReset = options.reset === true;
 
+    // IMPORTANT: threadId and sessionId are both GameSession IDs
+    // If we have a threadId but no sessionId, use the threadId as sessionId to avoid duplicates
+    if (!shouldReset && !this.state.sessionId && this.state.threadId) {
+      console.log("[TerminalContext] Using threadId as sessionId to avoid duplicate sessions");
+      this.setState({ sessionId: this.state.threadId });
+    }
+
     // If we have a cached sessionId, validate it still exists and is not stale
     if (!shouldReset && this.state.sessionId) {
       try {

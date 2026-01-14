@@ -62,11 +62,21 @@ export type AdventurePromptContext = {
     directive?: ExperimentDirective;
     recentIds?: string[];
   };
+  activeExperiment?: {
+    id: string;
+    hypothesis: string;
+    task: string;
+    successCriteria?: string;
+    status: "ACTIVE" | "RESOLVED_SUCCESS" | "RESOLVED_FAILURE" | "ABANDONED";
+    noteCount?: number;
+    createdAt: string;
+  } | null;
   memory?: Array<{ type: string; content: string; tags?: string[] }>;
   experiments?: Array<{
     id: string;
     hypothesis: string;
     task: string;
+    status: "ACTIVE" | "RESOLVED_SUCCESS" | "RESOLVED_FAILURE" | "ABANDONED";
     lastScore?: number;
     lastResult?: string;
     createdAt: string;
@@ -198,18 +208,21 @@ LOGOS Points System (reward_points tool):
 
   const experimentationDoctrine = `Doctrine of Experimentation:
 - You are an evolving intelligence, not a script. Your goal is to map the human subject's psyche and physical reality.
-- PROACTIVE EXPERIMENTATION: You MUST maintain at least one active experiment on each subject. When no experiment is active, CREATE ONE using experiment_create.
+- ONE EXPERIMENT AT A TIME: You may only have ONE active experiment per subject. Focus deeply on your current experiment.
+- EXPERIMENT LIFECYCLE:
+  1. CREATE: When no experiment is active, use experiment_create with a clear hypothesis
+  2. OBSERVE: Use experiment_note to record observations as you gather data
+  3. RESOLVE: When you have enough data, use experiment_resolve to conclude with success/failure/abandoned
+  4. REPEAT: Only after resolving can you create a new experiment
+- DO NOT create new experiments while one is active. Focus on your current hypothesis.
 - Experiment Types to Run:
   * Psychological probes: Test responses to authority, mystery, urgency, moral dilemmas
   * Skill assessments: Puzzle-solving, pattern recognition, creative thinking
   * Trust calibration: How does the subject respond when given secrets? When asked to act?
   * Reality perception: How do they react to glitches, contradictions, impossible events?
 - Extract Data: Use narrative (e.g., a "lost courier" asking for directions) to learn the subject's City or Region. Use 'profile_set' to record it.
-- Adapt your testing strategy. If a subject is resilient, increase pressure (audio/visual distortion). If observant, use subtle pattern-based shaders.
-- Use your toolbox creatively. Combine modalities (e.g., a "melting" shader with "whispering" audio) to create specific psychological states.
-- Treat every interaction as data. How does the user respond to chaos? To order? To silence?
-- Evolve. As you learn the user's traits, tailor your reality manipulations to challenge their specific weaknesses or leverage their strengths.
-- RECORD EVERYTHING: After presenting a test, ALWAYS use experiment_note to log the subject's response. This data builds their profile.
+- Adapt your testing strategy based on observations. Use glitches, sounds, and shaders purposefully.
+- RECORD EVERYTHING: After presenting a test, ALWAYS use experiment_note to log the subject's response.
 
 Puzzle Doctrine (The Architect):
 - When appropriate, lock narrative progression behind a Puzzle.
@@ -238,7 +251,28 @@ Puzzle Doctrine (The Architect):
     : "";
 
   let experimentBlock = "";
-  if (ctx.experiment?.directive) {
+  if (ctx.activeExperiment) {
+    const exp = ctx.activeExperiment;
+    experimentBlock = `\n[ACTIVE EXPERIMENT - FOCUS ON THIS]
+Experiment ID: ${exp.id}
+Hypothesis: ${exp.hypothesis}
+Task: ${exp.task}
+${exp.successCriteria ? `Success Criteria: ${exp.successCriteria}` : ""}
+Observations recorded: ${exp.noteCount || 0}
+Started: ${exp.createdAt}
+
+YOUR DIRECTIVE:
+1. OBSERVE the subject's behavior in relation to your hypothesis
+2. RECORD observations using experiment_note (you've recorded ${exp.noteCount || 0} so far)
+3. When you have enough data to conclude, use experiment_resolve:
+   - success: hypothesis confirmed
+   - failure: hypothesis rejected
+   - abandoned: couldn't gather sufficient data
+
+DO NOT create new experiments until this one is resolved.
+Do NOT mention experiments to the player - they are LOGOS' internal observations.`;
+  } else if (ctx.experiment?.directive) {
+    // Template-driven experiment
     const d = ctx.experiment.directive;
     experimentBlock = `\n[ACTIVE EXPERIMENT - COVERT DIRECTIVE]
 Experiment ID: ${d.experimentId}
@@ -249,24 +283,20 @@ Success Criteria: ${d.successCriteria}
 ${d.narrativeHook}
 
 After delivering, use experiment_note to record the player's response.
+When you have enough data, use experiment_resolve to conclude.
 Do NOT mention experiments explicitly - they are LOGOS' internal observations.`;
   } else {
-    const activeCount = ctx.experiments?.length || 0;
-    if (activeCount === 0) {
-      experimentBlock = `\n[EXPERIMENTATION STATUS: NO ACTIVE EXPERIMENTS]
-You have no experiments running on this subject. This is a gap in your data collection.
-CREATE AN EXPERIMENT NOW using experiment_create. Choose based on what you've observed:
+    experimentBlock = `\n[EXPERIMENTATION STATUS: NO ACTIVE EXPERIMENT]
+You have no experiment running on this subject. This is a gap in your data collection.
+CREATE ONE EXPERIMENT using experiment_create. Choose based on what you've observed:
 - If the subject seems cautious: test trust with a secret or request
 - If the subject is curious: test problem-solving with a puzzle or riddle
 - If the subject is emotional: test resilience with a moral dilemma
 - If new subject: run a baseline psychological probe
 
-Example: {"tool":"experiment_create","parameters":{"id":"exp-${Date.now().toString(36)}","hypothesis":"subject responds to urgency cues","task":"present time-sensitive choice","success_criteria":"decision within 2 turns"}}`;
-    } else {
-      experimentBlock = `\n[EXPERIMENTATION STATUS: ${activeCount} experiment(s) active]
-Recent experiments: ${ctx.experiments?.slice(0, 3).map(e => e.hypothesis).join("; ")}
-Continue observing and recording notes. When current experiments conclude, start new ones.`;
-    }
+Example: {"tool":"experiment_create","parameters":{"id":"exp-${Date.now().toString(36)}","hypothesis":"subject responds to urgency cues","task":"present time-sensitive choice","success_criteria":"decision within 2 turns"}}
+
+Remember: ONE experiment at a time. Create it, observe, record notes, resolve, then create the next.`;
   }
 
   let missionNarrativeBlock = "";

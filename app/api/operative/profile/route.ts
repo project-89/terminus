@@ -132,6 +132,7 @@ export async function GET(req: NextRequest) {
       trustScore: trustState.decayedScore,
       referralCode: user.referralCode,
       identityLocked: user.identityLocked,
+      dashboardEnabled: profile?.dashboardEnabled === true,
       createdAt: user.createdAt.toISOString(),
       stats: {
         totalMissions: missionRuns.length,

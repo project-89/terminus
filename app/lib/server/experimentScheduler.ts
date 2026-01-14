@@ -225,7 +225,7 @@ export async function activateExperiment(
   userId: string,
   scheduled: ScheduledExperiment,
   threadId?: string
-): Promise<string> {
+): Promise<string | null> {
   const exp = await createExperiment({
     userId,
     threadId,
@@ -235,8 +235,8 @@ export async function activateExperiment(
     success_criteria: scheduled.template.successCriteria,
     title: scheduled.template.name,
   });
-  
-  return exp.id;
+
+  return exp?.id || null;
 }
 
 export async function shouldRunExperiment(userId: string): Promise<boolean> {
@@ -283,6 +283,11 @@ export async function getExperimentDirective(
   }
 
   const experimentId = await activateExperiment(userId, scheduled);
+
+  // If experiment creation was blocked (limit reached or duplicate), return null
+  if (!experimentId) {
+    return null;
+  }
 
   return {
     experimentId,

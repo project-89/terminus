@@ -105,9 +105,17 @@ model AgentNote {
     thread    Thread?  @relation(fields: [threadId], references: [id])
 }
 
+enum ExperimentStatus {
+    ACTIVE
+    RESOLVED_SUCCESS
+    RESOLVED_FAILURE
+    ABANDONED
+}
+
 model Experiment {
     id               String           @id @default(cuid())
     createdAt        DateTime         @default(now())
+    updatedAt        DateTime         @default(now()) @updatedAt
     userId           String
     threadId         String?
     hypothesis       String
@@ -115,6 +123,8 @@ model Experiment {
     successCriteria  String?
     timeoutS         Int?
     title            String?
+    status           ExperimentStatus @default(ACTIVE)
+    resolution       String?          // Final notes when resolving
     user             User             @relation(fields: [userId], references: [id])
     thread           Thread?          @relation(fields: [threadId], references: [id])
     events           ExperimentEvent[]

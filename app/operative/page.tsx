@@ -11,6 +11,7 @@ interface OperativeProfile {
   trustScore: number;
   referralCode: string | null;
   identityLocked: boolean;
+  dashboardEnabled?: boolean;
   createdAt: string;
   stats: {
     totalMissions: number;
@@ -388,7 +389,9 @@ export default function OperativeDashboard() {
     fetch(`/api/operative/profile?userId=${userId}`)
       .then(r => r.json())
       .then(data => {
-        if (data.error || data.layer < 5) {
+        // Allow access if layer >= 5 OR admin enabled dashboard access
+        const hasAccess = !data.error && (data.layer >= 5 || data.dashboardEnabled === true);
+        if (!hasAccess) {
           router.push("/");
           return;
         }
