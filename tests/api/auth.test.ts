@@ -26,7 +26,7 @@ async function createReferrer(prefix: string) {
   return testPrisma.user.create({
     data: {
       handle: `${prefix}-${uniqueSuffix}`,
-      agentId: `AGENT-${uniqueSuffix.slice(-4).toUpperCase()}`,
+      agentId: `AGENT-${uniqueSuffix.replace(/[^a-z0-9]/g, '').toUpperCase()}`,
       referralCode,
     },
   });

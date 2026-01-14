@@ -1,5 +1,6 @@
 import prisma from "@/app/lib/prisma";
 import { memoryStore, uid, touch, MemoryGameSession, MemoryMessage, MemoryUser } from "./memoryStore";
+import { generateAgentId } from "./identityService";
 
 export type SessionRecord = {
   id: string;
@@ -28,7 +29,14 @@ async function ensureUser(handle: string = "anonymous", userId?: string): Promis
     if (existing) {
       return { id: existing.id, handle: existing.handle || handle };
     }
-    const created = await prisma.user.create({ data: { handle } });
+    // Create user with proper agentId to avoid orphan users
+    const agentId = await generateAgentId();
+    const created = await prisma.user.create({
+      data: {
+        handle,
+        agentId,
+      }
+    });
     return { id: created.id, handle: created.handle || handle };
   } catch (error) {
     console.error("[sessionService] Database error in ensureUser, falling back to memory:", error);

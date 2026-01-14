@@ -357,15 +357,23 @@ export class TerminalContext {
     const savedUserId = typeof window !== "undefined" ? localStorage.getItem("p89_userId") : null;
     const savedAgentId = typeof window !== "undefined" ? localStorage.getItem("p89_agentId") : null;
     
-    if (savedUserId && savedAgentId) {
+    if (savedUserId) {
       try {
         const verifyRes = await fetch(`/api/identity?userId=${savedUserId}`);
         if (verifyRes.ok) {
           const data = await verifyRes.json();
           if (data.identity) {
-            const handle = data.identity.handle || savedAgentId.toLowerCase();
-            this.setState({ userId: savedUserId, agentId: savedAgentId, handle });
-            return { userId: savedUserId, agentId: savedAgentId };
+            // Always use the server's authoritative agentId
+            const serverAgentId = data.identity.agentId;
+            const handle = data.identity.handle || serverAgentId.toLowerCase();
+
+            // Sync localStorage if it was stale/mismatched
+            if (typeof window !== "undefined" && savedAgentId !== serverAgentId) {
+              localStorage.setItem("p89_agentId", serverAgentId);
+            }
+
+            this.setState({ userId: savedUserId, agentId: serverAgentId, handle });
+            return { userId: savedUserId, agentId: serverAgentId };
           }
         }
         localStorage.removeItem("p89_userId");
