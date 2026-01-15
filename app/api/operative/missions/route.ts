@@ -11,7 +11,15 @@ export async function POST(req: NextRequest) {
     }
 
     const trustState = await getTrustState(userId);
-    if (trustState.layer < 5) {
+
+    // Check if user has dashboard access (layer 5+ OR admin-enabled)
+    const profile = await prisma.playerProfile.findUnique({
+      where: { userId },
+      select: { dashboardEnabled: true },
+    });
+
+    const hasAccess = trustState.layer >= 5 || profile?.dashboardEnabled === true;
+    if (!hasAccess) {
       return NextResponse.json({ error: "Insufficient clearance" }, { status: 403 });
     }
 
