@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
 import type { RewardTaskType } from "@prisma/client";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,10 @@ const DEFAULT_REWARDS: Array<{
   { taskType: "STREAK_30_DAY", name: "30-Day Streak", description: "30 consecutive days of activity", pointsAwarded: 500, firstTimeBonus: 0 },
 ];
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   try {
     let configs = await prisma.rewardConfig.findMany({
       orderBy: { taskType: "asc" },
@@ -81,6 +85,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   try {
     const body = await request.json();
     const { action, taskType, updates } = body;

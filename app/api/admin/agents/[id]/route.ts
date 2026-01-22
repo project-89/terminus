@@ -5,6 +5,7 @@ import {
   getPlayerPuzzleProfile,
   getPuzzleRecommendations,
 } from "@/app/lib/server/puzzleDifficultyService";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,9 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   const { id } = await params;
 
   try {
@@ -434,10 +438,8 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const adminSecret = request.headers.get("x-admin-secret");
-  if (process.env.ADMIN_SECRET && adminSecret !== process.env.ADMIN_SECRET) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
 
   const { id } = await params;
 
@@ -486,10 +488,8 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const adminSecret = request.headers.get("x-admin-secret");
-  if (process.env.ADMIN_SECRET && adminSecret !== process.env.ADMIN_SECRET) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
 
   const { id } = await params;
 

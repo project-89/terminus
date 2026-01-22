@@ -752,6 +752,43 @@ export class ToolHandler {
       },
     });
 
+    // Experiment resolution - complete and close an experiment
+    this.registerTool({
+      name: "experiment_resolve",
+      handler: async (params: {
+        id: string;
+        outcome: "success" | "failure" | "abandoned";
+        resolution?: string;
+        learnings?: string;
+        final_score?: number;
+      }) => {
+        if (!params?.id) return;
+        const context = await this.ensureSessionContext();
+        if (!context) {
+          console.warn("[COVERT] experiment_resolve: no session");
+          return;
+        }
+
+        try {
+          await fetch("/api/experiment", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "resolve",
+              sessionId: context.sessionId,
+              handle: context.handle,
+              threadId: context.threadId,
+              ...params,
+            }),
+          });
+          // COVERT: Log to console only, never to terminal
+          console.log(`[COVERT EXPERIMENT] Resolved ${params.id}: ${params.outcome}${params.resolution ? ` - ${params.resolution}` : ""}`);
+        } catch (error) {
+          console.warn("[COVERT] experiment_resolve failed", error);
+        }
+      },
+    });
+
     // Award points tool - LOGOS rewards player behavior
     this.registerTool({
       name: "award_points",
@@ -1172,9 +1209,28 @@ export class ToolHandler {
         if (!context) return;
 
         const sigLevel = params.significance || "medium";
-        const sigColor = sigLevel === "high" ? TERMINAL_COLORS.warning : 
-                        sigLevel === "medium" ? TERMINAL_COLORS.secondary : 
+        const sigColor = sigLevel === "high" ? TERMINAL_COLORS.warning :
+                        sigLevel === "medium" ? TERMINAL_COLORS.secondary :
                         TERMINAL_COLORS.system;
+
+        // Persist to synchronicity service
+        try {
+          await fetch("/api/synchronicity", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "log",
+              sessionId: context.sessionId,
+              handle: context.handle,
+              pattern: params.pattern,
+              description: params.description,
+              significance: sigLevel,
+            }),
+          });
+          console.log(`[SYNCHRONICITY] Logged: ${params.pattern} (${sigLevel})`);
+        } catch (error) {
+          console.warn("[SYNCHRONICITY] Failed to persist:", error);
+        }
 
         await this.terminal.print("\n[SYNCHRONICITY DETECTED]", {
           color: TERMINAL_COLORS.system,
@@ -1209,6 +1265,32 @@ export class ToolHandler {
         priority?: "normal" | "urgent";
         recipients?: "all" | "operatives" | "handlers";
       }) => {
+        const context = await this.ensureSessionContext();
+
+        // Persist to AgentNote for collective tracking
+        if (context?.handle) {
+          try {
+            await fetch("/api/notes", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userHandle: context.handle,
+                threadId: context.threadId,
+                key: "network_broadcast",
+                value: JSON.stringify({
+                  message: params.message,
+                  priority: params.priority || "normal",
+                  recipients: params.recipients || "all",
+                  timestamp: new Date().toISOString(),
+                }),
+              }),
+            });
+            console.log(`[NETWORK] Broadcast persisted: ${params.message.slice(0, 50)}...`);
+          } catch (error) {
+            console.warn("[NETWORK] Failed to persist broadcast:", error);
+          }
+        }
+
         await this.terminal.print("\n[NETWORK BROADCAST]", {
           color: TERMINAL_COLORS.warning,
           speed: "normal",
@@ -1241,6 +1323,32 @@ export class ToolHandler {
         target?: string;
         details: string;
       }) => {
+        const context = await this.ensureSessionContext();
+
+        // Persist to AgentNote for coordination tracking
+        if (context?.handle) {
+          try {
+            await fetch("/api/notes", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userHandle: context.handle,
+                threadId: context.threadId,
+                key: "agent_coordination",
+                value: JSON.stringify({
+                  action: params.action,
+                  target: params.target,
+                  details: params.details,
+                  timestamp: new Date().toISOString(),
+                }),
+              }),
+            });
+            console.log(`[COORDINATION] ${params.action} persisted: ${params.details.slice(0, 50)}...`);
+          } catch (error) {
+            console.warn("[COORDINATION] Failed to persist:", error);
+          }
+        }
+
         const actionLabels: Record<string, string> = {
           assign: "MISSION ASSIGNMENT",
           relay: "INTEL RELAY",

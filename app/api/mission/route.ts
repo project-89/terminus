@@ -4,7 +4,9 @@ import { getSessionById, getActiveSessionByHandle } from "@/app/lib/server/sessi
 async function resolveSessionAndUser(params: {
   sessionId?: string | null;
   handle?: string | null;
+  userId?: string | null;
 }) {
+  // Priority: sessionId > handle > userId
   if (params.sessionId) {
     const session = await getSessionById(params.sessionId);
     if (session) {
@@ -17,6 +19,10 @@ async function resolveSessionAndUser(params: {
       return { sessionId: session.id, userId: session.userId };
     }
   }
+  // Fallback: use userId directly (no session context, but can still fetch missions)
+  if (params.userId) {
+    return { sessionId: undefined, userId: params.userId };
+  }
   return null;
 }
 
@@ -25,6 +31,7 @@ export async function GET(req: Request) {
   const resolved = await resolveSessionAndUser({
     sessionId: searchParams.get("sessionId"),
     handle: searchParams.get("handle"),
+    userId: searchParams.get("userId"),
   });
   if (!resolved) {
     return new Response(JSON.stringify({ error: "Unable to resolve session" }), {
@@ -49,6 +56,7 @@ export async function POST(req: Request) {
   const resolved = await resolveSessionAndUser({
     sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
     handle: typeof body.handle === "string" ? body.handle : undefined,
+    userId: typeof body.userId === "string" ? body.userId : undefined,
   });
   if (!resolved) {
     return new Response(JSON.stringify({ error: "Unable to resolve session" }), {

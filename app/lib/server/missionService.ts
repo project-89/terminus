@@ -13,7 +13,7 @@ import {
 } from "./memoryStore";
 import { getProfile, ProfileRecord } from "./profileService";
 import { getMissionCatalog, MissionCatalogEntry } from "../missions/catalog";
-import { updateTrackDifficulty, type DifficultyTrack } from "./difficultyService";
+import { updateTrackDifficulty, getPlayerDifficulty, type DifficultyTrack } from "./difficultyService";
 
 export type MissionDefinitionRecord = {
   id: string;
@@ -113,16 +113,20 @@ async function buildPlayerMissionSignal(userId: string): Promise<PlayerMissionSi
     if (slug) completedSlugs.add(slug);
   }
 
-  const skills = profile?.skills || {};
-  const trackEntries = Object.entries(skills);
-  let weakestTrack: string | undefined;
-  if (trackEntries.length > 0) {
-    weakestTrack = trackEntries.reduce((lowest, [track, value]) => {
-      if (!lowest) return track;
-      const current = skills[lowest] ?? 0;
-      return value < current ? track : lowest;
-    }, trackEntries[0][0]);
-  }
+  // Use the auto-updated track difficulty ratings instead of stale profile.skills
+  const difficulty = await getPlayerDifficulty(userId);
+  const trackEntries: [string, number][] = [
+    ["logic", difficulty.logic],
+    ["perception", difficulty.perception],
+    ["creation", difficulty.creation],
+    ["field", difficulty.field],
+  ];
+
+  // Find the weakest track (lowest rating = needs more practice)
+  const weakestTrack = trackEntries.reduce((lowest, [track, value]) => {
+    const lowestValue = trackEntries.find(([t]) => t === lowest)?.[1] ?? 1;
+    return value < lowestValue ? track : lowest;
+  }, trackEntries[0][0]);
 
   return { profile, trustScore, weakestTrack, completedSlugs };
 }

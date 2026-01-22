@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
@@ -87,6 +91,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   try {
     const body = await request.json();
     const { action, id, evaluation, score, status } = body;

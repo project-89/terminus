@@ -9,6 +9,7 @@ import {
   getPuzzleRecommendations,
   type PuzzleType,
 } from "@/app/lib/server/puzzleDifficultyService";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
 const LOGOS_MODEL = getModel("adventure");
 const EMBEDDING_MODEL = google.embeddingModel("text-embedding-004");
@@ -734,6 +735,9 @@ function convertUIMessagesToCoreMessages(uiMessages: any[]): Array<{ role: "user
 }
 
 export async function POST(req: Request) {
+  const auth = validateAdminAuth(req);
+  if (!auth.authorized) return auth.response;
+
   try {
     const body = await req.json();
     console.log("[LOGOS] Request body keys:", Object.keys(body));

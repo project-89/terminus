@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { streamText } from "ai";
 import { getModel } from "@/app/lib/ai/models";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
 const ANALYST_MODEL = getModel("content");
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const auth = validateAdminAuth(req);
+  if (!auth.authorized) return auth.response;
+
   const body = await req.json().catch(() => ({}));
   const handle = typeof body.handle === "string" ? body.handle : "Agent";
   const query = typeof body.query === "string" ? body.query : "";

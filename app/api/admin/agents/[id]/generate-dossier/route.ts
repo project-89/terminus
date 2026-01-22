@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { generateText } from "ai";
 import { getModel } from "@/app/lib/ai/models";
 import prisma from "@/app/lib/prisma";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 import { getPlayerDifficulty } from "@/app/lib/server/difficultyService";
 import { getPlayerPuzzleProfile, getPuzzleRecommendations } from "@/app/lib/server/puzzleDifficultyService";
 
@@ -53,6 +54,9 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   const { id } = await params;
 
   try {

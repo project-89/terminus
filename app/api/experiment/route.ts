@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   createExperiment,
   appendExperimentNote,
+  resolveExperiment,
 } from "@/app/lib/server/experimentService";
 import {
   getSessionById,
@@ -31,7 +32,7 @@ async function resolveUserId({ sessionId, handle }: ResolveParams) {
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const action = body?.action === "note" ? "note" : "create";
+  const action = body?.action === "note" ? "note" : body?.action === "resolve" ? "resolve" : "create";
 
   const resolution = await resolveUserId({
     sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -65,6 +66,34 @@ export async function POST(req: Request) {
           typeof body.score === "number" ? Math.max(0, Math.min(1, body.score)) : undefined,
       });
       return NextResponse.json({ note });
+    }
+
+    if (action === "resolve") {
+      if (!body.id) {
+        return NextResponse.json(
+          { error: "Experiment id required" },
+          { status: 400 }
+        );
+      }
+      const outcome = body.outcome;
+      const statusMap: Record<string, "RESOLVED_SUCCESS" | "RESOLVED_FAILURE" | "ABANDONED"> = {
+        success: "RESOLVED_SUCCESS",
+        failure: "RESOLVED_FAILURE",
+        abandoned: "ABANDONED",
+      };
+      const status = statusMap[outcome] || "ABANDONED";
+
+      // Accept both `score` and `final_score` (tool param name) for compatibility
+      const finalScore = typeof body.final_score === "number" ? body.final_score :
+                         typeof body.score === "number" ? body.score : undefined;
+      const resolved = await resolveExperiment({
+        userId: resolution.userId,
+        experimentId: body.id,
+        status,
+        resolution: typeof body.resolution === "string" ? body.resolution : undefined,
+        finalScore,
+      });
+      return NextResponse.json({ experiment: resolved });
     }
 
     if (!body.hypothesis || !body.task) {

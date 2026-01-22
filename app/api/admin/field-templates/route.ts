@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   try {
     const templates = await prisma.fieldMissionTemplate.findMany({
       orderBy: { createdAt: "desc" },
@@ -20,6 +24,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   try {
     const body = await request.json();
     const { action } = body;

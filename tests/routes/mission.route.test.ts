@@ -183,6 +183,72 @@ describe("Mission API Routes", () => {
     });
   });
 
+  describe("userId Fallback Resolution", () => {
+    it("should return mission by userId when no session exists", async () => {
+      // Create user directly without session
+      const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const user = await testPrisma.user.create({
+        data: {
+          id: `direct-user-${uniqueSuffix}`,
+          handle: `direct-${uniqueSuffix}`,
+          agentId: `D${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase(),
+        },
+      });
+
+      const response = await GET(
+        createRequest(
+          "GET",
+          `http://localhost/api/mission?userId=${user.id}`
+        )
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.mission || data.message).toBeTruthy();
+    });
+
+    it("should accept mission by userId", async () => {
+      const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const user = await testPrisma.user.create({
+        data: {
+          id: `direct-accept-${uniqueSuffix}`,
+          handle: `direct-accept-${uniqueSuffix}`,
+          agentId: `D${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase(),
+        },
+      });
+
+      const response = await POST(
+        createRequest("POST", "http://localhost/api/mission", {
+          userId: user.id,
+        })
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.missionRun).toBeDefined();
+      expect(data.missionRun.status).toBe("ACCEPTED");
+    });
+
+    it("should prioritize sessionId over handle over userId", async () => {
+      // This test verifies the priority chain works correctly
+      const response = await POST(
+        createRequest("POST", "http://localhost/api/mission", {
+          sessionId: testSession.sessionId,
+          handle: "different-handle",
+          userId: "different-user-id",
+        })
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      // Should use the sessionId, not the other values
+      const run = await testPrisma.missionRun.findUnique({
+        where: { id: data.missionRun.id },
+      });
+      expect(run?.userId).toBe(testSession.userId);
+    });
+  });
+
   describe("Mission Assignment Isolation", () => {
     it("should track missions per user", async () => {
       // Accept mission for first user

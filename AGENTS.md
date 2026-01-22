@@ -8,7 +8,7 @@
 
 ## Build, Test, and Development Commands
 - `pnpm install` syncs dependencies; the lockfile assumes pnpm 8+.
-- `pnpm dev` launches Next on `http://localhost:8888` with hot reload.
+- `pnpm dev` launches Next on `http://localhost:8889` with hot reload.
 - `pnpm build` runs `prisma generate` then produces the production bundle; `pnpm start` serves that bundle.
 - `pnpm lint` runs `next lint`.
 - Database utilities: `pnpm prisma:generate` refreshes the client, `pnpm prisma:push` syncs schema to the configured database, `pnpm prisma:studio` opens the data inspector.

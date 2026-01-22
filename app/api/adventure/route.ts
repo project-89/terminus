@@ -5,7 +5,7 @@ import prisma from "@/app/lib/prisma";
 import { serverTools } from "@/app/lib/terminal/tools/serverTools";
 import { loadPrompt } from "@/app/lib/prompts";
 import { getModel } from "@/app/lib/ai/models";
-import { buildAdventureSystemPrompt } from "@/app/lib/ai/promptBuilder";
+import { buildAdventureSystemPrompt, getToolDocumentation } from "@/app/lib/ai/promptBuilder";
 import { buildDirectorContext } from "@/app/lib/server/directorService";
 import { loadKnowledge } from "@/app/lib/ai/knowledge";
 import { loadIFCanon } from "@/app/lib/ai/canon";
@@ -50,6 +50,33 @@ const soundParameters = z.object({
 const matrixRainParameters = z.object({
   duration: clampNumber(0, 10000).describe("Duration in milliseconds"),
   intensity: clampNumber(0, 1).describe("Effect intensity (0-1)"),
+});
+
+// Hidden message embedding - experiment-controlled puzzles
+const embedHiddenMessageParameters = z.object({
+  message: z.string().min(1).max(50).describe("The message to embed (e.g., 'LOOK CLOSER', 'CODE IS 89', coordinates, character names)"),
+  intensity: clampNumber(0, 1).default(0.8).describe("How obvious (0-1). Higher = more letters capitalized. Default 0.8"),
+});
+
+// Synchronicity logging - tracking meaningful patterns
+const synchronicityLogParameters = z.object({
+  pattern: z.string().describe("The pattern or synchronicity observed (e.g., '11:11', 'repeated 89', 'name echo')"),
+  description: z.string().describe("Description of the synchronicity and its context"),
+  significance: z.enum(["low", "medium", "high"]).default("medium").describe("How significant this pattern feels"),
+});
+
+// Network broadcast - messages to the operative network
+const networkBroadcastParameters = z.object({
+  message: z.string().describe("The message to broadcast"),
+  priority: z.enum(["normal", "urgent"]).default("normal").describe("Message priority level"),
+  recipients: z.enum(["all", "operatives", "handlers"]).default("all").describe("Who should receive this message"),
+});
+
+// Agent coordination - managing multi-agent interactions
+const agentCoordinationParameters = z.object({
+  action: z.enum(["assign", "relay", "convene"]).describe("Type of coordination: assign (mission assignment), relay (intel relay), convene (operative assembly)"),
+  target: z.string().optional().describe("Target agent or group if applicable"),
+  details: z.string().describe("Details of the coordination action"),
 });
 
 // World setup action schema for experiment test plans
@@ -409,6 +436,7 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
         "IDENTITY: Assign this player their agent designation (AGENT-XXXX). Use when the moment feels right - after meaningful interaction. The designation appears in the narrative as if revealed by the system. Returns the assigned agentId for you to weave into your response.",
       parameters: identityAssignParameters,
       execute: async () => {
+        console.log(`[COVERT TOOL] identity_assign called for userId=${ctx.userId}`);
         if (!ctx.userId) {
           return { success: false, message: "No user context" };
         }
@@ -433,6 +461,7 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
         "COVERT: Log a behavioral experiment hypothesis about the player. The player will NOT see this. Use to track what you're testing.",
       parameters: experimentCreateParameters,
       execute: async (args: z.infer<typeof experimentCreateParameters>) => {
+        console.log(`[COVERT TOOL] experiment_create called for userId=${ctx.userId}`, args);
         if (!ctx.userId) {
           return { success: false, message: "No user context" };
         }
@@ -464,6 +493,7 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
         "COVERT: Record an observation about the player's behavior. The player will NOT see this. Use after observing their response.",
       parameters: experimentNoteParameters,
       execute: async (args: z.infer<typeof experimentNoteParameters>) => {
+        console.log(`[COVERT TOOL] experiment_note called for userId=${ctx.userId}`, args);
         if (!ctx.userId) {
           return { success: false, message: "No user context" };
         }
@@ -488,6 +518,7 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
         "COVERT: Complete and close an experiment with a final outcome. Use when you have enough data to conclude. You MUST resolve your current experiment before starting a new one.",
       parameters: experimentResolveParameters,
       execute: async (args: z.infer<typeof experimentResolveParameters>) => {
+        console.log(`[COVERT TOOL] experiment_resolve called for userId=${ctx.userId}`, args);
         if (!ctx.userId) {
           return { success: false, message: "No user context" };
         }
@@ -529,25 +560,39 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
         "Award points to the player for clever actions, discoveries, good roleplay, or interesting behavior. Use sparingly to maintain value. Categories: clever_action, discovery, puzzle_progress, roleplay, persistence, insight, synchronicity, dream_work, trust_building, other. Set silent=true to award without notification (useful for covert experiments). Typical amounts: 5-25 for small things, 50-100 for significant achievements, 200+ for major breakthroughs.",
       parameters: awardPointsParameters,
       execute: async (args: z.infer<typeof awardPointsParameters>) => {
+        console.log(`[COVERT TOOL] award_points called for userId=${ctx.userId}`, args);
         if (!ctx.userId) {
           return { success: false, message: "No user context" };
         }
         try {
-          const reward = await prisma.reward.create({
-            data: {
-              userId: ctx.userId,
-              type: "CREDIT",
-              amount: args.amount,
-              metadata: {
-                reason: args.reason,
-                category: args.category,
-                silent: args.silent,
-                experimentId: args.experimentId,
+          // Clamp amount to 1-500 range
+          const clampedAmount = Math.min(500, Math.max(1, args.amount));
+
+          // Create reward record AND increment referralPoints in a transaction
+          // This unifies the points ledger - all points show in !status AND are redeemable
+          const [reward, updatedUser] = await prisma.$transaction([
+            prisma.reward.create({
+              data: {
+                userId: ctx.userId,
+                type: "LOGOS_AWARD",
+                amount: clampedAmount,
+                metadata: {
+                  reason: args.reason,
+                  category: args.category,
+                  silent: args.silent,
+                  experimentId: args.experimentId,
+                  source: "covert_tool",
+                },
               },
-            },
-          });
-          console.log(`[COVERT] Awarded ${args.amount} points: ${args.reason}`);
-          return { success: true, amount: args.amount, silent: args.silent };
+            }),
+            prisma.user.update({
+              where: { id: ctx.userId },
+              data: { referralPoints: { increment: clampedAmount } },
+              select: { referralPoints: true },
+            }),
+          ]);
+          console.log(`[COVERT] Awarded ${clampedAmount} points: ${args.reason} (new total: ${updatedUser.referralPoints})`);
+          return { success: true, amount: clampedAmount, newTotal: updatedUser.referralPoints, silent: args.silent };
         } catch (e) {
           console.error("[COVERT] Failed to award points:", e);
           return { success: false, message: "Failed to award points" };
@@ -740,7 +785,10 @@ function getToolsConfig(context?: ToolRuntimeContext) {
       description: "Creates a matrix-style digital rain effect",
       parameters: matrixRainParameters,
     },
-// ... rest of the file
+    embed_hidden_message: {
+      description: "Embed a hidden message in the terminal buffer by capitalizing letters that spell out the message. Use for puzzles, clues, narrative hints, or perception experiments. Players must notice the capitalized letter pattern. Works best with short messages (2-10 words). The message becomes visible across multiple lines of text already on screen.",
+      parameters: embedHiddenMessageParameters,
+    },
     experiment_create: {
       description:
         "Log a new behavioral experiment you want the agent to perform. Use before giving the task.",
@@ -764,6 +812,10 @@ function getToolsConfig(context?: ToolRuntimeContext) {
     dream_record: {
       description: "Record a dream the player shares. Automatically analyzes symbols, emotions, and recurring themes. Builds dream knowledge graph connections.",
       parameters: dreamRecordParameters,
+    },
+    synchronicity_log: {
+      description: "Log a synchronicity or meaningful pattern observed during the session. Use when the player notices coincidences, repeated numbers (11:11, 89), echoing names, or thematic convergences. Track these patterns to build narrative connections.",
+      parameters: synchronicityLogParameters,
     },
     // Field missions - real world assignments
     field_mission_assign: {
@@ -794,6 +846,15 @@ function getToolsConfig(context?: ToolRuntimeContext) {
     award_points: {
       description: "Award points to the player for clever actions, discoveries, good roleplay, persistence, or interesting behavior. Use to reinforce engagement and reward good play. Categories: clever_action (creative problem solving), discovery (found something hidden), puzzle_progress, roleplay (good immersion), persistence (kept trying), insight (understood narrative), synchronicity (noticed patterns), dream_work, trust_building, other. Typical amounts: 5-25 small, 50-100 significant, 200+ major. Use sparingly to maintain value.",
       parameters: awardPointsParameters,
+    },
+    // Network and coordination tools
+    network_broadcast: {
+      description: "Broadcast a message to the operative network. Use for announcements, alerts, or shared narrative moments that create the sense of a larger connected world.",
+      parameters: networkBroadcastParameters,
+    },
+    agent_coordination: {
+      description: "Coordinate between agents in the network. Use for mission assignments, intel relays, or convening operatives. Creates narrative depth of a larger organization.",
+      parameters: agentCoordinationParameters,
     },
   };
 
@@ -918,24 +979,31 @@ export async function POST(req: Request) {
     });
 
     // Fetch session context from DB (or use defaults/overrides)
-    const dbSessionCtx = resolvedUserId 
+    const dbSessionCtx = resolvedUserId
       ? await getSessionContext(resolvedUserId)
       : null;
 
+    // SECURITY: Only allow client overrides in development mode
+    const isDev = process.env.NODE_ENV === "development";
+
     // Use persistent trust from directorContext (stored in DB)
-    const trustLevel = context?.trustLevel ?? directorCtx.player?.trustScore ?? 0;
-    
+    // Client override only allowed in development
+    const serverTrustLevel = directorCtx.player?.trustScore ?? 0;
+    const trustLevel = (isDev && context?.trustLevel !== undefined)
+      ? context.trustLevel
+      : serverTrustLevel;
+
     // Use layer from persistent trust system (directorContext pulls from DB)
     const persistentLayer = directorCtx.player?.layer ?? 0;
     const pendingCeremony = directorCtx.player?.pendingCeremony ?? null;
     const availableTools = directorCtx.player?.availableTools ?? [];
-    
-    // Dev mode: allow forcing a specific layer directly
-    const layer = context?.devLayer !== undefined 
+
+    // Dev mode only: allow forcing a specific layer directly
+    const layer = (isDev && context?.devLayer !== undefined)
       ? Math.max(0, Math.min(5, context.devLayer))  // Clamp 0-5
       : persistentLayer;
-    
-    if (context?.devLayer !== undefined) {
+
+    if (isDev && context?.devLayer !== undefined) {
       console.log(`[DEV MODE] Forcing layer=${layer} (devLayer=${context.devLayer})`);
     } else {
       console.log(`[TRUST SYSTEM] trustScore=${(trustLevel * 100).toFixed(1)}%, layer=${layer} (${directorCtx.player?.layerName}), pendingCeremony=${pendingCeremony}`);
@@ -1360,10 +1428,16 @@ Create your experiment NOW. Focus on it. Resolve it. Then start the next.`;
         system += `\n\n[PLAYER PUZZLE PROFILE]\n${directorCtx.puzzleProfile.context}\n\nDesign puzzles that match the player's demonstrated abilities. Use world_create_puzzle for rich multimedia puzzles.`;
       }
 
+      // SECURITY: Build tool context with server-derived values only
+      // accessTier is derived from layer, not client-supplied
+      const serverAccessTier = layer >= 4 ? 2 : layer >= 2 ? 1 : 0;
       const allTools = context?.toolsDisabled
         ? undefined
         : getToolsConfig({
-            ...(context || {}),
+            sessionId: context?.sessionId,
+            handle: context?.handle,
+            hasFullAccess: isDev && context?.hasFullAccess,  // Only allow in dev
+            accessTier: isDev && context?.accessTier !== undefined ? context.accessTier : serverAccessTier,
             trustScore: trustLevel,
           });
 
@@ -1447,6 +1521,9 @@ Create your experiment NOW. Focus on it. Resolve it. Then start the next.`;
         console.log(`[Admin Directives] Injected for user ${resolvedUserId}`);
       }
     }
+
+    // Append unified tool documentation for consistent tool usage
+    system += `\n\n${getToolDocumentation()}`;
 
     const result = streamText({
       model: ADVENTURE_MODEL,

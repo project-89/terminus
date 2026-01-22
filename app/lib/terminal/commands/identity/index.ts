@@ -301,6 +301,7 @@ async function handleLogin(ctx: any): Promise<void> {
       if (typeof window !== "undefined") {
         localStorage.setItem("p89_userId", data.identity.id);
         localStorage.setItem("p89_agentId", data.identity.agentId);
+        localStorage.setItem("p89_handle", data.identity.handle || data.identity.agentId.toLowerCase());
       }
     }
     

@@ -43,15 +43,13 @@ const CATALOG: RedeemableItem[] = [
 export class RewardService {
   
   async getBalance(userId: string): Promise<number> {
-    const rewards = await prisma.reward.findMany({
-      where: { userId, type: RewardType.CREDIT },
+    // Use referralPoints as the unified points ledger
+    // This is incremented by both client award_points and covert award_points tools
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { referralPoints: true },
     });
-    
-    // In a real ledger, we'd have debits too. 
-    // For now, let's assume we track "spent" as negative rewards or a separate table.
-    // Actually, let's just sum them. If we want to "spend", we add a negative reward row.
-    const balance = rewards.reduce((acc: number, r: Reward) => acc + r.amount, 0);
-    return balance;
+    return user?.referralPoints ?? 0;
   }
 
   async getCatalog(): Promise<RedeemableItem[]> {
@@ -59,15 +57,23 @@ export class RewardService {
   }
 
   async grant(userId: string, amount: number, reason: string, missionRunId?: string) {
-    return await prisma.reward.create({
-      data: {
-        userId,
-        amount,
-        type: RewardType.CREDIT,
-        metadata: { reason },
-        missionRunId
-      }
-    });
+    // Grant points: create reward record AND increment referralPoints
+    const [reward] = await prisma.$transaction([
+      prisma.reward.create({
+        data: {
+          userId,
+          amount,
+          type: "LOGOS_AWARD",
+          metadata: { reason, source: "grant" },
+          missionRunId,
+        },
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { referralPoints: { increment: amount } },
+      }),
+    ]);
+    return reward;
   }
 
   async redeem(userId: string, itemId: string) {
@@ -77,20 +83,26 @@ export class RewardService {
     if (!item) throw new Error("Item not found");
     if (balance < item.cost) throw new Error("Insufficient funds");
 
-    // Deduct cost
-    await prisma.reward.create({
-      data: {
-        userId,
-        amount: -item.cost, // Negative amount = debit
-        type: RewardType.CREDIT,
-        metadata: { action: "redeem", itemId, itemName: item.name }
-      }
-    });
+    // Deduct cost from referralPoints and log the redemption
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: userId },
+        data: { referralPoints: { decrement: item.cost } },
+      }),
+      prisma.reward.create({
+        data: {
+          userId,
+          amount: -item.cost, // Negative for audit trail
+          type: "LOGOS_AWARD",
+          metadata: { action: "redeem", itemId, itemName: item.name },
+        },
+      }),
+    ]);
 
     // Apply effect (Logic to actually 'give' the item goes here)
     // For LORE: Return the content.
     // For ACCESS: Update User AccessTier.
-    
+
     if (item.type === "ACCESS") {
       // Example: Update user access tier
        // await prisma.user.update(...)

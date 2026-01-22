@@ -216,8 +216,59 @@ describe("Report API Routes", () => {
       });
 
       expect(rewards.length).toBeGreaterThanOrEqual(1);
-      expect(rewards[0].type).toBe("CREDIT");
+      expect(rewards[0].type).toBe("LOGOS_AWARD");
       expect(rewards[0].userId).toBe(testSession.userId);
+    });
+  });
+
+  describe("userId Fallback Resolution", () => {
+    it("should submit report by userId", async () => {
+      // Create a user with a mission directly using userId
+      const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const user = await testPrisma.user.create({
+        data: {
+          id: `report-user-${uniqueSuffix}`,
+          handle: `report-user-${uniqueSuffix}`,
+          agentId: `R${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase(),
+        },
+      });
+
+      // Accept a mission for this user using the API
+      const acceptRes = await acceptMission(
+        createRequest("POST", "http://localhost/api/mission", {
+          userId: user.id,
+        })
+      );
+      const { missionRun } = await acceptRes.json();
+
+      // Now submit report using userId
+      const response = await submitReport(
+        createRequest("POST", "http://localhost/api/report", {
+          userId: user.id,
+          content: "Report submitted via userId fallback.",
+        })
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.id).toBe(missionRun.id);
+      expect(data.status).toBe("COMPLETED");
+    });
+
+    it("should prioritize sessionId over userId", async () => {
+      // Submit with both sessionId and userId, sessionId should be used
+      const response = await submitReport(
+        createRequest("POST", "http://localhost/api/report", {
+          sessionId: testSession.sessionId,
+          userId: "different-user-id",
+          content: "Report with sessionId priority.",
+        })
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      // Should have used testSession's mission
+      expect(data.id).toBe(testMissionRun.id);
     });
   });
 

@@ -1,7 +1,11 @@
 import prisma from "@/app/lib/prisma";
 import { memoryStore } from "@/app/lib/server/memoryStore";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
-export async function POST() {
+export async function POST(request: Request) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   const results = {
     users: { found: 0, created: 0, existing: 0 },
     sessions: { found: 0, created: 0, existing: 0 },

@@ -189,7 +189,7 @@ export async function detectSynchronicities(params: {
   return detected;
 }
 
-async function recordSynchronicity(params: {
+export async function recordSynchronicity(params: {
   userId: string;
   pattern: string;
   value: any;

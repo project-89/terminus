@@ -1,8 +1,13 @@
 import { streamText, type ModelMessage } from "ai";
 import { loadOpsTools } from "@/app/lib/opsTools/loader";
 import { getModel } from "@/app/lib/ai/models";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
 export async function POST(req: Request) {
+  // Ops tools are admin-only
+  const auth = validateAdminAuth(req);
+  if (!auth.authorized) return auth.response;
+
   const body = await req.json().catch(() => ({}));
   const action = String(body?.action || "list");
   const tools = loadOpsTools();
@@ -31,8 +36,8 @@ export async function POST(req: Request) {
       });
     }
 
-    const modelKey = (tool.model as any) || "content";
-    const model = getModel("content");
+    const modelKey = (tool.model as string) || "content";
+    const model = getModel(modelKey as any);
 
     const system = `${tool.title}\n\n${tool.description || ""}\n\n${tool.content}`.trim();
     const messages: ModelMessage[] = [

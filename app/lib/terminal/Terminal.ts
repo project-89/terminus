@@ -63,6 +63,7 @@ export class Terminal extends EventEmitter {
   private _contentHeight: number = 0;
 
   private commandAccess: boolean = false;
+  private destroyed: boolean = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -70,14 +71,15 @@ export class Terminal extends EventEmitter {
   ) {
     super();
 
-    if (Terminal.instance) {
-      Object.assign(Terminal.instance, {
-        canvas,
-        options: {
-          ...DEFAULT_OPTIONS,
-          ...options,
-        },
-      });
+    // If instance exists and wasn't destroyed, reuse it with updated canvas
+    if (Terminal.instance && !Terminal.instance.destroyed) {
+      Terminal.instance.canvas = canvas;
+      Terminal.instance.options = {
+        ...DEFAULT_OPTIONS,
+        ...options,
+      };
+      // Reinitialize renderer with new canvas
+      Terminal.instance.renderer = new Renderer(Terminal.instance, canvas, Terminal.instance.options);
       return Terminal.instance;
     }
 
@@ -255,6 +257,12 @@ export class Terminal extends EventEmitter {
     if (this.loadingMessageInterval) clearInterval(this.loadingMessageInterval);
     this.inputHandler.destroy();
     this.toolHandler.destroy();
+
+    // Mark as destroyed and clear singleton so next construction creates fresh instance
+    this.destroyed = true;
+    if (Terminal.instance === this) {
+      Terminal.instance = null as any;
+    }
   }
 
   public resize(width: number, height: number) {

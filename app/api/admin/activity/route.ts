@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const limit = parseInt(searchParams.get("limit") || "50");
   const since = searchParams.get("since");

@@ -475,21 +475,6 @@ export function TerminalCanvas() {
   }
 
   // Add focus management
-  useEffect(() => {
-    function handleVisibilityChange() {
-      if (document.hidden) {
-        hiddenInputRef.current?.blur();
-      } else if (terminalRef.current?.getCommandAccess()) {
-        hiddenInputRef.current?.focus();
-      }
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, []);
-
   // Keyboard-safe padding using visualViewport (and resize terminal on vv changes)
   useEffect(() => {
     if (!window.visualViewport) return;

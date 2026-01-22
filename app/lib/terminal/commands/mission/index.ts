@@ -1,18 +1,32 @@
 import { CommandConfig } from "../../types";
 import { TERMINAL_COLORS } from "../../Terminal";
 
-// Helper to get user handle
-function getHandle() {
-  return typeof window !== 'undefined' ? localStorage.getItem("p89_handle") : "agent";
+// Helper to get user identity (handle and userId for API calls)
+function getIdentity() {
+  if (typeof window === 'undefined') {
+    return { handle: "agent", userId: undefined };
+  }
+  return {
+    handle: localStorage.getItem("p89_handle") || undefined,
+    userId: localStorage.getItem("p89_userId") || undefined,
+  };
 }
 
 // Fetch next mission
 async function fetchMission(ctx: any) {
-  const handle = getHandle();
+  const { handle, userId } = getIdentity();
   await ctx.terminal.print("Scanning secure channels...", { color: TERMINAL_COLORS.system });
-  
+
+  if (!handle && !userId) {
+    await ctx.terminal.print("Identity not established. Cannot access missions.", { color: TERMINAL_COLORS.error });
+    return;
+  }
+
   try {
-    const res = await fetch(`/api/mission?handle=${handle}`);
+    const params = new URLSearchParams();
+    if (handle) params.set("handle", handle);
+    if (userId) params.set("userId", userId);
+    const res = await fetch(`/api/mission?${params.toString()}`);
     const data = await res.json();
     
     if (data.error || data.message) {
@@ -33,14 +47,19 @@ async function fetchMission(ctx: any) {
 
 // Accept mission
 async function acceptMission(ctx: any) {
-  const handle = getHandle();
+  const { handle, userId } = getIdentity();
   await ctx.terminal.print("Confirming assignment...", { color: TERMINAL_COLORS.system });
+
+  if (!handle && !userId) {
+    await ctx.terminal.print("Identity not established. Cannot accept missions.", { color: TERMINAL_COLORS.error });
+    return;
+  }
 
   try {
     const res = await fetch("/api/mission", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ handle }),
+      body: JSON.stringify({ handle, userId }),
     });
     const data = await res.json();
 
@@ -63,14 +82,20 @@ async function submitReport(ctx: any, content: string) {
      return;
   }
 
-  const handle = getHandle();
+  const { handle, userId } = getIdentity();
+
+  if (!handle && !userId) {
+    await ctx.terminal.print("Identity not established. Cannot submit reports.", { color: TERMINAL_COLORS.error });
+    return;
+  }
+
   await ctx.terminal.print("Encrypting and uploading report...", { color: TERMINAL_COLORS.system });
 
   try {
     const res = await fetch("/api/report", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ handle, content }),
+      body: JSON.stringify({ handle, userId, content }),
     });
     const data = await res.json();
 

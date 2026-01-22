@@ -1,10 +1,13 @@
-
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
+import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const auth = validateAdminAuth(request);
+  if (!auth.authorized) return auth.response;
+
   try {
     // 1. Fetch Global Stats
     const totalAgents = await prisma.user.count();

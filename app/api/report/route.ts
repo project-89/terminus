@@ -2,7 +2,7 @@ import { submitMissionReport, getLatestOpenMissionRun } from "@/app/lib/server/m
 import { getSessionById, getActiveSessionByHandle } from "@/app/lib/server/sessionService";
 import { recordMemoryEvent } from "@/app/lib/server/memoryService";
 
-async function resolveSession(params: { sessionId?: string | null; handle?: string | null }) {
+async function resolveSession(params: { sessionId?: string | null; handle?: string | null; userId?: string | null }) {
   if (params.sessionId) {
     const session = await getSessionById(params.sessionId);
     if (session) return session;
@@ -10,6 +10,10 @@ async function resolveSession(params: { sessionId?: string | null; handle?: stri
   if (params.handle) {
     const session = await getActiveSessionByHandle(params.handle);
     if (session) return session;
+  }
+  // Fallback: create a minimal session-like object from userId
+  if (params.userId) {
+    return { id: "direct-" + params.userId, userId: params.userId, handle: "agent" } as any;
   }
   return null;
 }
@@ -19,6 +23,7 @@ export async function POST(req: Request) {
   const session = await resolveSession({
     sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
     handle: typeof body.handle === "string" ? body.handle : undefined,
+    userId: typeof body.userId === "string" ? body.userId : undefined,
   });
   if (!session) {
     return new Response(JSON.stringify({ error: "Unable to resolve session" }), {

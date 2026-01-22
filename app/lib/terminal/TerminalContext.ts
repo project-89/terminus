@@ -363,13 +363,17 @@ export class TerminalContext {
         if (verifyRes.ok) {
           const data = await verifyRes.json();
           if (data.identity) {
-            // Always use the server's authoritative agentId
+            // Always use the server's authoritative values
             const serverAgentId = data.identity.agentId;
             const handle = data.identity.handle || serverAgentId.toLowerCase();
 
             // Sync localStorage if it was stale/mismatched
-            if (typeof window !== "undefined" && savedAgentId !== serverAgentId) {
-              localStorage.setItem("p89_agentId", serverAgentId);
+            if (typeof window !== "undefined") {
+              if (savedAgentId !== serverAgentId) {
+                localStorage.setItem("p89_agentId", serverAgentId);
+              }
+              // Always ensure handle is synced
+              localStorage.setItem("p89_handle", handle);
             }
 
             this.setState({ userId: savedUserId, agentId: serverAgentId, handle });
@@ -394,13 +398,15 @@ export class TerminalContext {
       const data = await res.json();
       const { id, agentId, handle } = data.identity;
       
+      const resolvedHandle = handle || agentId.toLowerCase();
       if (typeof window !== "undefined") {
         localStorage.setItem("p89_userId", id);
         localStorage.setItem("p89_agentId", agentId);
-        this.requestGeolocation(id);
+        localStorage.setItem("p89_handle", resolvedHandle);
+        // Geolocation now requires explicit consent - see requestLocationWithConsent()
       }
-      
-      this.setState({ userId: id, agentId, handle: handle || agentId.toLowerCase() });
+
+      this.setState({ userId: id, agentId, handle: resolvedHandle });
       return { userId: id, agentId };
     } catch (e) {
       console.error("Failed to create identity", e);
@@ -467,28 +473,62 @@ export class TerminalContext {
     }
   }
 
-  private requestGeolocation(userId: string): void {
-    if (!navigator.geolocation) return;
-    
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          await fetch("/api/identity/location", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              userId,
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-            }),
-          });
-        } catch (e) {
-          console.warn("Failed to save location", e);
-        }
-      },
-      () => {},
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
-    );
+  /**
+   * Request location with explicit user consent.
+   * Call this when the user agrees to share their location through the narrative.
+   */
+  async requestLocationWithConsent(): Promise<boolean> {
+    const userId = this.state.userId;
+    if (!userId) return false;
+
+    // Check if user has already given consent
+    const hasConsent = typeof window !== "undefined" &&
+      localStorage.getItem("p89_locationConsent") === "true";
+
+    if (!hasConsent) {
+      // Store consent
+      if (typeof window !== "undefined") {
+        localStorage.setItem("p89_locationConsent", "true");
+      }
+    }
+
+    return this.requestGeolocation(userId);
+  }
+
+  /**
+   * Check if user has given location consent
+   */
+  hasLocationConsent(): boolean {
+    return typeof window !== "undefined" &&
+      localStorage.getItem("p89_locationConsent") === "true";
+  }
+
+  private async requestGeolocation(userId: string): Promise<boolean> {
+    if (!navigator.geolocation) return false;
+
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            await fetch("/api/identity/location", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userId,
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+              }),
+            });
+            resolve(true);
+          } catch (e) {
+            console.warn("Failed to save location", e);
+            resolve(false);
+          }
+        },
+        () => resolve(false),
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+      );
+    });
   }
 }

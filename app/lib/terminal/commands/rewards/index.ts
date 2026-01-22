@@ -143,7 +143,15 @@ export const rewardCommands: CommandConfig[] = [
     description: "View or redeem rewards. Usage: !redeem [itemId]",
     handler: async (ctx) => {
       const [_, itemId] = ctx.command.split(" ");
-      const userId = localStorage.getItem("p89_handle") || "guest";
+      // Use p89_userId for API calls (rewards API expects userId, not handle)
+      const userId = localStorage.getItem("p89_userId");
+
+      if (!userId) {
+        await ctx.terminal.print("Identity not established. Cannot access reward ledger.", {
+          color: TERMINAL_COLORS.error
+        });
+        return;
+      }
 
       // 1. List Mode
       if (!itemId) {
