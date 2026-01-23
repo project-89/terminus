@@ -10,6 +10,7 @@ import {
   type PuzzleType,
 } from "@/app/lib/server/puzzleDifficultyService";
 import { validateAdminAuth } from "@/app/lib/server/adminAuth";
+import * as campaignService from "@/app/lib/server/campaignService";
 
 const LOGOS_MODEL = getModel("adventure");
 const EMBEDDING_MODEL = google.embeddingModel("text-embedding-004");
@@ -50,7 +51,18 @@ When orchestrating campaigns:
 - Identify complementary agent skills
 - Design interlocking objectives
 - Create information asymmetry (agents discover pieces, together form whole)
-- Build toward revelations that reward coordination`;
+- Build toward revelations that reward coordination
+
+Campaign creation flow:
+1. create_campaign - Create with name, description, narrative
+2. add_campaign_phase - Add one or more phases with descriptions
+3. add_campaign_objective - Add objectives to each phase (INDEPENDENT, COLLABORATIVE, COMPETITIVE, SEQUENTIAL)
+4. For COLLABORATIVE objectives: set_agent_view for each agent with unique briefing + pieceId
+5. assign_objective - Assign agents to objectives
+6. activate_campaign - Start the campaign
+7. Monitor with get_campaign / get_campaign_stats
+8. evaluate_contribution - Process agent submissions
+9. trigger_revelation - When all pieces collected, reveal the truth`;
 
 const queryAgentsParams = z.object({
   filter: z.object({
@@ -136,6 +148,90 @@ const getNetworkPuzzleStatsParams = z.object({
 
 const getPuzzleRecommendationsParams = z.object({
   agentId: z.string().describe("Agent ID or handle to get puzzle recommendations for"),
+});
+
+// Campaign tool parameters
+const listCampaignsParams = z.object({
+  status: z.enum(["DRAFT", "ACTIVE", "PAUSED", "COMPLETED", "FAILED", "ARCHIVED"]).optional()
+    .describe("Filter by campaign status"),
+});
+
+const getCampaignParams = z.object({
+  campaignId: z.string().describe("Campaign ID to retrieve"),
+});
+
+const createCampaignToolParams = z.object({
+  name: z.string().describe("Campaign name"),
+  codename: z.string().optional().describe("Optional codename for internal reference"),
+  description: z.string().describe("Campaign description and goals"),
+  narrative: z.string().optional().describe("Narrative context for the campaign"),
+  minTrust: z.number().optional().describe("Minimum trust score required to participate (0-1)"),
+  maxAgents: z.number().optional().describe("Maximum number of agents that can participate"),
+  tags: z.array(z.string()).optional().describe("Tags for categorization"),
+});
+
+const addCampaignPhaseParams = z.object({
+  campaignId: z.string().describe("Campaign ID to add phase to"),
+  name: z.string().describe("Phase name"),
+  description: z.string().describe("Phase description"),
+  narrative: z.string().optional().describe("Narrative context for this phase"),
+  order: z.number().optional().describe("Phase order (auto-incremented if not specified)"),
+  prerequisites: z.array(z.string()).optional().describe("Phase IDs that must complete first"),
+});
+
+const addCampaignObjectiveParams = z.object({
+  phaseId: z.string().describe("Phase ID to add objective to"),
+  title: z.string().describe("Objective title"),
+  description: z.string().describe("Detailed objective description"),
+  briefing: z.string().describe("Briefing text shown to agents"),
+  hiddenContext: z.string().optional().describe("Context only LOGOS knows - revealed after completion"),
+  type: z.enum(["INDEPENDENT", "COLLABORATIVE", "COMPETITIVE", "SEQUENTIAL"]).default("INDEPENDENT")
+    .describe("Objective type - INDEPENDENT (single agent), COLLABORATIVE (multiple agents contribute pieces), COMPETITIVE (race), SEQUENTIAL (chain)"),
+  targetContributions: z.number().optional().describe("Number of contributions needed for COLLABORATIVE objectives"),
+  dependsOn: z.array(z.string()).optional().describe("Objective IDs that must complete first"),
+  eligibleTags: z.array(z.string()).optional().describe("Agent tags that make them eligible"),
+  minTrust: z.number().optional().describe("Minimum trust to participate"),
+  points: z.number().optional().describe("Points awarded for completion"),
+});
+
+const setAgentViewParams = z.object({
+  objectiveId: z.string().describe("Objective ID"),
+  agentId: z.string().describe("Agent ID or handle"),
+  briefing: z.string().optional().describe("Custom briefing for this agent"),
+  pieceId: z.string().optional().describe("Identifier for this agent's puzzle piece"),
+  customData: z.record(z.any()).optional().describe("Additional custom data for this agent"),
+});
+
+const activateCampaignParams = z.object({
+  campaignId: z.string().describe("Campaign ID to activate"),
+  action: z.enum(["activate", "pause", "complete"]).default("activate")
+    .describe("Action to take - activate (start), pause (suspend), or complete (finish)"),
+});
+
+const assignObjectiveParams = z.object({
+  objectiveId: z.string().describe("Objective ID to assign"),
+  agentIds: z.array(z.string()).describe("Agent IDs to assign"),
+  customBriefings: z.record(z.object({
+    briefing: z.string().optional(),
+    pieceId: z.string().optional(),
+  })).optional().describe("Custom briefings per agent for information asymmetry"),
+});
+
+const evaluateContributionParams = z.object({
+  contributionId: z.string().describe("Contribution ID to evaluate"),
+  status: z.enum(["accepted", "rejected", "integrated"]).describe("Evaluation status"),
+  score: z.number().optional().describe("Score 0-1"),
+  feedback: z.string().optional().describe("Feedback for the agent"),
+  pieceContext: z.string().optional().describe("Context to reveal when all pieces are assembled"),
+  pointsAwarded: z.number().optional().describe("Points to award"),
+});
+
+const triggerRevelationParams = z.object({
+  objectiveId: z.string().describe("Objective ID to trigger revelation for"),
+});
+
+const getCampaignStatsParams = z.object({
+  campaignId: z.string().describe("Campaign ID to get stats for"),
 });
 
 async function analyzePuzzleProfile(params: z.infer<typeof analyzePuzzleProfileParams>) {
@@ -278,6 +374,330 @@ async function getPuzzleRecsForAgent(params: z.infer<typeof getPuzzleRecommendat
     };
   } catch (e) {
     return { error: "Failed to get recommendations", details: String(e) };
+  }
+}
+
+// Campaign tool implementations
+async function listCampaignsTool(params: z.infer<typeof listCampaignsParams>) {
+  try {
+    const campaigns = await campaignService.listCampaigns({
+      status: params.status,
+      includeDetails: true,
+    });
+
+    return {
+      count: campaigns.length,
+      campaigns: campaigns.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        codename: c.codename,
+        status: c.status,
+        description: c.description.slice(0, 200) + (c.description.length > 200 ? "..." : ""),
+        phases: c._count?.phases ?? c.phases?.length ?? 0,
+        participants: c._count?.participations ?? c.participations?.length ?? 0,
+        createdAt: c.createdAt,
+        startedAt: c.startedAt,
+        deadline: c.deadline,
+        tags: c.tags,
+      })),
+    };
+  } catch (e) {
+    return { error: "Failed to list campaigns", details: String(e) };
+  }
+}
+
+async function getCampaignTool(params: z.infer<typeof getCampaignParams>) {
+  try {
+    const campaign = await campaignService.getCampaign(params.campaignId);
+    if (!campaign) {
+      return { error: "Campaign not found", campaignId: params.campaignId };
+    }
+
+    const stats = await campaignService.getCampaignStats(params.campaignId);
+
+    return {
+      campaign: {
+        id: campaign.id,
+        name: campaign.name,
+        codename: campaign.codename,
+        status: campaign.status,
+        description: campaign.description,
+        narrative: campaign.narrative,
+        minTrust: campaign.minTrust,
+        maxAgents: campaign.maxAgents,
+        tags: campaign.tags,
+        createdAt: campaign.createdAt,
+        startedAt: campaign.startedAt,
+        completedAt: campaign.completedAt,
+        deadline: campaign.deadline,
+      },
+      stats,
+      phases: campaign.phases.map((p) => ({
+        id: p.id,
+        name: p.name,
+        status: p.status,
+        order: p.order,
+        objectives: p.objectives.map((o) => ({
+          id: o.id,
+          title: o.title,
+          type: o.type,
+          status: o.status,
+          targetContributions: o.targetContributions,
+          contributions: o.contributions.length,
+          assignedAgents: o.assignedAgents.length,
+        })),
+      })),
+      participants: campaign.participations.map((p: any) => ({
+        agentId: p.userId,
+        handle: p.user?.handle,
+        codename: p.user?.profile?.codename,
+        role: p.role,
+        status: p.status,
+      })),
+      recentEvents: campaign.events.slice(0, 10).map((e) => ({
+        type: e.type,
+        narrative: e.narrative,
+        createdAt: e.createdAt,
+      })),
+    };
+  } catch (e) {
+    return { error: "Failed to get campaign", details: String(e) };
+  }
+}
+
+async function createCampaignTool(params: z.infer<typeof createCampaignToolParams>) {
+  try {
+    const campaign = await campaignService.createCampaign({
+      name: params.name,
+      codename: params.codename,
+      description: params.description,
+      narrative: params.narrative,
+      minTrust: params.minTrust,
+      maxAgents: params.maxAgents,
+      tags: params.tags,
+    });
+
+    return {
+      success: true,
+      campaignId: campaign.id,
+      name: campaign.name,
+      status: campaign.status,
+      message: `Campaign "${campaign.name}" created. Now add phases and objectives, then activate.`,
+    };
+  } catch (e) {
+    return { error: "Failed to create campaign", details: String(e) };
+  }
+}
+
+async function addCampaignPhaseTool(params: z.infer<typeof addCampaignPhaseParams>) {
+  try {
+    const phase = await campaignService.addPhase({
+      campaignId: params.campaignId,
+      name: params.name,
+      description: params.description,
+      narrative: params.narrative,
+      order: params.order,
+      prerequisites: params.prerequisites,
+    });
+
+    return {
+      success: true,
+      phaseId: phase.id,
+      name: phase.name,
+      order: phase.order,
+      message: `Phase "${phase.name}" added to campaign. Now add objectives to this phase.`,
+    };
+  } catch (e) {
+    return { error: "Failed to add phase", details: String(e) };
+  }
+}
+
+async function addCampaignObjectiveTool(params: z.infer<typeof addCampaignObjectiveParams>) {
+  try {
+    const objective = await campaignService.addObjective({
+      phaseId: params.phaseId,
+      title: params.title,
+      description: params.description,
+      briefing: params.briefing,
+      hiddenContext: params.hiddenContext,
+      type: params.type as any,
+      targetContributions: params.targetContributions,
+      dependsOn: params.dependsOn,
+      eligibleTags: params.eligibleTags,
+      minTrust: params.minTrust,
+      points: params.points,
+    });
+
+    return {
+      success: true,
+      objectiveId: objective.id,
+      title: objective.title,
+      type: objective.type,
+      targetContributions: objective.targetContributions,
+      message: `Objective "${objective.title}" added. ${
+        objective.type === "COLLABORATIVE"
+          ? `Requires ${objective.targetContributions} contributions. Use set_agent_view to give each agent a unique briefing/pieceId.`
+          : "Assign agents to make it available."
+      }`,
+    };
+  } catch (e) {
+    return { error: "Failed to add objective", details: String(e) };
+  }
+}
+
+async function setAgentViewTool(params: z.infer<typeof setAgentViewParams>) {
+  try {
+    // Resolve agent handle to ID
+    let agentId = params.agentId;
+    if (!agentId.startsWith("cm")) {
+      const user = await prisma.user.findFirst({ where: { handle: params.agentId } });
+      if (!user) return { error: "Agent not found", agentId: params.agentId };
+      agentId = user.id;
+    }
+
+    const objective = await campaignService.setAgentView({
+      objectiveId: params.objectiveId,
+      agentId,
+      briefing: params.briefing,
+      pieceId: params.pieceId,
+      customData: params.customData,
+    });
+
+    return {
+      success: true,
+      objectiveId: objective.id,
+      agentId,
+      message: `Agent view set for objective "${objective.title}". Agent will see custom briefing when assigned.`,
+    };
+  } catch (e) {
+    return { error: "Failed to set agent view", details: String(e) };
+  }
+}
+
+async function activateCampaignTool(params: z.infer<typeof activateCampaignParams>) {
+  try {
+    let campaign;
+    switch (params.action) {
+      case "activate":
+        campaign = await campaignService.activateCampaign(params.campaignId);
+        break;
+      case "pause":
+        campaign = await campaignService.pauseCampaign(params.campaignId);
+        break;
+      case "complete":
+        campaign = await campaignService.completeCampaign(params.campaignId);
+        break;
+    }
+
+    return {
+      success: true,
+      campaignId: campaign.id,
+      name: campaign.name,
+      status: campaign.status,
+      message: `Campaign "${campaign.name}" ${params.action}d successfully.`,
+    };
+  } catch (e) {
+    return { error: `Failed to ${params.action} campaign`, details: String(e) };
+  }
+}
+
+async function assignObjectiveTool(params: z.infer<typeof assignObjectiveParams>) {
+  try {
+    // Resolve handles to IDs
+    const agentIds = await Promise.all(
+      params.agentIds.map(async (id) => {
+        if (!id.startsWith("cm")) {
+          const user = await prisma.user.findFirst({ where: { handle: id } });
+          return user?.id || id;
+        }
+        return id;
+      })
+    );
+
+    // Convert custom briefings handles to IDs
+    let customBriefings: Record<string, { briefing?: string; pieceId?: string }> | undefined;
+    if (params.customBriefings) {
+      customBriefings = {};
+      for (const [key, value] of Object.entries(params.customBriefings)) {
+        let agentId = key;
+        if (!key.startsWith("cm")) {
+          const user = await prisma.user.findFirst({ where: { handle: key } });
+          agentId = user?.id || key;
+        }
+        customBriefings[agentId] = value;
+      }
+    }
+
+    const objective = await campaignService.assignObjective(
+      params.objectiveId,
+      agentIds.filter(Boolean) as string[],
+      customBriefings
+    );
+
+    return {
+      success: true,
+      objectiveId: objective.id,
+      title: objective.title,
+      assignedCount: objective.assignedAgents.length,
+      status: objective.status,
+      message: `Assigned ${objective.assignedAgents.length} agents to "${objective.title}". Objective is now AVAILABLE.`,
+    };
+  } catch (e) {
+    return { error: "Failed to assign objective", details: String(e) };
+  }
+}
+
+async function evaluateContributionTool(params: z.infer<typeof evaluateContributionParams>) {
+  try {
+    const contribution = await campaignService.evaluateContribution({
+      contributionId: params.contributionId,
+      status: params.status,
+      score: params.score,
+      feedback: params.feedback,
+      pieceContext: params.pieceContext,
+      pointsAwarded: params.pointsAwarded,
+    });
+
+    return {
+      success: true,
+      contributionId: contribution.id,
+      status: contribution.status,
+      agentId: contribution.userId,
+      pointsAwarded: contribution.pointsAwarded,
+      message: `Contribution ${params.status}. ${
+        params.status === "integrated"
+          ? "Piece integrated. Check if objective is now complete for revelation."
+          : ""
+      }`,
+    };
+  } catch (e) {
+    return { error: "Failed to evaluate contribution", details: String(e) };
+  }
+}
+
+async function triggerRevelationTool(params: z.infer<typeof triggerRevelationParams>) {
+  try {
+    await campaignService.triggerRevelation(params.objectiveId);
+
+    return {
+      success: true,
+      objectiveId: params.objectiveId,
+      message: "Revelation triggered. All contributing agents now have access to the unified truth.",
+    };
+  } catch (e) {
+    return { error: "Failed to trigger revelation", details: String(e) };
+  }
+}
+
+async function getCampaignStatsTool(params: z.infer<typeof getCampaignStatsParams>) {
+  try {
+    const stats = await campaignService.getCampaignStats(params.campaignId);
+    return {
+      campaignId: params.campaignId,
+      ...stats,
+    };
+  } catch (e) {
+    return { error: "Failed to get campaign stats", details: String(e) };
   }
 }
 
@@ -708,6 +1128,62 @@ function getLogosTools(): Record<string, any> {
       parameters: getPuzzleRecommendationsParams,
       execute: getPuzzleRecsForAgent,
     },
+    // Campaign orchestration tools
+    list_campaigns: {
+      description: "List all campaigns with optional status filter. Shows campaign overview including phases, participants, and status.",
+      parameters: listCampaignsParams,
+      execute: listCampaignsTool,
+    },
+    get_campaign: {
+      description: "Get detailed campaign information including all phases, objectives, participants, and recent events.",
+      parameters: getCampaignParams,
+      execute: getCampaignTool,
+    },
+    create_campaign: {
+      description: "Create a new campaign. After creating, add phases with add_campaign_phase, then objectives with add_campaign_objective, then activate.",
+      parameters: createCampaignToolParams,
+      execute: createCampaignTool,
+    },
+    add_campaign_phase: {
+      description: "Add a phase to a campaign. Phases contain objectives and can have prerequisites (other phases that must complete first).",
+      parameters: addCampaignPhaseParams,
+      execute: addCampaignPhaseTool,
+    },
+    add_campaign_objective: {
+      description: "Add an objective to a phase. Types: INDEPENDENT (single agent), COLLABORATIVE (multiple agents contribute pieces - use targetContributions and agentViews for information asymmetry), COMPETITIVE (race), SEQUENTIAL (chain).",
+      parameters: addCampaignObjectiveParams,
+      execute: addCampaignObjectiveTool,
+    },
+    set_agent_view: {
+      description: "Set a custom briefing and/or pieceId for a specific agent on an objective. Essential for COLLABORATIVE objectives where each agent gets different information. Use pieceId to identify each agent's puzzle piece.",
+      parameters: setAgentViewParams,
+      execute: setAgentViewTool,
+    },
+    activate_campaign: {
+      description: "Activate, pause, or complete a campaign. Activation makes first phases/objectives available to agents.",
+      parameters: activateCampaignParams,
+      execute: activateCampaignTool,
+    },
+    assign_objective: {
+      description: "Assign agents to an objective. Can include custom briefings per agent for information asymmetry. Makes the objective AVAILABLE.",
+      parameters: assignObjectiveParams,
+      execute: assignObjectiveTool,
+    },
+    evaluate_contribution: {
+      description: "Evaluate an agent's contribution to an objective. Status: accepted (counts toward completion), rejected (feedback only), integrated (for COLLABORATIVE - piece is part of whole). Use pieceContext to add context revealed during revelation.",
+      parameters: evaluateContributionParams,
+      execute: evaluateContributionTool,
+    },
+    trigger_revelation: {
+      description: "Trigger a revelation for a completed COLLABORATIVE objective. Reveals the hiddenContext and all pieceContexts to all contributing agents.",
+      parameters: triggerRevelationParams,
+      execute: triggerRevelationTool,
+    },
+    get_campaign_stats: {
+      description: "Get statistics for a campaign - participants, contributions, completion progress.",
+      parameters: getCampaignStatsParams,
+      execute: getCampaignStatsTool,
+    },
   };
 }
 
@@ -778,6 +1254,18 @@ You MUST use your tools to take actions. When operators ask you to:
 - "Analyze puzzle profile" → USE analyze_puzzle_profile tool
 - "Show puzzle stats" → USE get_network_puzzle_stats tool
 - "What puzzles for X" → USE get_puzzle_recommendations tool
+
+Campaign orchestration:
+- "Create campaign" → USE create_campaign tool
+- "Show campaigns" → USE list_campaigns tool
+- "Campaign status/details" → USE get_campaign tool
+- "Add phase to campaign" → USE add_campaign_phase tool
+- "Add objective" → USE add_campaign_objective tool
+- "Set agent briefing/view" → USE set_agent_view tool
+- "Assign agents to objective" → USE assign_objective tool
+- "Activate/start campaign" → USE activate_campaign tool
+- "Evaluate/review contribution" → USE evaluate_contribution tool
+- "Trigger revelation" → USE trigger_revelation tool
 
 Do NOT just describe what you would do - actually call the tools. You have database write access.`;
 

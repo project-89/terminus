@@ -35,14 +35,20 @@ export async function GET(request: Request) {
       prisma.fieldMission.count(),
     ]);
 
+    // Count missions by status - note EVIDENCE_SUBMITTED and UNDER_REVIEW are both "pending review"
     const byStatus = {
       ASSIGNED: fieldMissions.filter((m: any) => m.status === "ASSIGNED").length,
+      ACCEPTED: fieldMissions.filter((m: any) => m.status === "ACCEPTED").length,
       IN_PROGRESS: fieldMissions.filter((m: any) => m.status === "IN_PROGRESS").length,
-      PENDING_REVIEW: fieldMissions.filter((m: any) => m.status === "PENDING_REVIEW").length,
+      EVIDENCE_SUBMITTED: fieldMissions.filter((m: any) => m.status === "EVIDENCE_SUBMITTED").length,
+      UNDER_REVIEW: fieldMissions.filter((m: any) => m.status === "UNDER_REVIEW").length,
       COMPLETED: fieldMissions.filter((m: any) => m.status === "COMPLETED").length,
       FAILED: fieldMissions.filter((m: any) => m.status === "FAILED").length,
       EXPIRED: fieldMissions.filter((m: any) => m.status === "EXPIRED").length,
     };
+
+    // Add combined pending review count for dashboard convenience
+    const pendingReviewCount = byStatus.EVIDENCE_SUBMITTED + byStatus.UNDER_REVIEW;
 
     const byType: Record<string, number> = {};
     for (const m of fieldMissions) {
@@ -75,7 +81,7 @@ export async function GET(request: Request) {
         total,
         byStatus,
         byType,
-        pendingReview: byStatus.PENDING_REVIEW,
+        pendingReview: pendingReviewCount,
       },
       pagination: {
         page,

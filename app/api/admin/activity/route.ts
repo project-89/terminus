@@ -143,9 +143,11 @@ export async function GET(request: Request) {
     }
 
     for (const fm of recentFieldMissions) {
+      // Use correct status vocabulary: EVIDENCE_SUBMITTED/UNDER_REVIEW are review statuses
+      const isReviewStatus = fm.status === "EVIDENCE_SUBMITTED" || fm.status === "UNDER_REVIEW";
       events.push({
         id: `fieldmission-${fm.id}`,
-        type: fm.status === "PENDING_REVIEW" ? "FIELD_MISSION_SUBMITTED" : fm.status === "COMPLETED" ? "FIELD_MISSION_COMPLETE" : "FIELD_MISSION_UPDATE",
+        type: isReviewStatus ? "FIELD_MISSION_SUBMITTED" : fm.status === "COMPLETED" ? "FIELD_MISSION_COMPLETE" : "FIELD_MISSION_UPDATE",
         timestamp: fm.updatedAt,
         agent: {
           id: fm.user.id,

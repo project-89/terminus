@@ -6,6 +6,7 @@ import {
   getPuzzleRecommendations,
 } from "@/app/lib/server/puzzleDifficultyService";
 import { validateAdminAuth } from "@/app/lib/server/adminAuth";
+import { LAYER_THRESHOLDS, LAYER_NAMES, TrustLayer } from "@/app/lib/server/trustService";
 
 export const dynamic = "force-dynamic";
 
@@ -151,7 +152,9 @@ export async function GET(
       .filter((m: any) => typeof m.score === "number")
       .reduce((acc: number, m: any, _: number, arr: any[]) => acc + (m.score || 0) / arr.length, 0);
 
-    const trustScore = computeTrustScore(agent, avgScore);
+    // Use canonical trust data from profile (maintained by trustService)
+    const canonicalTrustScore = agent.profile?.trustScore ?? 0;
+    const canonicalLayer = (agent.profile?.layer ?? 0) as TrustLayer;
 
     const totalMessages = gameSessions.reduce((acc: number, s: any) => acc + s.messages.length, 0);
     const totalRewards = agent.rewards.reduce((acc: number, r: any) => acc + r.amount, 0);
@@ -209,8 +212,10 @@ export async function GET(
       createdAt: agent.createdAt,
       consentedAt: agent.consentedAt,
 
-      trustScore,
-      layer: calculateLayer(trustScore),
+      trustScore: canonicalTrustScore,
+      layer: canonicalLayer,
+      layerName: LAYER_NAMES[canonicalLayer],
+      layerThresholds: LAYER_THRESHOLDS,
 
       profile: agent.profile,
 
@@ -412,27 +417,8 @@ export async function GET(
   }
 }
 
-function computeTrustScore(agent: any, avgMissionScore: number): number {
-  const sessionCount = agent.gameSessions?.length || 0;
-  const experimentCount = agent.experiments?.length || 0;
-  const fieldMissionCompleted = agent.fieldMissions?.filter((m: any) => m.status === "COMPLETED").length || 0;
-
-  const sessionFactor = Math.min(sessionCount / 10, 1) * 0.2;
-  const missionFactor = avgMissionScore * 0.3;
-  const experimentFactor = Math.min(experimentCount / 5, 1) * 0.2;
-  const fieldFactor = Math.min(fieldMissionCompleted / 3, 1) * 0.3;
-
-  return Math.min(1, sessionFactor + missionFactor + experimentFactor + fieldFactor);
-}
-
-function calculateLayer(trust: number): number {
-  if (trust < 0.2) return 0;
-  if (trust < 0.4) return 1;
-  if (trust < 0.6) return 2;
-  if (trust < 0.8) return 3;
-  if (trust < 0.95) return 4;
-  return 5;
-}
+// Trust score and layer are now sourced directly from profile (maintained by trustService)
+// See: app/lib/server/trustService.ts for LAYER_THRESHOLDS and evolveTrust
 
 export async function PATCH(
   request: Request,

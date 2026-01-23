@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { adminFetch } from "../../page";
 
 const ADMIN_AUTH_KEY = "p89_admin_auth";
 
@@ -249,8 +250,8 @@ export default function AgentDossierPage() {
   useEffect(() => {
     if (!authenticated || !agentId) return;
     Promise.all([
-        fetch(`/api/admin/agents/${agentId}`).then((r) => r.json()),
-        fetch(`/api/admin/missions`).then((r) => r.json()),
+        adminFetch(`/api/admin/agents/${agentId}`).then((r) => r.json()),
+        adminFetch(`/api/admin/missions`).then((r) => r.json()),
       ])
         .then(([agentData, missionsData]) => {
           setDossier(agentData);
@@ -269,7 +270,7 @@ export default function AgentDossierPage() {
     if (!dossier) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/agents/${dossier.id}`, {
+      const res = await adminFetch(`/api/admin/agents/${dossier.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -322,7 +323,7 @@ export default function AgentDossierPage() {
     if (!dossier) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/agents/${dossier.id}/generate-dossier`, { method: "POST" });
+      const res = await adminFetch(`/api/admin/agents/${dossier.id}/generate-dossier`, { method: "POST" });
       const updated = await res.json();
       setDossier((prev) => prev ? { ...prev, profile: updated.profile } : null);
     } catch (err) {
@@ -1029,7 +1030,7 @@ export default function AgentDossierPage() {
                       
                       setSaving(true);
                       try {
-                        const res = await fetch(`/api/admin/agents/${dossier.id}`, {
+                        const res = await adminFetch(`/api/admin/agents/${dossier.id}`, {
                           method: "DELETE",
                         });
                         if (res.ok) {
@@ -1335,7 +1336,7 @@ function SessionPlayback({ agentId, sessionId, onClose }: { agentId: string; ses
   const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/admin/agents/${agentId}`)
+    adminFetch(`/api/admin/agents/${agentId}`)
       .then(r => r.json())
       .then(data => {
         const session = data.gameSessions?.find((s: any) => s.id === sessionId);

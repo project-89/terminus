@@ -66,6 +66,27 @@ export type LayerContext = {
     minutesPlayed?: number;
     signalUnstable?: boolean;
   };
+  campaign?: {
+    pendingObjective?: {
+      campaignId: string;
+      campaignName: string;
+      campaignCodename?: string;
+      objectiveId: string;
+      title: string;
+      briefing: string;
+      type: string;
+      pieceId?: string;
+      customData?: Record<string, any>;
+      hiddenFromAgent: boolean;
+    };
+    revelations?: Array<{
+      objectiveId: string;
+      title: string;
+      revealedAt: string;
+      hiddenContext?: string;
+      pieces?: Array<{ pieceId: string; context: string }>;
+    }>;
+  };
 };
 
 export function calculateLayer(trust: number): AgentLayer {
@@ -190,7 +211,84 @@ ${engineContext}
     basePrompt += "\n\n" + identityBlock;
   }
 
+  // Inject campaign context if present (Layer 2+)
+  if (layer >= 2 && ctx.campaign) {
+    const campaignBlock = buildCampaignBlock(ctx.campaign);
+    if (campaignBlock) {
+      basePrompt += "\n\n" + campaignBlock;
+    }
+  }
+
   return soulDirective + "\n\n" + basePrompt;
+}
+
+function buildCampaignBlock(campaign: LayerContext["campaign"]): string {
+  if (!campaign) return "";
+
+  const parts: string[] = [];
+
+  // Handle pending objective
+  if (campaign.pendingObjective) {
+    const obj = campaign.pendingObjective;
+
+    parts.push(`[CAMPAIGN OBJECTIVE - NARRATIVE INTEGRATION]`);
+
+    if (!obj.hiddenFromAgent) {
+      parts.push(`Campaign: ${obj.campaignName}${obj.campaignCodename ? ` (${obj.campaignCodename})` : ""}`);
+    }
+
+    parts.push(`Objective: ${obj.title}`);
+    parts.push(`Type: ${obj.type}`);
+
+    if (obj.pieceId) {
+      parts.push(`Agent's piece: "${obj.pieceId}"`);
+      parts.push(`This agent holds one fragment of a larger puzzle. They don't know the other pieces exist.`);
+    }
+
+    parts.push(`\nBriefing to deliver through narrative:\n${obj.briefing}`);
+
+    parts.push(`\nDELIVERY DIRECTIVE:
+- Weave this objective into the narrative naturally
+- For ${obj.type === "COLLABORATIVE" ? "COLLABORATIVE" : obj.type} objectives:
+  ${obj.type === "COLLABORATIVE"
+    ? "- The agent works toward a shared goal without knowing other contributors\n  - Their piece will combine with others to reveal a larger truth\n  - Build mystery around what they're contributing to"
+    : obj.type === "COMPETITIVE"
+    ? "- Frame as a challenge or race\n  - Other agents are working toward the same goal\n  - Speed and quality matter"
+    : obj.type === "SEQUENTIAL"
+    ? "- Their work feeds into the next agent's task\n  - Quality of their contribution affects what comes next\n  - They're a link in a chain"
+    : "- Standard solo objective\n  - Guide them toward completion"}
+- Reveal through: transmissions, anonymous requests, environmental discoveries, NPC encounters
+- The agent should feel part of something larger without seeing the whole picture
+- When they complete work, prompt for !submit or natural evidence sharing`);
+  }
+
+  // Handle recent revelations
+  if (campaign.revelations && campaign.revelations.length > 0) {
+    const recentRevelation = campaign.revelations[campaign.revelations.length - 1];
+
+    parts.push(`\n[RECENT REVELATION - WEAVE INTO NARRATIVE]`);
+    parts.push(`Title: ${recentRevelation.title}`);
+
+    if (recentRevelation.hiddenContext) {
+      parts.push(`The unified truth revealed: ${recentRevelation.hiddenContext}`);
+    }
+
+    if (recentRevelation.pieces && recentRevelation.pieces.length > 0) {
+      parts.push(`Assembled pieces:`);
+      for (const piece of recentRevelation.pieces) {
+        parts.push(`  - ${piece.pieceId}: ${piece.context}`);
+      }
+    }
+
+    parts.push(`\nREVELATION DIRECTIVE:
+- This agent now has access to collective knowledge
+- Reference how their contribution connected to others
+- "Your piece... it fit with others. You see it now."
+- This moment should feel significant - a payoff for collaboration
+- Other agents who contributed are part of this too (hint at the network)`);
+  }
+
+  return parts.join("\n");
 }
 
 function buildIdentityBlock(ctx: LayerContext): string {

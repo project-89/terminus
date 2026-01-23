@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
 import { validateAdminAuth } from "@/app/lib/server/adminAuth";
+import { LAYER_THRESHOLDS, LAYER_NAMES, TrustLayer } from "@/app/lib/server/trustService";
 
 export const dynamic = "force-dynamic";
 
@@ -106,7 +107,10 @@ export async function GET(request: Request) {
           .filter((m: any) => typeof m.score === "number")
           .reduce((acc: number, m: any, _: number, arr: any[]) => acc + m.score / arr.length, 0);
 
-        const trustScore = computeTrustScore(agent, avgScore);
+        // Use canonical trust data from profile (maintained by trustService)
+        // Fall back to computed values if profile doesn't have trust data
+        const canonicalTrustScore = agent.profile?.trustScore ?? 0;
+        const canonicalLayer = (agent.profile?.layer ?? 0) as TrustLayer;
 
         return {
           id: agent.id,
@@ -133,7 +137,7 @@ export async function GET(request: Request) {
           fieldMissions: {
             total: agent._count.fieldMissions,
             completed: completedFieldMissions,
-            active: agent.fieldMissions.find((m: any) => 
+            active: agent.fieldMissions.find((m: any) =>
               ["ACCEPTED", "IN_PROGRESS", "EVIDENCE_SUBMITTED"].includes(m.status)
             ),
           },
@@ -175,12 +179,16 @@ export async function GET(request: Request) {
                 traits: agent.profile.traits,
                 skills: agent.profile.skills,
                 preferences: agent.profile.preferences,
+                lastActiveAt: agent.profile.lastActiveAt,
+                pendingCeremony: agent.profile.pendingCeremony,
               }
             : null,
 
           location: agent.profile?.location as { lat: number; lng: number } | null,
-          trustScore,
-          layer: calculateLayer(trustScore),
+          trustScore: canonicalTrustScore,
+          layer: canonicalLayer,
+          layerName: LAYER_NAMES[canonicalLayer],
+          layerThresholds: LAYER_THRESHOLDS,
           
           gameSessions: gameSessions.slice(0, 10).map((s: any) => ({
             id: s.id,
@@ -207,24 +215,5 @@ export async function GET(request: Request) {
   }
 }
 
-function computeTrustScore(agent: any, avgMissionScore: number): number {
-  const sessionCount = agent.gameSessions?.length || 0;
-  const experimentCount = agent._count?.experiments || 0;
-  const fieldMissionCompleted = agent.fieldMissions?.filter((m: any) => m.status === "COMPLETED").length || 0;
-
-  const sessionFactor = Math.min(sessionCount / 10, 1) * 0.2;
-  const missionFactor = avgMissionScore * 0.3;
-  const experimentFactor = Math.min(experimentCount / 5, 1) * 0.2;
-  const fieldFactor = Math.min(fieldMissionCompleted / 3, 1) * 0.3;
-
-  return Math.min(1, sessionFactor + missionFactor + experimentFactor + fieldFactor);
-}
-
-function calculateLayer(trust: number): number {
-  if (trust < 0.2) return 0;
-  if (trust < 0.4) return 1;
-  if (trust < 0.6) return 2;
-  if (trust < 0.8) return 3;
-  if (trust < 0.95) return 4;
-  return 5;
-}
+// Trust score and layer are now sourced directly from profile (maintained by trustService)
+// See: app/lib/server/trustService.ts for LAYER_THRESHOLDS and evolveTrust

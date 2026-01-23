@@ -42,7 +42,7 @@ model User {
     
     puzzleChains   PuzzleChain[]
     puzzleSolves   PuzzleSolve[]
-    
+
     // Referral system
     referralCode   String?         @unique
     referredBy     User?           @relation("Referrals", fields: [referredById], references: [id])
@@ -51,6 +51,10 @@ model User {
     artifacts      Artifact[]
     artifactScans  ArtifactScan[]
     referralPoints Int             @default(0)
+
+    // Campaign system
+    campaignParticipations CampaignParticipation[]
+    objectiveContributions ObjectiveContribution[]
 }
 
 model Session {
@@ -908,5 +912,155 @@ model ConversationOutcome {
     @@index([messageType])
     @@index([playerLayer])
     @@index([engagement])
+}
+
+// ============================================
+// CAMPAIGN ORCHESTRATION SYSTEM
+// ============================================
+
+enum CampaignStatus {
+    DRAFT
+    ACTIVE
+    PAUSED
+    COMPLETED
+    FAILED
+    ARCHIVED
+}
+
+enum ObjectiveType {
+    INDEPENDENT      // Single agent completes alone
+    COLLABORATIVE    // Multiple agents contribute to shared goal
+    COMPETITIVE      // Multiple agents compete
+    SEQUENTIAL       // Chain of handoffs between agents
+}
+
+model Campaign {
+    id              String            @id @default(cuid())
+    createdAt       DateTime          @default(now())
+    updatedAt       DateTime          @updatedAt
+    name            String
+    codename        String?
+    description     String            @db.Text
+    narrative       String?           @db.Text
+    status          CampaignStatus    @default(DRAFT)
+    startedAt       DateTime?
+    completedAt     DateTime?
+    deadline        DateTime?
+    minTrust        Float             @default(0.0)
+    maxAgents       Int?
+    autoAssign      Boolean           @default(false)
+    triggers        Json?             // { agentCount, trustThreshold, schedule }
+    tags            String[]          @default([])
+    metadata        Json?
+
+    phases          CampaignPhase[]
+    participations  CampaignParticipation[]
+    events          CampaignEvent[]
+
+    @@index([status])
+    @@index([minTrust])
+}
+
+model CampaignPhase {
+    id              String            @id @default(cuid())
+    campaignId      String
+    campaign        Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+    order           Int
+    name            String
+    description     String            @db.Text
+    narrative       String?           @db.Text
+    status          String            @default("LOCKED")  // LOCKED, AVAILABLE, ACTIVE, COMPLETED
+    prerequisites   String[]          @default([])        // Phase IDs that must be completed first
+    requireAll      Boolean           @default(true)      // Require all prerequisites or just one
+
+    objectives      Objective[]
+
+    @@index([campaignId])
+    @@index([status])
+}
+
+model Objective {
+    id                  String              @id @default(cuid())
+    createdAt           DateTime            @default(now())
+    updatedAt           DateTime            @updatedAt
+    phaseId             String
+    phase               CampaignPhase       @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+    title               String
+    description         String              @db.Text
+    briefing            String              @db.Text      // What agents see by default
+    hiddenContext       String?             @db.Text      // What only LOGOS knows
+    type                ObjectiveType       @default(INDEPENDENT)
+    targetContributions Int                 @default(1)   // For collaborative objectives
+    status              String              @default("LOCKED")  // LOCKED, AVAILABLE, ACTIVE, COMPLETED
+    dependsOn           String[]            @default([])  // Objective IDs that must be completed first
+    assignedAgents      String[]            @default([])  // User IDs assigned to this objective
+    eligibleTags        String[]            @default([])  // Agent tags that make them eligible
+    minTrust            Float?              // Minimum trust score required
+    agentViews          Json?               // { agentId: { briefing, pieceId, customData } }
+    points              Int                 @default(100)
+
+    contributions       ObjectiveContribution[]
+
+    @@index([phaseId])
+    @@index([status])
+    @@index([type])
+}
+
+model ObjectiveContribution {
+    id              String            @id @default(cuid())
+    createdAt       DateTime          @default(now())
+    updatedAt       DateTime          @updatedAt
+    objectiveId     String
+    objective       Objective         @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+    userId          String
+    user            User              @relation(fields: [userId], references: [id])
+    content         String            @db.Text
+    evidence        Json?             // { type, url, description }
+    status          String            @default("submitted")  // submitted, accepted, rejected, integrated
+    score           Float?
+    feedback        String?
+    pieceId         String?           // For puzzle mechanics - identifier for this agent's piece
+    pieceContext    String?           // Context revealed after contribution is integrated
+    pointsAwarded   Int               @default(0)
+
+    @@unique([objectiveId, userId])
+    @@index([objectiveId])
+    @@index([userId])
+    @@index([status])
+}
+
+model CampaignParticipation {
+    id              String            @id @default(cuid())
+    createdAt       DateTime          @default(now())
+    updatedAt       DateTime          @updatedAt
+    campaignId      String
+    campaign        Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+    userId          String
+    user            User              @relation(fields: [userId], references: [id])
+    role            String            @default("agent")  // agent, lead, observer
+    status          String            @default("active") // active, withdrawn, completed
+    knownInfo       Json?             // What this agent has discovered
+    lastBriefingAt  DateTime?
+
+    @@unique([campaignId, userId])
+    @@index([campaignId])
+    @@index([userId])
+}
+
+model CampaignEvent {
+    id              String            @id @default(cuid())
+    createdAt       DateTime          @default(now())
+    campaignId      String
+    campaign        Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+    type            String            // phase_started, objective_completed, contribution_submitted, revelation, agent_joined, etc.
+    actorId         String?           // User ID who triggered this event
+    objectiveId     String?           // Related objective if applicable
+    phaseId         String?           // Related phase if applicable
+    data            Json?             // Event-specific data
+    narrative       String?           // Narrative description for logs/history
+
+    @@index([campaignId])
+    @@index([type])
+    @@index([createdAt])
 }
 

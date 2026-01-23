@@ -15,6 +15,23 @@ const Globe = dynamic(() => import("./components/Globe"), {
 });
 
 const ADMIN_AUTH_KEY = "p89_admin_auth";
+const ADMIN_SECRET_KEY = "p89_admin_secret";
+
+// Helper to get stored admin secret for API calls
+export function getAdminSecret(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(ADMIN_SECRET_KEY);
+}
+
+// Helper for authenticated admin fetch
+export async function adminFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const secret = getAdminSecret();
+  const headers = new Headers(options.headers);
+  if (secret) {
+    headers.set("x-admin-secret", secret);
+  }
+  return fetch(url, { ...options, headers });
+}
 
 function AccessGate({ onAuthenticated }: { onAuthenticated: () => void }) {
   const router = useRouter();
@@ -38,6 +55,10 @@ function AccessGate({ onAuthenticated }: { onAuthenticated: () => void }) {
       
       if (data.success) {
         localStorage.setItem(ADMIN_AUTH_KEY, btoa(code + ":" + Date.now()));
+        // Store the secret for API calls (returned from auth endpoint)
+        if (data.secret) {
+          localStorage.setItem(ADMIN_SECRET_KEY, data.secret);
+        }
         onAuthenticated();
       } else {
         setError("ACCESS DENIED - REDIRECTING TO TERMINAL...");
@@ -103,7 +124,7 @@ function AccessGate({ onAuthenticated }: { onAuthenticated: () => void }) {
   );
 }
 
-type Tab = "overview" | "agents" | "missions" | "fieldops" | "experiments" | "dreams" | "knowledge" | "artifacts" | "rewards" | "sessions";
+type Tab = "overview" | "agents" | "missions" | "fieldops" | "campaigns" | "experiments" | "dreams" | "knowledge" | "artifacts" | "rewards" | "sessions";
 
 type Agent = {
   id: string;
@@ -155,6 +176,7 @@ export default function DashboardPage() {
   const [knowledge, setKnowledge] = useState<{ nodes: any[]; edges: any[]; stats: any }>({ nodes: [], edges: [], stats: null });
   const [artifacts, setArtifacts] = useState<{ artifacts: any[]; zoneStats: any[]; recentScans: any[]; topDeployers: any[]; stats: any }>({ artifacts: [], zoneStats: [], recentScans: [], topDeployers: [], stats: null });
   const [rewards, setRewards] = useState<{ configs: any[]; stats: any; topEarners: any[] }>({ configs: [], stats: null, topEarners: [] });
+  const [campaigns, setCampaigns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [time, setTime] = useState(new Date());
   const [uptime, setUptime] = useState(0);
@@ -188,10 +210,17 @@ export default function DashboardPage() {
     if (!authenticated) return;
     const safeFetch = async (url: string) => {
       try {
-        const r = await fetch(url);
-        if (!r.ok) return null;
+        const r = await adminFetch(url);
+        if (!r.ok) {
+          const errorData = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+          console.error(`[Admin Dashboard] ${url} failed:`, errorData.error || r.status);
+          return { _error: errorData.error || `HTTP ${r.status}` };
+        }
         return await r.json();
-      } catch { return null; }
+      } catch (e) {
+        console.error(`[Admin Dashboard] ${url} fetch failed:`, e);
+        return { _error: "Network error" };
+      }
     };
     Promise.all([
       safeFetch("/api/admin/stats"),
@@ -203,16 +232,29 @@ export default function DashboardPage() {
       safeFetch("/api/admin/knowledge"),
       safeFetch("/api/admin/artifacts"),
       safeFetch("/api/admin/rewards"),
-    ]).then(([statsData, agentsData, missionsData, fieldOpsData, experimentsData, dreamsData, knowledgeData, artifactsData, rewardsData]) => {
-      if (statsData && !statsData.error) setStats(statsData);
+      safeFetch("/api/admin/campaigns"),
+    ]).then(([statsData, agentsData, missionsData, fieldOpsData, experimentsData, dreamsData, knowledgeData, artifactsData, rewardsData, campaignsData]) => {
+      // Check for auth errors - if any critical endpoint failed with auth error, show it
+      const authError = [statsData, agentsData].find(d => d?._error?.includes("Unauthorized") || d?._error?.includes("not configured"));
+      if (authError) {
+        console.error("[Admin Dashboard] Auth error detected, clearing session");
+        localStorage.removeItem(ADMIN_AUTH_KEY);
+        localStorage.removeItem(ADMIN_SECRET_KEY);
+        setAuthenticated(false);
+        setLoading(false);
+        return;
+      }
+
+      if (statsData && !statsData.error && !statsData._error) setStats(statsData);
       setAgents(agentsData?.agents || []);
       setMissions(missionsData?.missions || []);
       setFieldMissions(fieldOpsData?.fieldMissions || []);
       setExperiments(experimentsData?.experiments || []);
       setDreams(dreamsData?.dreams || []);
-      if (knowledgeData) setKnowledge(knowledgeData);
-      if (artifactsData) setArtifacts(artifactsData);
-      if (rewardsData) setRewards(rewardsData);
+      if (knowledgeData && !knowledgeData._error) setKnowledge(knowledgeData);
+      if (artifactsData && !artifactsData._error) setArtifacts(artifactsData);
+      if (rewardsData && !rewardsData._error) setRewards(rewardsData);
+      setCampaigns(campaignsData?.campaigns || []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [authenticated]);
@@ -272,6 +314,7 @@ export default function DashboardPage() {
               {activeTab === "artifacts" && <ArtifactsPanel data={artifacts} />}
               {activeTab === "rewards" && <RewardsPanel data={rewards} setData={setRewards} />}
               {activeTab === "sessions" && <SessionsPanel agents={agents} />}
+              {activeTab === "campaigns" && <CampaignsPanel campaigns={campaigns} setCampaigns={setCampaigns} />}
             </div>
           </>
         )}
@@ -284,7 +327,7 @@ export default function DashboardPage() {
 }
 
 function Header({ time, activeTab, setActiveTab }: { time: Date; activeTab: Tab; setActiveTab: (t: Tab) => void }) {
-  const tabs: Tab[] = ["overview", "agents", "missions", "fieldops", "experiments", "dreams", "knowledge", "artifacts", "rewards", "sessions"];
+  const tabs: Tab[] = ["overview", "agents", "missions", "fieldops", "campaigns", "experiments", "dreams", "knowledge", "artifacts", "rewards", "sessions"];
   return (
     <header className="border-b border-cyan-900/50 px-6 py-3 flex justify-between items-center">
       <div className="flex items-center gap-8">
@@ -308,7 +351,7 @@ function Header({ time, activeTab, setActiveTab }: { time: Date; activeTab: Tab;
 
 function OverviewLayout({ stats, agents, time, uptime, activeTab, setActiveTab }: any) {
   const router = useRouter();
-  const tabs: Tab[] = ["overview", "agents", "missions", "fieldops", "experiments", "dreams", "knowledge", "artifacts", "rewards", "sessions"];
+  const tabs: Tab[] = ["overview", "agents", "missions", "fieldops", "campaigns", "experiments", "dreams", "knowledge", "artifacts", "rewards", "sessions"];
   const goToDossier = (id: string) => router.push(`/dashboard/agent/${id}`);
   
   return (
@@ -507,7 +550,7 @@ function ActivityFeed() {
   useEffect(() => {
     const fetchActivity = async () => {
       try {
-        const res = await fetch("/api/admin/activity?limit=30");
+        const res = await adminFetch("/api/admin/activity?limit=30");
         const data = await res.json();
         setEvents(data.events || []);
       } catch (err) {
@@ -684,7 +727,7 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
       minEvidence: form.minEvidence,
       tags: form.tags.split(",").map(t => t.trim()).filter(Boolean),
     };
-    const res = await fetch("/api/admin/missions", {
+    const res = await adminFetch("/api/admin/missions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -701,7 +744,7 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
   };
 
   const handleToggle = async (id: string) => {
-    const res = await fetch("/api/admin/missions", {
+    const res = await adminFetch("/api/admin/missions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "toggle", id }),
@@ -714,7 +757,7 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this mission directive?")) return;
-    const res = await fetch("/api/admin/missions", {
+    const res = await adminFetch("/api/admin/missions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "delete", id }),
@@ -974,26 +1017,32 @@ function FieldOpsPanel({ fieldMissions, setFieldMissions }: { fieldMissions: any
 
   const STATUS_COLORS: Record<string, string> = {
     ASSIGNED: "border-cyan-600 text-cyan-400",
+    ACCEPTED: "border-blue-600 text-blue-400",
     IN_PROGRESS: "border-yellow-600 text-yellow-400",
-    PENDING_REVIEW: "border-purple-600 text-purple-400 animate-pulse",
+    EVIDENCE_SUBMITTED: "border-purple-600 text-purple-400 animate-pulse",
+    UNDER_REVIEW: "border-orange-600 text-orange-400 animate-pulse",
     COMPLETED: "border-green-600 text-green-400",
     FAILED: "border-red-600 text-red-400",
     EXPIRED: "border-gray-600 text-gray-400",
   };
 
-  const filtered = fieldMissions.filter(m => 
-    filter === "all" ? true : 
-    filter === "review" ? m.status === "PENDING_REVIEW" :
+  // Statuses that count as "pending review" for admin attention
+  const isReviewStatus = (status: string) =>
+    status === "EVIDENCE_SUBMITTED" || status === "UNDER_REVIEW";
+
+  const filtered = fieldMissions.filter(m =>
+    filter === "all" ? true :
+    filter === "review" ? isReviewStatus(m.status) :
     m.status === filter
   );
 
-  const pendingCount = fieldMissions.filter(m => m.status === "PENDING_REVIEW").length;
+  const pendingCount = fieldMissions.filter(m => isReviewStatus(m.status)).length;
 
   const handleEvaluate = async () => {
     if (!selected) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/admin/fieldops", {
+      const res = await adminFetch("/api/admin/fieldops", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1179,7 +1228,7 @@ function FieldOpsPanel({ fieldMissions, setFieldMissions }: { fieldMissions: any
               </div>
             )}
 
-            {selected.status === "PENDING_REVIEW" && (
+            {isReviewStatus(selected.status) && (
               <div className="border-2 border-purple-600 p-4 bg-purple-950/20">
                 <div className="text-purple-400 text-sm tracking-widest mb-3">EVALUATE SUBMISSION</div>
                 <textarea
@@ -1894,7 +1943,7 @@ function ArtifactsPanel({ data }: { data: { artifacts: any[]; zoneStats: any[]; 
   });
 
   const handleVerify = async (artifactId: string, verified: boolean) => {
-    await fetch("/api/admin/artifacts", {
+    await adminFetch("/api/admin/artifacts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "verify", artifactId, verified }),
@@ -1904,7 +1953,7 @@ function ArtifactsPanel({ data }: { data: { artifacts: any[]; zoneStats: any[]; 
 
   const handleDeactivate = async (artifactId: string) => {
     if (!confirm("Deactivate this artifact?")) return;
-    await fetch("/api/admin/artifacts", {
+    await adminFetch("/api/admin/artifacts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "deactivate", artifactId }),
@@ -2147,34 +2196,34 @@ function RewardsPanel({ data, setData }: { data: { configs: any[]; stats: any; t
 
   const handleSave = async () => {
     if (!editing) return;
-    await fetch("/api/admin/rewards", {
+    await adminFetch("/api/admin/rewards", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "update", taskType: editing, updates: editValues }),
     });
-    const res = await fetch("/api/admin/rewards");
+    const res = await adminFetch("/api/admin/rewards");
     setData(await res.json());
     setEditing(null);
   };
 
   const handleToggle = async (taskType: string) => {
-    await fetch("/api/admin/rewards", {
+    await adminFetch("/api/admin/rewards", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "toggle", taskType }),
     });
-    const res = await fetch("/api/admin/rewards");
+    const res = await adminFetch("/api/admin/rewards");
     setData(await res.json());
   };
 
   const handleReset = async () => {
     if (!confirm("Reset all rewards to defaults?")) return;
-    await fetch("/api/admin/rewards", {
+    await adminFetch("/api/admin/rewards", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "reset" }),
     });
-    const res = await fetch("/api/admin/rewards");
+    const res = await adminFetch("/api/admin/rewards");
     setData(await res.json());
   };
 
@@ -2340,7 +2389,7 @@ function SessionsPanel({ agents }: { agents: Agent[] }) {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const loadSession = async (agentId: string, sessionId: string) => {
-    const res = await fetch(`/api/admin/agents/${agentId}`);
+    const res = await adminFetch(`/api/admin/agents/${agentId}`);
     const agent = await res.json();
     setData(agent.gameSessions?.find((s: any) => s.id === sessionId));
     setSelected(sessionId);
@@ -2373,6 +2422,441 @@ function SessionsPanel({ agents }: { agents: Agent[] }) {
           </div>
         ) : (
           <div className="h-full flex items-center justify-center text-cyan-700 text-xl">SELECT A SESSION TO VIEW TRANSCRIPT</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CampaignsPanel({ campaigns, setCampaigns }: { campaigns: any[]; setCampaigns: (c: any[]) => void }) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
+  const [filter, setFilter] = useState<"all" | "active" | "draft" | "completed">("all");
+  const [form, setForm] = useState({
+    name: "",
+    codename: "",
+    description: "",
+    narrative: "",
+    minTrust: 0,
+    maxAgents: 0,
+    autoAssign: false,
+  });
+  const [loading, setLoading] = useState(false);
+
+  const resetForm = () => {
+    setForm({
+      name: "",
+      codename: "",
+      description: "",
+      narrative: "",
+      minTrust: 0,
+      maxAgents: 0,
+      autoAssign: false,
+    });
+    setShowCreate(false);
+  };
+
+  const handleCreate = async () => {
+    setLoading(true);
+    const res = await adminFetch("/api/admin/campaigns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    if (res.ok) {
+      const created = await res.json();
+      setCampaigns([created, ...campaigns]);
+      resetForm();
+    }
+    setLoading(false);
+  };
+
+  const handleActivate = async (id: string, action: "activate" | "pause" | "complete") => {
+    const res = await adminFetch(`/api/admin/campaigns/${id}/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setCampaigns(campaigns.map(c => c.id === id ? updated : c));
+      if (selectedCampaign?.id === id) {
+        setSelectedCampaign(updated);
+      }
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this campaign? This cannot be undone.")) return;
+    const res = await adminFetch(`/api/admin/campaigns/${id}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      setCampaigns(campaigns.filter(c => c.id !== id));
+      if (selectedCampaign?.id === id) setSelectedCampaign(null);
+    }
+  };
+
+  const loadCampaignDetail = async (id: string) => {
+    const res = await adminFetch(`/api/admin/campaigns/${id}`);
+    if (res.ok) {
+      const data = await res.json();
+      setSelectedCampaign(data);
+    }
+  };
+
+  const filtered = campaigns.filter(c => {
+    if (filter === "all") return true;
+    if (filter === "active") return c.status === "ACTIVE";
+    if (filter === "draft") return c.status === "DRAFT";
+    if (filter === "completed") return c.status === "COMPLETED";
+    return true;
+  });
+
+  const statusColor = (status: string) => {
+    switch (status) {
+      case "ACTIVE": return "text-green-400 bg-green-900/30 border-green-600";
+      case "DRAFT": return "text-yellow-400 bg-yellow-900/30 border-yellow-600";
+      case "COMPLETED": return "text-cyan-400 bg-cyan-900/30 border-cyan-600";
+      case "PAUSED": return "text-orange-400 bg-orange-900/30 border-orange-600";
+      case "FAILED": return "text-red-400 bg-red-900/30 border-red-600";
+      case "ARCHIVED": return "text-gray-400 bg-gray-900/30 border-gray-600";
+      default: return "text-cyan-700 bg-cyan-900/30 border-cyan-800";
+    }
+  };
+
+  const objectiveTypeColor = (type: string) => {
+    switch (type) {
+      case "COLLABORATIVE": return "text-purple-400";
+      case "COMPETITIVE": return "text-red-400";
+      case "SEQUENTIAL": return "text-orange-400";
+      default: return "text-cyan-400";
+    }
+  };
+
+  return (
+    <div className="flex-1 flex overflow-hidden">
+      {/* Campaign List */}
+      <div className="w-1/3 border-r-2 border-cyan-900 flex flex-col">
+        <div className="p-4 border-b-2 border-cyan-900">
+          <div className="flex justify-between items-center mb-3">
+            <div className="text-cyan-400 text-xl tracking-widest">CAMPAIGNS</div>
+            <button
+              onClick={() => setShowCreate(!showCreate)}
+              className="px-3 py-1 text-sm tracking-widest bg-cyan-900/50 border border-cyan-600 text-cyan-400 hover:bg-cyan-800/50"
+            >
+              {showCreate ? "CANCEL" : "+ NEW"}
+            </button>
+          </div>
+          <div className="flex gap-1 mb-3">
+            {(["all", "active", "draft", "completed"] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3 py-1 text-xs tracking-widest ${filter === f ? "bg-cyan-500/30 text-cyan-300 border border-cyan-500" : "text-cyan-700 border border-cyan-900 hover:border-cyan-700"}`}
+              >
+                {f.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <div className="text-cyan-600 text-xs">
+            {filtered.length} CAMPAIGN{filtered.length !== 1 ? "S" : ""} | {campaigns.filter(c => c.status === "ACTIVE").length} ACTIVE
+          </div>
+        </div>
+
+        {showCreate && (
+          <div className="p-4 border-b-2 border-cyan-900 bg-cyan-950/30">
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="Campaign Name"
+                value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+                className="w-full bg-black border border-cyan-800 p-2 text-cyan-300 text-sm focus:border-cyan-500 focus:outline-none"
+              />
+              <input
+                type="text"
+                placeholder="Codename (optional)"
+                value={form.codename}
+                onChange={e => setForm({ ...form, codename: e.target.value })}
+                className="w-full bg-black border border-cyan-800 p-2 text-cyan-300 text-sm focus:border-cyan-500 focus:outline-none"
+              />
+              <textarea
+                placeholder="Description"
+                value={form.description}
+                onChange={e => setForm({ ...form, description: e.target.value })}
+                rows={2}
+                className="w-full bg-black border border-cyan-800 p-2 text-cyan-300 text-sm focus:border-cyan-500 focus:outline-none resize-none"
+              />
+              <textarea
+                placeholder="Narrative (shown to agents)"
+                value={form.narrative}
+                onChange={e => setForm({ ...form, narrative: e.target.value })}
+                rows={2}
+                className="w-full bg-black border border-cyan-800 p-2 text-cyan-300 text-sm focus:border-cyan-500 focus:outline-none resize-none"
+              />
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-cyan-600 text-xs mb-1">MIN TRUST</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="1"
+                    value={form.minTrust}
+                    onChange={e => setForm({ ...form, minTrust: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-black border border-cyan-800 p-2 text-cyan-300 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-cyan-600 text-xs mb-1">MAX AGENTS</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.maxAgents}
+                    onChange={e => setForm({ ...form, maxAgents: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-black border border-cyan-800 p-2 text-cyan-300 text-sm focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-cyan-400 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.autoAssign}
+                  onChange={e => setForm({ ...form, autoAssign: e.target.checked })}
+                  className="accent-cyan-500"
+                />
+                Auto-assign eligible agents
+              </label>
+              <button
+                onClick={handleCreate}
+                disabled={!form.name || !form.description || loading}
+                className="w-full py-2 text-sm tracking-widest bg-cyan-800/50 border border-cyan-500 text-cyan-300 hover:bg-cyan-700/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? "CREATING..." : "CREATE CAMPAIGN"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto">
+          {filtered.map(campaign => (
+            <div
+              key={campaign.id}
+              onClick={() => loadCampaignDetail(campaign.id)}
+              className={`p-4 border-b border-cyan-900/50 cursor-pointer hover:bg-cyan-950/30 transition ${selectedCampaign?.id === campaign.id ? "bg-cyan-900/20 border-l-4 border-l-cyan-500" : ""}`}
+            >
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <div className="text-cyan-300 font-semibold">{campaign.name}</div>
+                  {campaign.codename && (
+                    <div className="text-cyan-600 text-xs tracking-widest">{campaign.codename}</div>
+                  )}
+                </div>
+                <span className={`px-2 py-1 text-xs tracking-widest border ${statusColor(campaign.status)}`}>
+                  {campaign.status}
+                </span>
+              </div>
+              <div className="text-cyan-500 text-sm line-clamp-2">{campaign.description}</div>
+              <div className="flex gap-4 mt-2 text-xs text-cyan-700">
+                <span>{campaign._count?.phases || 0} phases</span>
+                <span>{campaign._count?.participations || 0} agents</span>
+                {campaign.deadline && (
+                  <span>Due: {new Date(campaign.deadline).toLocaleDateString()}</span>
+                )}
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="p-8 text-center text-cyan-700">NO CAMPAIGNS FOUND</div>
+          )}
+        </div>
+      </div>
+
+      {/* Campaign Detail */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {selectedCampaign ? (
+          <>
+            <div className="p-4 border-b-2 border-cyan-900">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="text-cyan-300 text-2xl tracking-widest">{selectedCampaign.name}</div>
+                  {selectedCampaign.codename && (
+                    <div className="text-cyan-600 tracking-[0.3em]">{selectedCampaign.codename}</div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  {selectedCampaign.status === "DRAFT" && (
+                    <button
+                      onClick={() => handleActivate(selectedCampaign.id, "activate")}
+                      className="px-3 py-1 text-sm tracking-widest bg-green-900/50 border border-green-600 text-green-400 hover:bg-green-800/50"
+                    >
+                      ACTIVATE
+                    </button>
+                  )}
+                  {selectedCampaign.status === "ACTIVE" && (
+                    <>
+                      <button
+                        onClick={() => handleActivate(selectedCampaign.id, "pause")}
+                        className="px-3 py-1 text-sm tracking-widest bg-orange-900/50 border border-orange-600 text-orange-400 hover:bg-orange-800/50"
+                      >
+                        PAUSE
+                      </button>
+                      <button
+                        onClick={() => handleActivate(selectedCampaign.id, "complete")}
+                        className="px-3 py-1 text-sm tracking-widest bg-cyan-900/50 border border-cyan-600 text-cyan-400 hover:bg-cyan-800/50"
+                      >
+                        COMPLETE
+                      </button>
+                    </>
+                  )}
+                  {selectedCampaign.status === "PAUSED" && (
+                    <button
+                      onClick={() => handleActivate(selectedCampaign.id, "activate")}
+                      className="px-3 py-1 text-sm tracking-widest bg-green-900/50 border border-green-600 text-green-400 hover:bg-green-800/50"
+                    >
+                      RESUME
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDelete(selectedCampaign.id)}
+                    className="px-3 py-1 text-sm tracking-widest bg-red-900/50 border border-red-600 text-red-400 hover:bg-red-800/50"
+                  >
+                    DELETE
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 text-cyan-500">{selectedCampaign.description}</div>
+              {selectedCampaign.narrative && (
+                <div className="mt-2 p-3 bg-cyan-950/30 border-l-4 border-cyan-600 text-cyan-400 text-sm italic">
+                  {selectedCampaign.narrative}
+                </div>
+              )}
+              <div className="flex gap-6 mt-3 text-sm">
+                <div className="text-cyan-700">
+                  Min Trust: <span className="text-cyan-400">{selectedCampaign.minTrust || 0}</span>
+                </div>
+                <div className="text-cyan-700">
+                  Max Agents: <span className="text-cyan-400">{selectedCampaign.maxAgents || "∞"}</span>
+                </div>
+                <div className="text-cyan-700">
+                  Auto-assign: <span className="text-cyan-400">{selectedCampaign.autoAssign ? "YES" : "NO"}</span>
+                </div>
+                {selectedCampaign.deadline && (
+                  <div className="text-cyan-700">
+                    Deadline: <span className="text-cyan-400">{new Date(selectedCampaign.deadline).toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4">
+              {/* Phases & Objectives */}
+              <div className="mb-6">
+                <div className="text-cyan-400 tracking-widest mb-3">PHASES & OBJECTIVES</div>
+                {selectedCampaign.phases?.length > 0 ? (
+                  <div className="space-y-4">
+                    {selectedCampaign.phases.sort((a: any, b: any) => a.order - b.order).map((phase: any) => (
+                      <div key={phase.id} className="border border-cyan-800 bg-black/50">
+                        <div className="p-3 bg-cyan-950/30 border-b border-cyan-800 flex justify-between items-center">
+                          <div>
+                            <span className="text-cyan-400 tracking-widest">PHASE {phase.order}: {phase.name}</span>
+                            <span className={`ml-3 px-2 py-0.5 text-xs tracking-widest border ${statusColor(phase.status)}`}>
+                              {phase.status}
+                            </span>
+                          </div>
+                          <div className="text-cyan-600 text-xs">
+                            {phase.objectives?.length || 0} objectives
+                          </div>
+                        </div>
+                        {phase.description && (
+                          <div className="p-3 text-cyan-500 text-sm border-b border-cyan-900/50">
+                            {phase.description}
+                          </div>
+                        )}
+                        {phase.objectives?.length > 0 && (
+                          <div className="divide-y divide-cyan-900/50">
+                            {phase.objectives.map((obj: any) => (
+                              <div key={obj.id} className="p-3">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <div className="text-cyan-300">{obj.title}</div>
+                                    <div className="text-cyan-600 text-xs mt-1">
+                                      <span className={objectiveTypeColor(obj.type)}>{obj.type}</span>
+                                      {obj.targetContributions > 1 && (
+                                        <span className="ml-2">({obj.targetContributions} required)</span>
+                                      )}
+                                      <span className="ml-2">{obj.points} pts</span>
+                                    </div>
+                                  </div>
+                                  <span className={`px-2 py-0.5 text-xs tracking-widest border ${statusColor(obj.status)}`}>
+                                    {obj.status}
+                                  </span>
+                                </div>
+                                <div className="text-cyan-500 text-sm mt-2">{obj.briefing}</div>
+                                {obj._count?.contributions > 0 && (
+                                  <div className="mt-2 text-cyan-700 text-xs">
+                                    {obj._count.contributions} contribution{obj._count.contributions !== 1 ? "s" : ""}
+                                    {obj.type === "COLLABORATIVE" && ` / ${obj.targetContributions} needed`}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-cyan-700 text-center p-8 border border-cyan-900">
+                    No phases defined. Use LOGOS to add phases and objectives.
+                  </div>
+                )}
+              </div>
+
+              {/* Participants */}
+              {selectedCampaign.participations?.length > 0 && (
+                <div className="mb-6">
+                  <div className="text-cyan-400 tracking-widest mb-3">PARTICIPANTS ({selectedCampaign.participations.length})</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {selectedCampaign.participations.map((p: any) => (
+                      <div key={p.id} className="p-2 border border-cyan-900 bg-black/30 flex justify-between items-center">
+                        <div>
+                          <div className="text-cyan-300">{p.user?.handle || p.userId}</div>
+                          <div className="text-cyan-600 text-xs">{p.role}</div>
+                        </div>
+                        <span className={`px-2 py-0.5 text-xs border ${p.status === "active" ? "text-green-400 border-green-600" : "text-gray-400 border-gray-600"}`}>
+                          {p.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Events */}
+              {selectedCampaign.events?.length > 0 && (
+                <div>
+                  <div className="text-cyan-400 tracking-widest mb-3">RECENT EVENTS</div>
+                  <div className="space-y-2">
+                    {selectedCampaign.events.slice(0, 10).map((event: any) => (
+                      <div key={event.id} className="p-2 border-l-2 border-cyan-700 bg-black/30 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-cyan-400">{event.type.replace(/_/g, " ").toUpperCase()}</span>
+                          <span className="text-cyan-700">{new Date(event.createdAt).toLocaleString()}</span>
+                        </div>
+                        {event.narrative && <div className="text-cyan-500 mt-1">{event.narrative}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-cyan-700 text-xl">
+            SELECT A CAMPAIGN TO VIEW DETAILS
+          </div>
         )}
       </div>
     </div>

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import { getAdminSecret } from "../page";
 
 function getMessageContent(message: any): string {
   if (typeof message.content === "string") return message.content;
@@ -19,15 +20,24 @@ export function LogosPanel({ onClose }: { onClose?: () => void }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
+  // Create transport with admin auth headers
+  const transport = useMemo(() => {
+    const secret = getAdminSecret();
+    return new DefaultChatTransport({
+      api: "/api/admin/logos",
+      headers: secret ? { "x-admin-secret": secret } : undefined,
+    });
+  }, []);
+
   const welcomeMessage = {
     id: "welcome",
     role: "assistant" as const,
     parts: [{ type: "text" as const, text: "LOGOS COMMAND INTERFACE ACTIVE\n\nI have full visibility into the network. What would you like to analyze, Agent?" }],
   };
-  
+
   const { messages: chatMessages, sendMessage, status, error } = useChat({
-    transport: new DefaultChatTransport({ api: "/api/admin/logos" }),
+    transport,
   });
   
   const messages = chatMessages.length === 0 ? [welcomeMessage] : chatMessages;

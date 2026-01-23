@@ -55,20 +55,14 @@ export async function GET(request: NextRequest) {
       prisma.synchronicity.count(),
       prisma.knowledgeNode.count(),
       
+      // Use canonical layer field from PlayerProfile (maintained by trustService)
       prisma.$queryRaw`
-        SELECT 
-          CASE 
-            WHEN COALESCE((profile.traits->>'trustScore')::float, 0) < 0.2 THEN 0
-            WHEN COALESCE((profile.traits->>'trustScore')::float, 0) < 0.4 THEN 1
-            WHEN COALESCE((profile.traits->>'trustScore')::float, 0) < 0.6 THEN 2
-            WHEN COALESCE((profile.traits->>'trustScore')::float, 0) < 0.8 THEN 3
-            WHEN COALESCE((profile.traits->>'trustScore')::float, 0) < 0.95 THEN 4
-            ELSE 5
-          END as layer,
+        SELECT
+          COALESCE(profile."layer", 0) as layer,
           COUNT(*) as count
         FROM "User" u
         LEFT JOIN "PlayerProfile" profile ON u.id = profile."userId"
-        GROUP BY layer
+        GROUP BY COALESCE(profile."layer", 0)
         ORDER BY layer
       `.catch(() => [] as any[]),
 

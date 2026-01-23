@@ -24,6 +24,12 @@ import {
 } from "./difficultyService";
 import { getPuzzleRecommendations } from "./puzzleDifficultyService";
 import { checkIdentityStatus, getAgentIdentity } from "./identityService";
+import {
+  getAvailableObjectivesForAgent,
+  getAgentBriefing,
+  type ObjectiveWithPhase,
+  type AgentView,
+} from "./campaignService";
 
 export type DirectorPhase = "intro" | "probe" | "train" | "mission" | "report" | "reflection" | "reveal" | "network";
 
@@ -109,6 +115,27 @@ export type DirectorContext = {
     createdAt: string;
   }>;
   memory?: Array<{ type: string; content: string; tags?: string[] }>;
+  campaign?: {
+    pendingObjective?: {
+      campaignId: string;
+      campaignName: string;
+      campaignCodename?: string;
+      objectiveId: string;
+      title: string;
+      briefing: string;
+      type: string;
+      pieceId?: string;
+      customData?: Record<string, any>;
+      hiddenFromAgent: boolean; // Whether agent knows about campaign structure
+    };
+    revelations?: Array<{
+      objectiveId: string;
+      title: string;
+      revealedAt: string;
+      hiddenContext?: string;
+      pieces?: Array<{ pieceId: string; context: string }>;
+    }>;
+  };
 };
 
 async function getUserIdByHandle(handle?: string): Promise<string | null> {
@@ -393,6 +420,55 @@ export async function buildDirectorContext(input: {
     } catch {}
   }
 
+  // Fetch campaign context - pending objectives and revelations
+  let campaignContext: DirectorContext["campaign"] | undefined;
+  if (userId) {
+    try {
+      // Get available objectives for this agent
+      const availableObjectives = await getAvailableObjectivesForAgent(userId);
+
+      if (availableObjectives.length > 0) {
+        // Prioritize: pick the most urgent/relevant objective
+        // For now, just take the first one (future: consider deadlines, priorities)
+        const obj = availableObjectives[0];
+        const agentBriefing = getAgentBriefing(obj, userId);
+
+        campaignContext = {
+          pendingObjective: {
+            campaignId: obj.phase.campaign.id,
+            campaignName: obj.phase.campaign.name,
+            campaignCodename: obj.phase.campaign.codename ?? undefined,
+            objectiveId: obj.id,
+            title: obj.title,
+            briefing: agentBriefing.briefing,
+            type: obj.type,
+            pieceId: agentBriefing.pieceId,
+            customData: agentBriefing.customData,
+            hiddenFromAgent: true, // By default, agents don't know they're in a campaign
+          },
+        };
+      }
+
+      // Fetch any revelations this agent has access to
+      const participation = await prisma.campaignParticipation.findFirst({
+        where: { userId, status: "active" },
+        orderBy: { updatedAt: "desc" },
+      });
+
+      if (participation) {
+        const knownInfo = (participation.knownInfo as Record<string, any>) ?? {};
+        if (knownInfo.revelations && Array.isArray(knownInfo.revelations)) {
+          campaignContext = {
+            ...campaignContext,
+            revelations: knownInfo.revelations,
+          };
+        }
+      }
+    } catch {
+      // Campaign context is optional, don't fail if it errors
+    }
+  }
+
   return {
     player: {
       handle,
@@ -436,5 +512,6 @@ export async function buildDirectorContext(input: {
     },
     experiments,
     memory,
+    campaign: campaignContext,
   };
 }
