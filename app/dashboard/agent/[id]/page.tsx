@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { adminFetch } from "../../page";
+import { adminFetch } from "../../lib";
 
 const ADMIN_AUTH_KEY = "p89_admin_auth";
 

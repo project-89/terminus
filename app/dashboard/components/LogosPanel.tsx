@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { getAdminSecret } from "../page";
+import { getAdminSecret } from "../lib";
 
 function getMessageContent(message: any): string {
   if (typeof message.content === "string") return message.content;

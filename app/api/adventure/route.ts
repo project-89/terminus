@@ -23,6 +23,7 @@ import { createExperiment, appendExperimentNote, resolveExperiment, getActiveExp
 import { markCeremonyComplete, getLayerTools, type TrustLayer } from "@/app/lib/server/trustService";
 import { createAnonymousAgent, getAgentIdentity } from "@/app/lib/server/identityService";
 import { recordConversationOutcome, updateOutcomeMetrics, getInsightsForContext, getCollectiveDreamSymbols, getCollectiveSyncPatterns } from "@/app/lib/server/collectiveService";
+import { extractMemoryAsync } from "@/app/lib/server/memoryExtractionService";
 
 const ADVENTURE_PROMPT = loadIFCanon();
 
@@ -1571,12 +1572,21 @@ Create your experiment NOW. Focus on it. Resolve it. Then start the next.`;
         if (resolved.userId && resolved.sessionId) {
           const lastUser = validMessages[validMessages.length - 1];
           if (lastUser?.content) {
+            // Fire-and-forget: classify and extract real-world content
+            // This runs async and won't block the response
+            extractMemoryAsync({
+              userId: resolved.userId,
+              sessionId: resolved.sessionId,
+              message: lastUser.content,
+            });
+
+            // Also record raw message for full transcript
             await recordMemoryEvent({
               userId: resolved.userId,
               sessionId: resolved.sessionId,
               type: "OBSERVATION",
               content: lastUser.content,
-              tags: ["adventure", "user"],
+              tags: ["adventure", "user", "raw"],
             });
           }
           if (content) {
