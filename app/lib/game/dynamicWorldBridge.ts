@@ -5,13 +5,53 @@
  * Enables LOGOS to dynamically expand the game world.
  */
 
-import { Room, ObjectState, Puzzle, Exit, Direction } from "./worldModel";
+import {
+  Room,
+  ObjectState,
+  Puzzle,
+  PuzzleCondition,
+  PuzzleEffect,
+  Exit,
+  Direction,
+} from "./worldModel";
 import {
   WorldExtraction,
   ExtractedRoom,
   ExtractedObject,
   ExtractedPuzzle
 } from "./narrativeParser";
+
+type SupportedConditionType = PuzzleCondition["type"];
+type SupportedEffectType = PuzzleEffect["type"];
+
+const SUPPORTED_CONDITION_TYPES = new Set<SupportedConditionType>([
+  "object_state",
+  "object_location",
+  "flag",
+  "inventory",
+  "room",
+]);
+
+const SUPPORTED_EFFECT_TYPES = new Set<SupportedEffectType>([
+  "unlock_exit",
+  "reveal_object",
+  "set_flag",
+  "move_object",
+  "change_description",
+  "trigger_event",
+]);
+
+function isSupportedPuzzleCondition(
+  condition: NonNullable<ExtractedPuzzle["conditions"]>[number],
+): condition is PuzzleCondition {
+  return SUPPORTED_CONDITION_TYPES.has(condition.type as SupportedConditionType);
+}
+
+function isSupportedPuzzleEffect(
+  effect: NonNullable<ExtractedPuzzle["effects"]>[number],
+): effect is PuzzleEffect {
+  return SUPPORTED_EFFECT_TYPES.has(effect.type as SupportedEffectType);
+}
 
 /**
  * Convert a room name to a kebab-case ID
@@ -133,18 +173,20 @@ export function extractedPuzzleToPuzzle(
   extracted: ExtractedPuzzle
 ): Puzzle {
   const id = extracted.id ? nameToId(extracted.id) : nameToId(extracted.name);
+  const engineConditions = extracted.conditions?.filter(isSupportedPuzzleCondition) ?? [];
+  const engineEffects = extracted.effects?.filter(isSupportedPuzzleEffect) ?? [];
 
   return {
     id,
     name: extracted.name,
     solved: extracted.solved ?? false,
-    conditions: extracted.conditions && extracted.conditions.length > 0
-      ? extracted.conditions
+    conditions: engineConditions.length > 0
+      ? engineConditions
       : [
           { type: "flag", target: `puzzle-${id}-complete`, value: true },
         ],
-    onSolve: extracted.effects && extracted.effects.length > 0
-      ? extracted.effects
+    onSolve: engineEffects.length > 0
+      ? engineEffects
       : [
           { type: "set_flag", target: `puzzle-${id}-solved`, value: true },
         ],

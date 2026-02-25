@@ -111,5 +111,36 @@ describe("Admin Agent Missions Route", () => {
     });
     expect(activeRuns).toBe(1);
   });
-});
 
+  it("scopes ad-hoc admin-created mission definitions to the target agent", async () => {
+    const user = await createTestUser("admin-agent-missions-scoped");
+
+    const response = await POST(
+      createRequest("POST", `http://localhost/api/admin/agents/${user.id}/missions`, true, {
+        action: "assign",
+        title: `Scoped mission ${Date.now()}`,
+        briefing: "This mission should only be visible to one target agent.",
+        type: "observe",
+        priority: 4,
+        createMissionRun: true,
+      }),
+      { params: Promise.resolve({ id: user.id }) },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+
+    const definitionId = data?.mission?.definitionId;
+    expect(definitionId).toBeTruthy();
+
+    const definition = await testPrisma.missionDefinition.findUnique({
+      where: { id: definitionId },
+      select: { tags: true },
+    });
+
+    expect(Array.isArray(definition?.tags)).toBe(true);
+    expect(definition?.tags || []).toContain("scope:agent");
+    expect(definition?.tags || []).toContain(`target-user:${user.id}`);
+  });
+});

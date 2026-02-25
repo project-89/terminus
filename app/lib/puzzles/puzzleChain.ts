@@ -651,7 +651,7 @@ async function isChainSolvedByUser(chainId: string, userId: string): Promise<boo
     where: { chainId },
     select: { id: true },
   });
-  const puzzleIds = nodes.map((node) => node.id);
+  const puzzleIds = nodes.map((node: { id: string }) => node.id);
   if (puzzleIds.length === 0) return false;
 
   const solvedNodes = await prisma.puzzleSolve.count({

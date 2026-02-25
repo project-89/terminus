@@ -6,6 +6,7 @@ import prisma from "@/app/lib/prisma";
 import { getPlayerDifficulty } from "@/app/lib/server/difficultyService";
 import { acceptMission, getLatestOpenMissionRun } from "@/app/lib/server/missionService";
 import { ensureMissionDefinitionForReference, loadMissionTemplates } from "@/app/lib/server/missionTemplateService";
+import { withAgentTargetTags } from "@/app/lib/server/missionVisibility";
 import {
   getPlayerPuzzleProfile,
   getPuzzleRecommendations,
@@ -119,6 +120,7 @@ const draftMissionParams = z.object({
   difficulty: z.enum(["initiate", "agent", "operative"]).default("agent").describe("Mission difficulty tier"),
   points: z.number().default(100).describe("Point reward for completion"),
   tags: z.array(z.string()).optional().describe("Optional tags like 'tokyo', 'glitch', 'photography'"),
+  targetAgentIds: z.array(z.string()).optional().describe("Optional agent IDs/handles to scope template visibility to specific agents only"),
   active: z.boolean().default(true).describe("Whether template is active immediately"),
 });
 
@@ -1012,13 +1014,24 @@ async function analyzeAgent(params: z.infer<typeof analyzeAgentParams>) {
 }
 
 async function draftMission(params: z.infer<typeof draftMissionParams>) {
+  const resolvedTargets: string[] = [];
+  for (const agentRef of params.targetAgentIds || []) {
+    const resolved = await resolveAgentReference(agentRef);
+    if (resolved) resolvedTargets.push(resolved.id);
+  }
+
+  let tags = Array.isArray(params.tags) ? [...params.tags] : [];
+  for (const targetId of resolvedTargets) {
+    tags = withAgentTargetTags(tags, targetId);
+  }
+
   const mission = await prisma.missionDefinition.create({
     data: {
       title: params.title,
       type: params.type,
       prompt: params.briefing,
       minEvidence: params.minEvidence || 1,
-      tags: params.tags || [],
+      tags,
       active: params.active !== false,
     },
   });
@@ -1030,7 +1043,10 @@ async function draftMission(params: z.infer<typeof draftMissionParams>) {
     title: mission.title,
     minEvidence: mission.minEvidence,
     tags: mission.tags,
-    message: `Mission template "${mission.title}" created and ready for assignment.`,
+    message: resolvedTargets.length > 0
+      ? `Mission template "${mission.title}" created and scoped to ${resolvedTargets.length} agent(s).`
+      : `Mission template "${mission.title}" created and ready for assignment.`,
+    targetAgents: resolvedTargets,
   };
 }
 
@@ -1612,7 +1628,7 @@ function getLogosTools(): Record<string, any> {
       execute: listMissionTemplatesTool,
     },
     draft_mission: {
-      description: "Create a new mission template in the database. ALWAYS USE THIS TOOL when asked to draft/create mission templates.",
+      description: "Create a new mission template in the database. Supports optional targetAgentIds to scope visibility to specific agents only. ALWAYS USE THIS TOOL when asked to draft/create mission templates.",
       parameters: draftMissionParams,
       execute: draftMission,
     },

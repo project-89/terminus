@@ -3,6 +3,7 @@ import prisma from "@/app/lib/prisma";
 import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 import { ensureMissionDefinitionForReference, loadMissionTemplates } from "@/app/lib/server/missionTemplateService";
 import { acceptMission, getLatestOpenMissionRun } from "@/app/lib/server/missionService";
+import { isMissionVisibleToUser, withAgentTargetTags } from "@/app/lib/server/missionVisibility";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,10 @@ export async function GET(
       }),
     ]);
 
+    const templatesForAgent = availableTemplates.filter((template: any) =>
+      isMissionVisibleToUser(template.tags, id),
+    );
+
     return NextResponse.json({
       assignedMissions: profile?.assignedMissions || [],
       missionHistory: missionRuns.map((r: any) => ({
@@ -52,7 +57,7 @@ export async function GET(
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
       })),
-      availableTemplates,
+      availableTemplates: templatesForAgent,
     });
   } catch (error: any) {
     console.error("Admin agent missions error:", error);
@@ -80,13 +85,17 @@ export async function POST(
         // If createMissionRun is true, create a real MissionDefinition and MissionRun
         if (createMissionRun) {
           // Create or find mission definition
+          const scopedTags = withAgentTargetTags(
+            ["admin-assigned", `priority:${priority || 5}`],
+            id,
+          );
           const missionDef = await prisma.missionDefinition.create({
             data: {
               title,
               prompt: briefing,
               type: type || "decode",
               minEvidence: 1,
-              tags: ["admin-assigned", `priority:${priority || 5}`],
+              tags: scopedTags,
               active: true,
             },
           });

@@ -16,6 +16,7 @@ import { getMissionCatalog, MissionCatalogEntry } from "../missions/catalog";
 import { updateTrackDifficulty, getPlayerDifficulty, type DifficultyTrack } from "./difficultyService";
 import { getTrustState } from "./trustService";
 import { recordMissionBayesianOutcome } from "./bayes/orchestrator";
+import { isMissionVisibleToUser } from "./missionVisibility";
 
 // Shared mission type → difficulty track mapping
 const MISSION_TYPE_TO_TRACK: Record<string, DifficultyTrack> = {
@@ -57,6 +58,12 @@ export type MissionRunRecord = {
   status: "PENDING" | "ACCEPTED" | "SUBMITTED" | "REVIEWING" | "COMPLETED" | "FAILED";
   score?: number;
   feedback?: string;
+};
+
+type AdminMissionDefinition = {
+  id: string;
+  tags?: string[];
+  updatedAt?: Date;
 };
 
 const ReportEvaluationSchema = z.object({
@@ -290,8 +297,13 @@ export async function getNextMission(userId: string): Promise<MissionDefinitionR
       })).map((r: { missionId: string }) => r.missionId)
     );
 
-    const eligibleAdminDefinitions = dbMissions.filter((m: { id: string }) => !completedMissionIds.has(m.id));
-    const adminDefinitionById = new Map(eligibleAdminDefinitions.map((m: any) => [m.id, m]));
+    const eligibleAdminDefinitions = dbMissions.filter(
+      (m: AdminMissionDefinition) =>
+        !completedMissionIds.has(m.id) && isMissionVisibleToUser(m.tags, userId),
+    );
+    const adminDefinitionById = new Map<string, AdminMissionDefinition>(
+      eligibleAdminDefinitions.map((m: AdminMissionDefinition) => [m.id, m]),
+    );
 
     adminMissions = await Promise.all(eligibleAdminDefinitions.map((m: any) => mapDefinition(m)));
 
@@ -367,6 +379,20 @@ export async function acceptMission(params: {
 }): Promise<MissionRunRecord> {
   const { missionId, userId, sessionId } = params;
 
+  try {
+    const missionScope = await prisma.missionDefinition.findUnique({
+      where: { id: missionId },
+      select: { tags: true },
+    });
+    if (missionScope && !isMissionVisibleToUser(missionScope.tags, userId)) {
+      throw new Error("Mission not available for this agent.");
+    }
+  } catch (e: any) {
+    if (typeof e?.message === "string" && e.message.includes("Mission not available")) {
+      throw e;
+    }
+  }
+
   // Check for existing active mission - only one active mission allowed at a time
   const existingActive = await getLatestOpenMissionRun(userId);
   if (existingActive) {
@@ -396,6 +422,9 @@ export async function acceptMission(params: {
     const mission = memoryStore.missions.get(missionId);
     if (!mission) {
       throw new Error("Mission not found");
+    }
+    if (!isMissionVisibleToUser(mission.tags, userId)) {
+      throw new Error("Mission not available for this agent.");
     }
 
     // Check memory store for active missions

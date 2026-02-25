@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
 import { getTrustState } from "@/app/lib/server/trustService";
+import { isMissionVisibleToUser } from "@/app/lib/server/missionVisibility";
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,10 +27,19 @@ export async function POST(req: NextRequest) {
     if (action === "accept" && missionId) {
       const mission = await prisma.missionDefinition.findUnique({
         where: { id: missionId },
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          tags: true,
+        },
       });
 
       if (!mission) {
         return NextResponse.json({ error: "Mission not found" }, { status: 404 });
+      }
+      if (!isMissionVisibleToUser(mission.tags, userId)) {
+        return NextResponse.json({ error: "Mission not available for this agent" }, { status: 403 });
       }
 
       // Use acceptMission which enforces single active mission rule

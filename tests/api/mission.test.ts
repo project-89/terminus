@@ -5,6 +5,7 @@ import {
   acceptMission,
   getLatestOpenMissionRun,
 } from "@/app/lib/server/missionService";
+import { withAgentTargetTags } from "@/app/lib/server/missionVisibility";
 
 describe("Mission System", () => {
   describe("getNextMission", () => {
@@ -32,6 +33,27 @@ describe("Mission System", () => {
       expect(mission).toHaveProperty("minEvidence");
       expect(mission).toHaveProperty("tags");
       expect(Array.isArray(mission?.tags)).toBe(true);
+    });
+
+    it("should not select agent-scoped missions targeted to a different user", async () => {
+      const userA = await createTestUser("test-mission-scope-a");
+      const userB = await createTestUser("test-mission-scope-b");
+
+      const hiddenMission = await testPrisma.missionDefinition.create({
+        data: {
+          title: `Hidden mission ${Date.now()}`,
+          prompt: "Only one specific agent should see this mission.",
+          type: "decode",
+          minEvidence: 1,
+          tags: withAgentTargetTags(["test", "scoped"], userB.id),
+          active: true,
+        },
+      });
+
+      const mission = await getNextMission(userA.id);
+
+      expect(mission).not.toBeNull();
+      expect(mission?.id).not.toBe(hiddenMission.id);
     });
   });
 

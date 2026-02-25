@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
 import { getTrustState } from "@/app/lib/server/trustService";
+import { isMissionVisibleToUser } from "@/app/lib/server/missionVisibility";
 
 export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get("userId");
@@ -88,7 +89,7 @@ export async function GET(req: NextRequest) {
 
     const completedMissions = missionRuns.filter((m: any) => m.status === "COMPLETED").length;
 
-    const availableMissions = await prisma.missionDefinition.findMany({
+    const availableMissionCandidates = await prisma.missionDefinition.findMany({
       where: {
         active: true,
         NOT: {
@@ -97,14 +98,19 @@ export async function GET(req: NextRequest) {
           },
         },
       },
+      orderBy: { updatedAt: "desc" },
       select: {
         id: true,
         title: true,
         type: true,
         prompt: true,
+        tags: true,
       },
-      take: 10,
+      take: 200,
     });
+    const availableMissions = availableMissionCandidates
+      .filter((mission: any) => isMissionVisibleToUser(mission.tags, userId))
+      .slice(0, 10);
 
     const rewards = await prisma.reward.aggregate({
       where: { userId },

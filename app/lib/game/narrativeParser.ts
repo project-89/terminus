@@ -52,13 +52,29 @@ export type ExtractedPuzzle = {
   type?: string;
   difficulty?: number;
   conditions?: Array<{
-    type: "object_state" | "object_location" | "flag" | "inventory" | "room";
+    type:
+      | "object_state"
+      | "object_location"
+      | "flag"
+      | "inventory"
+      | "room"
+      | "cipher_solved"
+      | "stego_decoded";
     target: string;
     property?: string;
     value: any;
   }>;
   effects?: Array<{
-    type: "unlock_exit" | "reveal_object" | "set_flag" | "move_object" | "change_description" | "trigger_event";
+    type:
+      | "unlock_exit"
+      | "reveal_object"
+      | "set_flag"
+      | "move_object"
+      | "change_description"
+      | "trigger_event"
+      | "award_points"
+      | "play_sound"
+      | "show_image";
     target: string;
     value?: any;
   }>;

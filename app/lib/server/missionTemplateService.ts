@@ -215,7 +215,7 @@ export async function loadMissionTemplates(
 
   const catalogEntries = includeCatalog ? getMissionCatalog() : [];
 
-  const dbDefinitions = includeDatabase
+  const dbDefinitions: MissionDefinitionWithCounts[] = includeDatabase
     ? await prisma.missionDefinition.findMany({
         where: includeInactive ? undefined : { active: true },
         orderBy: { createdAt: "desc" },
