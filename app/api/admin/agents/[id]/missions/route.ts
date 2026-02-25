@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
 import { validateAdminAuth } from "@/app/lib/server/adminAuth";
+import { ensureMissionDefinitionForReference, loadMissionTemplates } from "@/app/lib/server/missionTemplateService";
+import { acceptMission, getLatestOpenMissionRun } from "@/app/lib/server/missionService";
 
 export const dynamic = "force-dynamic";
 
@@ -14,28 +16,43 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const profile = await prisma.playerProfile.findUnique({
-      where: { userId: id },
-      select: { assignedMissions: true },
-    });
-
-    const missionRuns = await prisma.missionRun.findMany({
-      where: { userId: id },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: { mission: true },
-    });
+    const [profile, missionRuns, availableTemplates] = await Promise.all([
+      prisma.playerProfile.findUnique({
+        where: { userId: id },
+        select: { assignedMissions: true },
+      }),
+      prisma.missionRun.findMany({
+        where: { userId: id },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        include: { mission: true },
+      }),
+      loadMissionTemplates({
+        includeCatalog: true,
+        includeDatabase: true,
+        includeInactive: false,
+        includeRuns: false,
+      }),
+    ]);
 
     return NextResponse.json({
       assignedMissions: profile?.assignedMissions || [],
       missionHistory: missionRuns.map((r: any) => ({
         id: r.id,
+        missionId: r.mission.id,
         title: r.mission.title,
         type: r.mission.type,
+        prompt: r.mission.prompt,
+        minEvidence: r.mission.minEvidence,
+        tags: r.mission.tags,
         status: r.status,
         score: r.score,
+        feedback: r.feedback,
+        payload: r.payload,
         createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
       })),
+      availableTemplates,
     });
   } catch (error: any) {
     console.error("Admin agent missions error:", error);
@@ -58,15 +75,75 @@ export async function POST(
 
     switch (action) {
       case "assign": {
-        const { title, briefing, type, priority, deadlineHours, narrativeDelivery } = body;
-        
+        const { title, briefing, type, priority, deadlineHours, narrativeDelivery, createMissionRun } = body;
+
+        // If createMissionRun is true, create a real MissionDefinition and MissionRun
+        if (createMissionRun) {
+          // Create or find mission definition
+          const missionDef = await prisma.missionDefinition.create({
+            data: {
+              title,
+              prompt: briefing,
+              type: type || "decode",
+              minEvidence: 1,
+              tags: ["admin-assigned", `priority:${priority || 5}`],
+              active: true,
+            },
+          });
+
+          let missionRun;
+          try {
+            // Enforce single-active-mission invariant through missionService
+            missionRun = await acceptMission({
+              missionId: missionDef.id,
+              userId: id,
+            });
+          } catch (e: any) {
+            if (typeof e?.message === "string" && e.message.includes("active mission")) {
+              const existing = await getLatestOpenMissionRun(id);
+              return NextResponse.json(
+                {
+                  error: e.message,
+                  activeMission: existing
+                    ? {
+                        id: existing.id,
+                        title: existing.mission.title,
+                        status: existing.status,
+                      }
+                    : null,
+                },
+                { status: 409 },
+              );
+            }
+            throw e;
+          }
+
+          return NextResponse.json({
+            success: true,
+            mission: {
+              id: missionRun.id,
+              definitionId: missionDef.id,
+              title,
+              briefing,
+              type: type || "decode",
+              status: missionRun.status,
+              createdAt: new Date().toISOString(),
+            },
+            missionRun: {
+              id: missionRun.id,
+              status: missionRun.status,
+            },
+          });
+        }
+
+        // Otherwise, use narrative-only assignment (for AI delivery)
         const profile = await prisma.playerProfile.findUnique({
           where: { userId: id },
           select: { assignedMissions: true },
         });
 
         const currentMissions = (profile?.assignedMissions as any[]) || [];
-        
+
         const newMission = {
           id: `custom-${Date.now()}`,
           title,
@@ -131,23 +208,71 @@ export async function POST(
       }
 
       case "assign_template": {
-        const { templateId } = body;
-        
+        const { templateId, createMissionRun } = body;
+
+        const definitionId = await ensureMissionDefinitionForReference(templateId);
         const template = await prisma.missionDefinition.findUnique({
-          where: { id: templateId },
+          where: { id: definitionId },
         });
-        
+
         if (!template) {
           return NextResponse.json({ error: "Template not found" }, { status: 404 });
         }
 
+        // If createMissionRun is true, create a real MissionRun
+        if (createMissionRun) {
+          let missionRun;
+          try {
+            missionRun = await acceptMission({
+              missionId: definitionId,
+              userId: id,
+            });
+          } catch (e: any) {
+            if (typeof e?.message === "string" && e.message.includes("active mission")) {
+              const existing = await getLatestOpenMissionRun(id);
+              return NextResponse.json(
+                {
+                  error: e.message,
+                  activeMission: existing
+                    ? {
+                        id: existing.id,
+                        title: existing.mission.title,
+                        status: existing.status,
+                      }
+                    : null,
+                },
+                { status: 409 },
+              );
+            }
+            throw e;
+          }
+
+          return NextResponse.json({
+            success: true,
+            mission: {
+              id: missionRun.id,
+              definitionId: template.id,
+              title: template.title,
+              briefing: template.prompt,
+              type: template.type,
+              status: missionRun.status,
+              createdAt: new Date().toISOString(),
+            },
+            missionRun: {
+              id: missionRun.id,
+              status: missionRun.status,
+            },
+          });
+        }
+
+        // Otherwise, use narrative-only assignment (for AI delivery)
         const profile = await prisma.playerProfile.findUnique({
           where: { userId: id },
           select: { assignedMissions: true },
         });
 
         const currentMissions = (profile?.assignedMissions as any[]) || [];
-        
+
         const newMission = {
           id: `template-${template.id}-${Date.now()}`,
           templateId: template.id,

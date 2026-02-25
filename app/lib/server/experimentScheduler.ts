@@ -7,6 +7,10 @@ import {
   getTemplatesForLayer,
 } from "./experimentTemplates";
 import { createExperiment } from "./experimentService";
+import {
+  getAutonomousExperimentProposal,
+  getExperimentTypeExplorationBonus,
+} from "./bayes/orchestrator";
 
 export type PlayerContext = {
   userId: string;
@@ -195,6 +199,12 @@ export async function selectExperiment(
     }
     const thisTypeCount = typeCount[template.type] || 0;
     score -= thisTypeCount * 0.5;
+
+    // Bayesian exploration: prioritize templates with highest posterior uncertainty.
+    try {
+      const explorationBonus = await getExperimentTypeExplorationBonus(userId, template.type);
+      score += explorationBonus * 1.5;
+    } catch {}
     
     score += Math.random() * 0.5;
     
@@ -276,8 +286,51 @@ export async function getExperimentDirective(
     scheduled = await selectExperiment(userId, { recentMessages });
   }
 
-  // No fallback - if no experiment matches, return null
-  // The AI should create its own experiments using experiment_create tool
+  // Autonomous fallback: if no template matches, synthesize a proposal from Bayesian queue.
+  if (!scheduled && shouldRun) {
+    try {
+      const ctx = await buildPlayerContext(userId);
+      const missionFailureRate = ctx.recentMissionOutcomes.length
+        ? ctx.recentMissionOutcomes.filter((o) => o === "failure").length / ctx.recentMissionOutcomes.length
+        : undefined;
+      const gapDays = ctx.lastSessionAt
+        ? (Date.now() - ctx.lastSessionAt.getTime()) / (1000 * 60 * 60 * 24)
+        : 0;
+
+      const proposal = await getAutonomousExperimentProposal(userId, {
+        missionFailureRate,
+        engagementDrop: gapDays >= 3,
+        recentExperimentOutcomes: undefined,
+      });
+
+      if (proposal) {
+        const experiment = await createExperiment({
+          userId,
+          expId: `auto-${Date.now().toString(36)}`,
+          hypothesis: `[${proposal.id}] ${proposal.hypothesis}`,
+          task: proposal.task,
+          success_criteria: proposal.successCriteria,
+          title: proposal.title,
+        });
+
+        if (experiment?.id) {
+          return {
+            experimentId: experiment.id,
+            templateId: proposal.id,
+            type: proposal.experimentType || "perception",
+            narrativeHook: proposal.narrativeHook || proposal.task,
+            successCriteria: proposal.successCriteria || "Gather sufficient evidence to resolve.",
+            covert: true,
+            requiredTools: ["experiment_create", "experiment_note", "experiment_resolve"],
+            forbiddenTools: [],
+            isDefault: false,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  // No template or autonomous proposal matched.
   if (!scheduled) {
     return null;
   }

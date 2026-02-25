@@ -1,4 +1,4 @@
-import { getNextMission, acceptMission } from "@/app/lib/server/missionService";
+import { getNextMission, acceptMission, abandonMission, getLatestOpenMissionRun } from "@/app/lib/server/missionService";
 import { getSessionById, getActiveSessionByHandle } from "@/app/lib/server/sessionService";
 
 async function resolveSessionAndUser(params: {
@@ -39,6 +39,18 @@ export async function GET(req: Request) {
       headers: { "Content-Type": "application/json" },
     });
   }
+  const activeRun = await getLatestOpenMissionRun(resolved.userId);
+  if (activeRun) {
+    return new Response(JSON.stringify({
+      mission: activeRun.mission,
+      missionRun: activeRun,
+      alreadyAssigned: true,
+      message: "Active mission already assigned",
+    }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const mission = await getNextMission(resolved.userId);
   console.log(`[API] Mission Result:`, mission);
   if (!mission) {
@@ -65,6 +77,17 @@ export async function POST(req: Request) {
     });
   }
 
+  const existingRun = await getLatestOpenMissionRun(resolved.userId);
+  if (existingRun) {
+    return new Response(JSON.stringify({
+      missionRun: existingRun,
+      alreadyAssigned: true,
+      message: `Active mission already assigned: ${existingRun.mission.title}`,
+    }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const missionId = typeof body.missionId === "string" ? body.missionId : undefined;
   let targetMissionId = missionId;
   if (!targetMissionId) {
@@ -78,12 +101,73 @@ export async function POST(req: Request) {
     targetMissionId = mission.id;
   }
 
-  const run = await acceptMission({
-    missionId: targetMissionId,
-    userId: resolved.userId,
-    sessionId: resolved.sessionId,
+  try {
+    const run = await acceptMission({
+      missionId: targetMissionId,
+      userId: resolved.userId,
+      sessionId: resolved.sessionId,
+    });
+    return new Response(JSON.stringify({ missionRun: run }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (e: any) {
+    // Handle "already have active mission" error gracefully
+    if (e.message?.includes("active mission")) {
+      return new Response(JSON.stringify({ error: e.message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ error: "Failed to accept mission" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
+// DELETE - Abandon active mission
+export async function DELETE(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  const resolved = await resolveSessionAndUser({
+    sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
+    handle: typeof body.handle === "string" ? body.handle : undefined,
+    userId: typeof body.userId === "string" ? body.userId : undefined,
   });
-  return new Response(JSON.stringify({ missionRun: run }), {
-    headers: { "Content-Type": "application/json" },
-  });
+  if (!resolved) {
+    return new Response(JSON.stringify({ error: "Unable to resolve session" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const missionRunId = typeof body.missionRunId === "string" ? body.missionRunId : undefined;
+  const activeMission = missionRunId
+    ? { id: missionRunId }
+    : await getLatestOpenMissionRun(resolved.userId);
+  if (!activeMission?.id) {
+    return new Response(JSON.stringify({ error: "No active mission to abandon" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const reason = typeof body.reason === "string" ? body.reason : undefined;
+
+  try {
+    const result = await abandonMission({
+      missionRunId: activeMission.id,
+      userId: resolved.userId,
+      reason,
+    });
+    return new Response(JSON.stringify({ success: true, mission: result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (e: any) {
+    const message = e?.message || "Failed to abandon mission";
+    const status = message.includes("No active mission") ? 404 : 500;
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 }

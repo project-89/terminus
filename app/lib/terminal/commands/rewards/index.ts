@@ -1,35 +1,31 @@
 import { CommandConfig } from "../../types";
 import { TERMINAL_COLORS } from "../../Terminal";
 import { TerminalContext } from "../../TerminalContext";
+import { toolEvents } from "../../tools/registry";
 
-async function fetchPoints(handle: string) {
-  const res = await fetch(`/api/points?handle=${encodeURIComponent(handle)}`);
+async function fetchPoints(identity: { userId?: string; handle?: string }) {
+  const query = identity.userId
+    ? `userId=${encodeURIComponent(identity.userId)}`
+    : `handle=${encodeURIComponent(identity.handle || "")}`;
+  const res = await fetch(`/api/points?${query}`);
   return res.json();
 }
 
-async function checkTrustLevel(): Promise<{ layer: number; hasPoints: boolean }> {
-  try {
-    const context = TerminalContext.getInstance();
-    const state = context.getState();
-    const handle = state.handle || localStorage.getItem("p89_handle");
-    
-    if (!handle) return { layer: 0, hasPoints: false };
-    
-    const [profileRes, pointsRes] = await Promise.all([
-      fetch(`/api/profile?handle=${encodeURIComponent(handle)}`),
-      fetch(`/api/points?handle=${encodeURIComponent(handle)}`),
-    ]);
-    
-    const profile = await profileRes.json().catch(() => ({}));
-    const points = await pointsRes.json().catch(() => ({ points: 0 }));
-    
-    return { 
-      layer: profile.layer ?? 0, 
-      hasPoints: (points.points ?? 0) > 0 || (points.recentRewards?.length ?? 0) > 0 
-    };
-  } catch {
-    return { layer: 0, hasPoints: false };
-  }
+async function resolveIdentity() {
+  const context = TerminalContext.getInstance();
+  const identity = await context.ensureIdentity();
+  if (!identity) return undefined;
+
+  const state = context.getState();
+  const handle =
+    state.handle ||
+    (typeof window !== "undefined" ? localStorage.getItem("p89_handle") : null) ||
+    identity.agentId.toLowerCase();
+
+  return {
+    userId: identity.userId,
+    handle: handle || undefined,
+  };
 }
 
 // Helper to fetch rewards
@@ -53,32 +49,30 @@ export const rewardCommands: CommandConfig[] = [
     type: "game",
     description: "View your LOGOS points and recent rewards",
     handler: async (ctx) => {
-      const handle = localStorage.getItem("p89_handle") || "agent";
-      const { hasPoints } = await checkTrustLevel();
-      
-      if (!hasPoints) {
-        await ctx.terminal.print("\n> ACCESS DENIED", { 
-          color: TERMINAL_COLORS.warning, 
-          speed: "fast" 
-        });
-        await ctx.terminal.print("The LOGOS ledger has no record of you yet.", { 
-          color: TERMINAL_COLORS.secondary, 
-          speed: "fast" 
-        });
-        await ctx.terminal.print("Continue your exploration. Rewards come to those who seek.", { 
-          color: TERMINAL_COLORS.system, 
-          speed: "normal" 
+      const identity = await resolveIdentity();
+      if (!identity?.userId) {
+        await ctx.terminal.print("Identity not established. Unable to query LOGOS ledger.", {
+          color: TERMINAL_COLORS.error,
+          speed: "fast",
         });
         return;
       }
-      
-      await ctx.terminal.print("\n> QUERYING LOGOS LEDGER...", { 
+
+      await ctx.terminal.print("> QUERYING LOGOS LEDGER...", { 
         color: TERMINAL_COLORS.system, 
         speed: "fast" 
       });
       
       try {
-        const data = await fetchPoints(handle);
+        let data = await fetchPoints(identity);
+
+        // One self-heal retry in case stale local identity was just rotated.
+        if (data?.error === "User not found") {
+          const recovered = await resolveIdentity();
+          if (recovered?.userId) {
+            data = await fetchPoints(recovered);
+          }
+        }
         
         if (data.error) {
           await ctx.terminal.print(`Error: ${data.error}`, { color: TERMINAL_COLORS.error });
@@ -87,6 +81,8 @@ export const rewardCommands: CommandConfig[] = [
         
         const points = data.points ?? 0;
         const recent = data.recentRewards || [];
+
+        toolEvents.emit("tool:points_sync", { points });
         
         await ctx.terminal.print(`
 ╔══════════════════════════════════════════════════════════════╗
@@ -127,7 +123,7 @@ export const rewardCommands: CommandConfig[] = [
           speed: "fast",
         });
         
-        await ctx.terminal.print("\nType !redeem to see available rewards.", { 
+        await ctx.terminal.print("Type !redeem to see available rewards.", { 
           color: TERMINAL_COLORS.system, 
           speed: "fast" 
         });

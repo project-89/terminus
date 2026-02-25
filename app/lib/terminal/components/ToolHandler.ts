@@ -2,6 +2,10 @@ import { Terminal } from "../Terminal";
 import { toolEvents } from "../tools/registry";
 import { TERMINAL_COLORS } from "../constants";
 import { TerminalContext } from "../TerminalContext";
+import {
+  getRenderReferences,
+  pushRenderReference,
+} from "@/app/lib/render/clientRenderReferences";
 
 interface ToolHandlerConfig {
   name: string;
@@ -101,6 +105,16 @@ export class ToolHandler {
     }
   }
 
+  private collectContextSnippets(maxLines = 8): string[] {
+    const blocked = /(CLICK TO DISMISS|VISUAL MANIFESTATION|IMAGE RECEIVED|RENDERING CURRENT SCENE|QUERYING LOGOS LEDGER)/i;
+    return (this.terminal.buffer || [])
+      .map((entry) => String(entry?.text || "").trim())
+      .filter((line) => line.length > 0)
+      .filter((line) => !blocked.test(line))
+      .slice(-maxLines)
+      .map((line) => line.slice(0, 220));
+  }
+
   private registerDefaultTools() {
     const assignPath = (target: Record<string, any>, path: string, value: any) => {
       const segments = path.split(".").filter(Boolean);
@@ -128,7 +142,7 @@ export class ToolHandler {
     this.registerTool({
       name: "verify_protocol_89",
       handler: async (params: { key: string }) => {
-        await this.terminal.print("\nINITIATING PROTOCOL 89...", {
+        await this.terminal.print("INITIATING PROTOCOL 89...", {
            color: TERMINAL_COLORS.warning,
            speed: "slow"
         });
@@ -148,16 +162,16 @@ export class ToolHandler {
             this.terminal.effects.stopMatrixRain();
             
             if (data.success) {
-               await this.terminal.print("\nACCESS GRANTED.", { color: TERMINAL_COLORS.success, speed: "slow" });
+               await this.terminal.print("ACCESS GRANTED.", { color: TERMINAL_COLORS.success, speed: "slow" });
                await this.terminal.print(data.message, { color: TERMINAL_COLORS.primary });
                if (data.claimCode) {
-                   await this.terminal.print(`\nCLAIM CODE: ${data.claimCode}`, { color: TERMINAL_COLORS.secondary });
+                   await this.terminal.print(`CLAIM CODE: ${data.claimCode}`, { color: TERMINAL_COLORS.secondary });
                    await this.terminal.print("Save this code. It is your only proof.", { color: TERMINAL_COLORS.system });
                }
                // Trigger glitch
                toolEvents.emit("tool:glitch_screen", { duration: 2000, intensity: 0.8 });
             } else {
-               await this.terminal.print("\nACCESS DENIED.", { color: TERMINAL_COLORS.error });
+               await this.terminal.print("ACCESS DENIED.", { color: TERMINAL_COLORS.error });
                await this.terminal.print(data.error || "Verification failed.", { color: TERMINAL_COLORS.error });
             }
         } catch (e) {
@@ -176,6 +190,7 @@ export class ToolHandler {
           // Try to find handle in local storage or context
           const handle = typeof window !== 'undefined' ? localStorage.getItem("p89_handle") : null;
           if (handle) {
+             const puzzleId = params?.id || crypto.randomUUID();
              await fetch("/api/notes", {
                method: "POST",
                headers: { "Content-Type": "application/json" },
@@ -185,7 +200,7 @@ export class ToolHandler {
                  value: JSON.stringify({
                    ...params,
                    status: "active",
-                   id: crypto.randomUUID(),
+                   id: puzzleId,
                    createdAt: new Date().toISOString()
                  })
                })
@@ -202,6 +217,33 @@ export class ToolHandler {
       handler: async (params: any) => {
         console.log("[Client] Puzzle Solved");
         try {
+          const terminalStateRaw = typeof window !== "undefined" ? localStorage.getItem("terminalState") : null;
+          let terminalState: any = null;
+          if (terminalStateRaw) {
+            try {
+              terminalState = JSON.parse(terminalStateRaw);
+            } catch {
+              terminalState = null;
+            }
+          }
+          const sessionId = terminalState?.sessionId;
+          const userId = terminalState?.userId || (typeof window !== "undefined" ? localStorage.getItem("p89_userId") : null);
+
+          if (params?.puzzleId && params?.answer && sessionId && userId) {
+            await fetch("/api/puzzle", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "solve_attempt",
+                scope: "world",
+                sessionId,
+                userId,
+                puzzleId: params.puzzleId,
+                answer: params.answer,
+              }),
+            });
+          }
+
           const handle = typeof window !== 'undefined' ? localStorage.getItem("p89_handle") : null;
           if (handle) {
              await fetch("/api/notes", {
@@ -398,7 +440,7 @@ export class ToolHandler {
           terminalContext.setActiveMissionRun(missionRun.id);
           terminalContext.setExpectingReport(false);
 
-          await this.terminal.print(`\nMission channel open: ${missionRun.mission.title}`, {
+          await this.terminal.print(`Mission channel open: ${missionRun.mission.title}`, {
             color: TERMINAL_COLORS.primary,
             speed: "normal",
           });
@@ -440,10 +482,72 @@ export class ToolHandler {
         const prompt =
           params?.prompt ||
           "Describe the evidence or observations you gathered for this mission.";
-        await this.terminal.print(`\nAwaiting report: ${prompt}`, {
+        await this.terminal.print(`Awaiting report: ${prompt}`, {
           color: TERMINAL_COLORS.system,
           speed: "normal",
         });
+      },
+    });
+
+    this.registerTool({
+      name: "mission_abandon",
+      handler: async (params: { missionRunId?: string; reason?: string }) => {
+        const terminalContext = TerminalContext.getInstance();
+        const sessionId = await terminalContext.ensureSession();
+        if (!sessionId) {
+          await this.terminal.print("Unable to abandon mission (no session).", {
+            color: TERMINAL_COLORS.error,
+            speed: "normal",
+          });
+          return;
+        }
+
+        const missionRunId =
+          params?.missionRunId || terminalContext.getState().activeMissionRunId;
+        if (!missionRunId) {
+          await this.terminal.print("No active mission to abandon.", {
+            color: TERMINAL_COLORS.warning,
+            speed: "normal",
+          });
+          return;
+        }
+
+        try {
+          const response = await fetch("/api/mission", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId,
+              missionRunId,
+              reason: params?.reason,
+            }),
+          });
+
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data?.error || `Mission abandon failed (${response.status})`);
+          }
+
+          terminalContext.setActiveMissionRun(undefined);
+          terminalContext.setExpectingReport(false);
+
+          await this.terminal.print("Mission abandoned. Status set to FAILED.", {
+            color: TERMINAL_COLORS.warning,
+            speed: "normal",
+          });
+          if (params?.reason) {
+            await this.terminal.print(`Reason: ${params.reason}`, {
+              color: TERMINAL_COLORS.system,
+              speed: "fast",
+            });
+          }
+        } catch (error: any) {
+          console.error("mission_abandon error", error);
+          await this.terminal.print(`Mission abandon error: ${error.message}`, {
+            color: TERMINAL_COLORS.error,
+            speed: "normal",
+          });
+        }
       },
     });
 
@@ -516,13 +620,13 @@ export class ToolHandler {
           const { encoded } = await response.json();
           
           // Display the encoded message to the player
-          await this.terminal.print(`\n${encoded}`, {
+          await this.terminal.print(`${encoded}`, {
             color: TERMINAL_COLORS.secondary,
             speed: "normal",
           });
           
           if (params.hint) {
-            await this.terminal.print(`\n[${params.hint}]`, {
+            await this.terminal.print(`[${params.hint}]`, {
               color: TERMINAL_COLORS.system,
               speed: "fast",
             });
@@ -549,7 +653,7 @@ export class ToolHandler {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               prompt: params.imagePrompt,
-              quality: "fast",
+              quality: "high",
             }),
           });
 
@@ -591,16 +695,11 @@ export class ToolHandler {
           }
 
           const imageUrl = URL.createObjectURL(finalBlob);
-
-          // Display the image (modal mode - player should examine it)
-          toolEvents.emit("tool:display_image", {
-            url: imageUrl,
-            mode: "modal",
-            intensity: 1,
-            position: "center",
+          await this.terminal.printInlineImage(imageUrl, {
+            label: params.puzzleId || "stego image",
           });
 
-          await this.terminal.print("\n[IMAGE RECEIVED]", {
+          await this.terminal.print("[IMAGE RECEIVED]", {
             color: TERMINAL_COLORS.system,
             speed: "instant",
           });
@@ -621,21 +720,56 @@ export class ToolHandler {
         prompt: string;
         aspectRatio?: string;
         style?: string;
+        preset?: string;
+        focusObject?: string;
+        includeGroundedText?: boolean;
         quality?: "fast" | "high" | "ultra";
         mode?: "modal" | "subliminal" | "peripheral" | "corruption" | "afterimage" | "glitch_scatter" | "creep";
         intensity?: number;
         experimentId?: string;
       }) => {
         try {
-          const response = await fetch("/api/image", {
+          const context = await this.ensureSessionContext();
+          const shouldForceModal = Boolean(
+            params.focusObject || params.includeGroundedText
+          );
+          const mode = shouldForceModal ? "modal" : params.mode || "modal";
+          const defaultQuality = mode === "modal" ? "ultra" : "high";
+          const quality = params.quality || defaultQuality;
+          const prompt = params.focusObject
+            ? `${params.prompt}. Focus specifically on ${params.focusObject}.`
+            : params.prompt;
+
+          const hasSessionContext = Boolean(context?.sessionId);
+          const response = await fetch(hasSessionContext ? "/api/render" : "/api/image", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              prompt: params.prompt,
-              aspectRatio: params.aspectRatio || "1:1",
-              style: params.style,
-              quality: params.quality || "fast",
-            }),
+            body: JSON.stringify(
+              hasSessionContext
+                ? {
+                    sessionId: context!.sessionId,
+                    prompt,
+                    style: params.style,
+                    preset: params.preset || "matrix90s",
+                    mode,
+                    quality,
+                    aspectRatio: params.aspectRatio || "16:9",
+                    resolution: quality === "ultra" ? "4K" : quality === "high" ? "2K" : "1K",
+                    intensity: params.intensity ?? 1,
+                    allowText: params.includeGroundedText ?? Boolean(params.focusObject),
+                    contextSnippets: this.collectContextSnippets(),
+                    referenceImages: getRenderReferences(context!.sessionId),
+                    injectClue: false,
+                  }
+                : {
+                    prompt,
+                    aspectRatio: params.aspectRatio || "16:9",
+                    style:
+                      params.style ||
+                      "cinematic neo-noir frame, Matrix-meets-late-90s retro bedroom nostalgia, CRT phosphor glow with tungsten practicals, observer perspective, grounded physical textures",
+                    quality,
+                  }
+            ),
           });
 
           if (!response.ok) {
@@ -646,23 +780,33 @@ export class ToolHandler {
           const blob = await response.blob();
           const imageUrl = URL.createObjectURL(blob);
 
-          const mode = params.mode || "modal";
-          const position = mode === "peripheral" ? "edge" 
-            : mode === "glitch_scatter" ? "random" 
-            : "center";
-
-          toolEvents.emit("tool:display_image", { 
-            url: imageUrl,
-            mode,
-            intensity: params.intensity ?? 1,
-            position,
-            experimentId: params.experimentId,
-          });
+          if (hasSessionContext && context?.sessionId) {
+            await pushRenderReference(
+              context.sessionId,
+              blob,
+              params.focusObject || params.prompt.slice(0, 80)
+            );
+          }
 
           if (mode === "modal") {
-            await this.terminal.print("\n[VISUAL MANIFESTATION]", {
+            await this.terminal.printInlineImage(imageUrl, {
+              label: params.focusObject || params.prompt.slice(0, 80),
+            });
+            await this.terminal.print("[VISUAL MANIFESTATION]", {
               color: TERMINAL_COLORS.system,
               speed: "instant",
+            });
+          } else {
+            const position = mode === "peripheral" ? "edge"
+              : mode === "glitch_scatter" ? "random"
+              : "center";
+
+            toolEvents.emit("tool:display_image", {
+              url: imageUrl,
+              mode,
+              intensity: params.intensity ?? 1,
+              position,
+              experimentId: params.experimentId,
             });
           }
           // Non-modal modes are silent - the player should be uncertain if they saw anything
@@ -823,7 +967,7 @@ export class ToolHandler {
             const data = await response.json();
             
             if (!params.silent) {
-              await this.terminal.print(`\n[+${params.amount} POINTS]`, {
+              await this.terminal.print(`[+${params.amount} POINTS]`, {
                 color: TERMINAL_COLORS.success,
                 speed: "instant",
               });
@@ -831,7 +975,8 @@ export class ToolHandler {
                 color: TERMINAL_COLORS.system,
                 speed: "fast",
               });
-              if (data.newTotal) {
+              if (typeof data.newTotal === "number") {
+                toolEvents.emit("tool:points_sync", { points: data.newTotal });
                 await this.terminal.print(`Total: ${data.newTotal}`, {
                   color: TERMINAL_COLORS.highlight,
                   speed: "fast",
@@ -874,7 +1019,7 @@ export class ToolHandler {
 
           if (response.ok) {
             const data = await response.json();
-            await this.terminal.print("\n[DREAM LOGGED]", {
+            await this.terminal.print("[DREAM LOGGED]", {
               color: TERMINAL_COLORS.secondary,
               speed: "instant",
             });
@@ -929,21 +1074,21 @@ export class ToolHandler {
 
           const mission = await response.json();
           
-          await this.terminal.print("\n[FIELD MISSION ASSIGNED]", {
+          await this.terminal.print("[FIELD MISSION ASSIGNED]", {
             color: TERMINAL_COLORS.primary,
             speed: "normal",
           });
-          await this.terminal.print(`\n${mission.title}`, {
+          await this.terminal.print(`${mission.title}`, {
             color: TERMINAL_COLORS.secondary,
             speed: "normal",
           });
-          await this.terminal.print(`\n${mission.briefing}`, {
+          await this.terminal.print(`${mission.briefing}`, {
             color: TERMINAL_COLORS.highlight,
             speed: "normal",
           });
           
           if (mission.objectives?.length) {
-            await this.terminal.print("\nOBJECTIVES:", {
+            await this.terminal.print("OBJECTIVES:", {
               color: TERMINAL_COLORS.system,
               speed: "fast",
             });
@@ -958,7 +1103,7 @@ export class ToolHandler {
           
           if (mission.deadline) {
             const deadline = new Date(mission.deadline);
-            await this.terminal.print(`\nDEADLINE: ${deadline.toLocaleString()}`, {
+            await this.terminal.print(`DEADLINE: ${deadline.toLocaleString()}`, {
               color: TERMINAL_COLORS.warning,
               speed: "fast",
             });
@@ -1003,7 +1148,7 @@ export class ToolHandler {
 
           const result = await response.json();
           
-          await this.terminal.print("\n[EVIDENCE RECEIVED]", {
+          await this.terminal.print("[EVIDENCE RECEIVED]", {
             color: TERMINAL_COLORS.success,
             speed: "instant",
           });
@@ -1115,7 +1260,7 @@ export class ToolHandler {
           });
 
           if (response.ok) {
-            await this.terminal.print(`\n[DISCOVERY LOGGED: ${params.label}]`, {
+            await this.terminal.print(`[DISCOVERY LOGGED: ${params.label}]`, {
               color: TERMINAL_COLORS.success,
               speed: "instant",
             });
@@ -1157,12 +1302,12 @@ export class ToolHandler {
 
           const result = await response.json();
 
-          await this.terminal.print("\n[MISSION EVALUATION]", {
+          await this.terminal.print("[MISSION EVALUATION]", {
             color: params.passed ? TERMINAL_COLORS.success : TERMINAL_COLORS.warning,
             speed: "normal",
           });
 
-          await this.terminal.print(`\nStatus: ${params.passed ? "COMPLETED" : "REQUIRES FURTHER EVIDENCE"}`, {
+          await this.terminal.print(`Status: ${params.passed ? "COMPLETED" : "REQUIRES FURTHER EVIDENCE"}`, {
             color: params.passed ? TERMINAL_COLORS.success : TERMINAL_COLORS.warning,
             speed: "fast",
           });
@@ -1172,13 +1317,13 @@ export class ToolHandler {
             speed: "fast",
           });
 
-          await this.terminal.print(`\n${params.evaluation}`, {
+          await this.terminal.print(`${params.evaluation}`, {
             color: TERMINAL_COLORS.primary,
             speed: "normal",
           });
 
           if (params.nextSteps) {
-            await this.terminal.print(`\nNext: ${params.nextSteps}`, {
+            await this.terminal.print(`Next: ${params.nextSteps}`, {
               color: TERMINAL_COLORS.system,
               speed: "normal",
             });
@@ -1232,12 +1377,12 @@ export class ToolHandler {
           console.warn("[SYNCHRONICITY] Failed to persist:", error);
         }
 
-        await this.terminal.print("\n[SYNCHRONICITY DETECTED]", {
+        await this.terminal.print("[SYNCHRONICITY DETECTED]", {
           color: TERMINAL_COLORS.system,
           speed: "normal",
         });
 
-        await this.terminal.print(`\nPattern: ${params.pattern}`, {
+        await this.terminal.print(`Pattern: ${params.pattern}`, {
           color: sigColor,
           speed: "fast",
         });
@@ -1291,12 +1436,12 @@ export class ToolHandler {
           }
         }
 
-        await this.terminal.print("\n[NETWORK BROADCAST]", {
+        await this.terminal.print("[NETWORK BROADCAST]", {
           color: TERMINAL_COLORS.warning,
           speed: "normal",
         });
 
-        await this.terminal.print(`\nTo: ${params.recipients || "all"} operatives`, {
+        await this.terminal.print(`To: ${params.recipients || "all"} operatives`, {
           color: TERMINAL_COLORS.system,
           speed: "fast",
         });
@@ -1306,7 +1451,7 @@ export class ToolHandler {
           speed: "fast",
         });
 
-        await this.terminal.print(`\n${params.message}`, {
+        await this.terminal.print(`${params.message}`, {
           color: TERMINAL_COLORS.primary,
           speed: "normal",
         });
@@ -1355,19 +1500,19 @@ export class ToolHandler {
           convene: "OPERATIVE ASSEMBLY",
         };
 
-        await this.terminal.print(`\n[${actionLabels[params.action] || "COORDINATION"}]`, {
+        await this.terminal.print(`[${actionLabels[params.action] || "COORDINATION"}]`, {
           color: TERMINAL_COLORS.system,
           speed: "normal",
         });
 
         if (params.target) {
-          await this.terminal.print(`\nTarget: ${params.target}`, {
+          await this.terminal.print(`Target: ${params.target}`, {
             color: TERMINAL_COLORS.secondary,
             speed: "fast",
           });
         }
 
-        await this.terminal.print(`\n${params.details}`, {
+        await this.terminal.print(`${params.details}`, {
           color: TERMINAL_COLORS.primary,
           speed: "normal",
         });

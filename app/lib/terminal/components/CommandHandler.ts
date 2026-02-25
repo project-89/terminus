@@ -30,17 +30,21 @@ export class CommandHandler {
   }
 
   public async processCommand(command: string) {
-    await this.terminal.print(`\n> ${command}`, {
+    const normalizedCommand = command.trim();
+    if (!normalizedCommand) {
+      return;
+    }
+
+    await this.terminal.print(`> ${normalizedCommand}`, {
       color: this.terminal.options.foregroundColor,
       speed: "instant",
     });
-    await this.terminal.print("", { speed: "instant" });
 
     if (this.terminal.context?.currentScreen) {
       try {
         await this.terminal.context.currentScreen.handleCommand({
-          command: command.trim(),
-          args: command.trim().split(/\s+/),
+          command: normalizedCommand,
+          args: normalizedCommand.split(/\s+/),
           flags: {},
           terminal: this.terminal,
           handled: false,

@@ -1,13 +1,235 @@
 import { TERMINAL_COLORS } from "../constants";
 import { getAdventureResponse } from "@/app/lib/ai/adventureAI";
-import { ToolExecution, processToolCall } from "../tools/registry";
+import { toolEvents } from "../tools/registry";
 import { AdventureScreen } from "../screens/AdventureScreen";
 import { TerminalContext } from "../TerminalContext";
-import { analytics } from "@/app/lib/analytics";
 import {
   TerminalMiddleware,
   TerminalContext as CommandContext,
 } from "../types";
+import {
+  getRenderReferences,
+  pushRenderReference,
+} from "@/app/lib/render/clientRenderReferences";
+
+type AutoRenderIntent =
+  | {
+      kind: "room";
+      prompt: string;
+      allowText: false;
+      key: "room";
+      quality: "high";
+      resolution: "2K";
+      style: string;
+      label: string;
+    }
+  | {
+      kind: "focus";
+      prompt: string;
+      allowText: boolean;
+      key: string;
+      quality: "ultra";
+      resolution: "4K";
+      style: string;
+      label: string;
+    };
+
+type AutoRenderCooldownState = {
+  roomLastRenderedAt: number;
+  targetLastRenderedAt: Map<string, number>;
+};
+
+const ROOM_RENDER_COOLDOWN_MS = 45_000;
+const TARGET_RENDER_COOLDOWN_MS = 20_000;
+const MAX_TRACKED_TARGETS = 24;
+
+const autoRenderCooldownBySession = new Map<string, AutoRenderCooldownState>();
+
+const VISUAL_COMMAND_RE = /^(look|examine|inspect|read|study|observe|check)\b/i;
+const ROOM_LOOK_RE =
+  /^(look|examine|inspect|observe)(?:\s+(?:around|room|here|surroundings|area|everything))?$/i;
+const TEXT_FOCUS_RE =
+  /\b(note|sticky|post-?it|poster|comic|page|book|journal|screen|monitor|label|graffiti|writing|text|word|sign|newspaper|document|letter)\b/i;
+const VISUAL_FOCUS_RE =
+  /\b(under|behind|inside|room|window|wall|desk|bed|shelf|door|monitor|screen|computer|poster|book|comic|note|map|photo|painting)\b/i;
+const NON_VISUAL_FOCUS_RE =
+  /\b(inventory|status|trust|score|points|ledger|mission|objective|profile|memory|log|logs|stats)\b/i;
+const BAD_COMMAND_RESPONSE_RE =
+  /\b(i don'?t understand that command|unknown command|invalid command|not sure what you mean)\b/i;
+
+function normalizeCommand(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeFocusTarget(value: string): string {
+  return value
+    .replace(/^(at|the|a|an|to|into|inside|in|on|under|behind)\s+/i, "")
+    .replace(/[^\w\s'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+}
+
+function parseAutoRenderIntent(rawCommand: string): AutoRenderIntent | null {
+  const command = normalizeCommand(rawCommand);
+  if (!command || !VISUAL_COMMAND_RE.test(command)) return null;
+
+  if (ROOM_LOOK_RE.test(command)) {
+    return {
+      kind: "room",
+      prompt:
+        "Render an environmental establishing shot of the full current room. Preserve layout continuity and include room-defining anchors from the described scene.",
+      allowText: false,
+      key: "room",
+      quality: "high",
+      resolution: "2K",
+      style:
+        "wide cinematic frame, floating observer camera, no visible hands, arms, or player body, grounded physical textures and practical lighting",
+      label: "room continuity",
+    };
+  }
+
+  const verbMatch = command.match(VISUAL_COMMAND_RE);
+  const verb = verbMatch?.[1]?.toLowerCase() || "";
+  const remainder = normalizeFocusTarget(command.replace(VISUAL_COMMAND_RE, ""));
+  if (!remainder) {
+    return {
+      kind: "room",
+      prompt:
+        "Render an environmental establishing shot of the full current room. Preserve layout continuity and include room-defining anchors from the described scene.",
+      allowText: false,
+      key: "room",
+      quality: "high",
+      resolution: "2K",
+      style:
+        "wide cinematic frame, floating observer camera, no visible hands, arms, or player body, grounded physical textures and practical lighting",
+      label: "room continuity",
+    };
+  }
+
+  if (NON_VISUAL_FOCUS_RE.test(remainder)) {
+    return null;
+  }
+
+  const allowText = verb === "read" || TEXT_FOCUS_RE.test(remainder);
+  const isVisualFocus = allowText || VISUAL_FOCUS_RE.test(remainder);
+  if (!isVisualFocus && remainder.split(" ").length > 5) {
+    return null;
+  }
+
+  return {
+    kind: "focus",
+    prompt:
+      `Render a grounded close-up focused on "${remainder}". Keep it in the same room context and preserve continuity with surrounding props, walls, and lighting.${
+        allowText
+          ? " If the focus has writing, reproduce exact in-world text from scene context."
+          : ""
+      }`,
+    allowText,
+    key: remainder.toLowerCase(),
+    quality: "ultra",
+    resolution: "4K",
+    style:
+      "tight insert shot with cinematic depth and high-fidelity detail, floating observer camera, no visible hands, arms, or player body",
+    label: remainder,
+  };
+}
+
+function shouldRenderForIntent(sessionId: string, intent: AutoRenderIntent): boolean {
+  const now = Date.now();
+  const state = autoRenderCooldownBySession.get(sessionId) || {
+    roomLastRenderedAt: 0,
+    targetLastRenderedAt: new Map<string, number>(),
+  };
+
+  if (intent.kind === "room") {
+    if (now - state.roomLastRenderedAt < ROOM_RENDER_COOLDOWN_MS) {
+      return false;
+    }
+    state.roomLastRenderedAt = now;
+    autoRenderCooldownBySession.set(sessionId, state);
+    return true;
+  }
+
+  const last = state.targetLastRenderedAt.get(intent.key) || 0;
+  if (now - last < TARGET_RENDER_COOLDOWN_MS) {
+    return false;
+  }
+
+  state.targetLastRenderedAt.set(intent.key, now);
+  if (state.targetLastRenderedAt.size > MAX_TRACKED_TARGETS) {
+    const firstKey = state.targetLastRenderedAt.keys().next().value;
+    if (firstKey) {
+      state.targetLastRenderedAt.delete(firstKey);
+    }
+  }
+  autoRenderCooldownBySession.set(sessionId, state);
+  return true;
+}
+
+function collectContextSnippets(ctx: CommandContext, maxLines = 10): string[] {
+  const blocked =
+    /(CLICK TO DISMISS|VISUAL MANIFESTATION|IMAGE RECEIVED|RENDERING CURRENT SCENE|QUERYING LOGOS LEDGER|^>\s*!?\w+)/i;
+
+  return (ctx.terminal.buffer || [])
+    .map((entry) => String(entry?.text || "").trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => !blocked.test(line))
+    .slice(-maxLines)
+    .map((line) => line.slice(0, 220));
+}
+
+async function maybeAutoRenderScene(
+  ctx: CommandContext,
+  sessionId: string,
+  command: string,
+  aiResponse: string,
+  aiTriggeredImageTool: boolean
+): Promise<void> {
+  if (aiTriggeredImageTool) return;
+  if (BAD_COMMAND_RESPONSE_RE.test(aiResponse)) return;
+
+  const intent = parseAutoRenderIntent(command);
+  if (!intent) return;
+  if (!shouldRenderForIntent(sessionId, intent)) return;
+
+  try {
+    const response = await fetch("/api/render", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        prompt: intent.prompt,
+        style: intent.style,
+        preset: "matrix90s",
+        mode: "modal",
+        quality: intent.quality,
+        aspectRatio: "16:9",
+        resolution: intent.resolution,
+        intensity: 1,
+        allowText: intent.allowText,
+        contextSnippets: collectContextSnippets(ctx),
+        referenceImages: getRenderReferences(sessionId),
+        injectClue: false,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`render failed (${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const imageUrl = URL.createObjectURL(blob);
+
+    await pushRenderReference(sessionId, blob, intent.label);
+
+    await ctx.terminal.printInlineImage(imageUrl, {
+      label: intent.label,
+    });
+  } catch (error) {
+    console.warn("[Adventure] Auto-render skipped due to failure", error);
+  }
+}
 
 export const adventureMiddleware: TerminalMiddleware = async (
   ctx: CommandContext,
@@ -83,20 +305,32 @@ export const adventureMiddleware: TerminalMiddleware = async (
           }
           const result = await response.json();
 
-          context.setExpectingReport(false);
-          context.setActiveMissionRun(undefined);
+          // Only clear mission state if actually completed or failed
+          // If status is still ACCEPTED, mission needs more evidence
+          const isFinished = result.status === "COMPLETED" || result.status === "FAILED";
+          if (isFinished) {
+            context.setExpectingReport(false);
+            context.setActiveMissionRun(undefined);
+            await ctx.terminal.print("Mission report received.", {
+              color: TERMINAL_COLORS.system,
+              speed: "normal",
+            });
+          } else {
+            // Mission still active - insufficient evidence
+            context.setExpectingReport(true);
+            await ctx.terminal.print("Report received but requires more detail.", {
+              color: TERMINAL_COLORS.warning,
+              speed: "normal",
+            });
+          }
 
-          await ctx.terminal.print("\nMission report received.", {
-            color: TERMINAL_COLORS.system,
-            speed: "normal",
-          });
           if (result.feedback) {
             await ctx.terminal.print(result.feedback, {
               color: TERMINAL_COLORS.secondary,
               speed: "normal",
             });
           }
-          if (typeof result.score === "number") {
+          if (isFinished && typeof result.score === "number") {
             await ctx.terminal.print(
               `Score: ${(result.score * 100).toFixed(0)}%`,
               {
@@ -119,9 +353,13 @@ export const adventureMiddleware: TerminalMiddleware = async (
             typeof result.score === "number"
               ? `${Math.round(result.score * 100)}%`
               : "N/A";
-          reportSummary = `Mission report submitted. Score ${scorePercent}. Reward ${
-            result.reward?.amount ?? 0
-          } ${result.reward?.type ?? "CREDIT"}.`;
+          if (isFinished) {
+            reportSummary = `Mission report submitted. Status ${result.status}. Score ${scorePercent}. Reward ${
+              result.reward?.amount ?? 0
+            } ${result.reward?.type ?? "CREDIT"}.`;
+          } else {
+            reportSummary = "Mission report incomplete. Awaiting additional evidence.";
+          }
         } catch (error: any) {
           console.error("report submission failed", error);
           await ctx.terminal.print(
@@ -163,7 +401,20 @@ export const adventureMiddleware: TerminalMiddleware = async (
     }
 
     // Process and store the AI response
-    const aiResponse = await ctx.terminal.processAIStream(stream);
+    let aiTriggeredImageTool = false;
+    const markImageToolInvocation = () => {
+      aiTriggeredImageTool = true;
+    };
+    toolEvents.on("tool:generate_image", markImageToolInvocation);
+    toolEvents.on("tool:stego_image", markImageToolInvocation);
+
+    let aiResponse = "";
+    try {
+      aiResponse = await ctx.terminal.processAIStream(stream);
+    } finally {
+      toolEvents.off("tool:generate_image", markImageToolInvocation);
+      toolEvents.off("tool:stego_image", markImageToolInvocation);
+    }
 
     // Add AI response to chat history
     chatHistory.push({
@@ -205,6 +456,14 @@ export const adventureMiddleware: TerminalMiddleware = async (
         speed: "normal",
       });
     }
+
+    await maybeAutoRenderScene(
+      ctx,
+      sessionId,
+      ctx.command,
+      aiResponse,
+      aiTriggeredImageTool
+    );
   } catch (error) {
     console.error("Adventure middleware error:", error);
     // Ensure loading indicator is stopped on error

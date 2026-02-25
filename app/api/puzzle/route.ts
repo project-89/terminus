@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import * as puzzles from "@/app/lib/puzzles";
+import { aiCheckPuzzleSolution } from "@/app/lib/server/worldGraphService";
 
 export async function POST(req: Request) {
   try {
@@ -77,7 +78,26 @@ export async function POST(req: Request) {
       }
 
       case "solve_attempt": {
-        const { puzzleId, userId, answer } = body;
+        const { puzzleId, userId, answer, sessionId, scope } = body;
+        if (!puzzleId || !userId || typeof answer !== "string") {
+          return NextResponse.json(
+            { error: "puzzleId, userId, and answer are required" },
+            { status: 400 }
+          );
+        }
+        if (scope === "world" || sessionId) {
+          if (!sessionId || !userId) {
+            return NextResponse.json(
+              { error: "sessionId and userId are required for world puzzle solving" },
+              { status: 400 }
+            );
+          }
+          const worldResult = await aiCheckPuzzleSolution(sessionId, userId, puzzleId, answer);
+          if (worldResult.correct || worldResult.message !== "Puzzle not found") {
+            return NextResponse.json(worldResult);
+          }
+        }
+
         const result = await puzzles.solvePuzzle(puzzleId, userId, answer);
         return NextResponse.json(result);
       }

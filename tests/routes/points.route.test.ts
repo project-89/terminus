@@ -27,6 +27,19 @@ function createRequest(
 
 describe("Points API Routes", () => {
   describe("GET /api/points", () => {
+    it("should return points for a user by userId", async () => {
+      const user = await createTestUser("points-get-userid");
+
+      const response = await GET(
+        createRequest("GET", `http://localhost/api/points?userId=${user.id}`)
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.points).toBe(0);
+      expect(data.recentRewards).toEqual([]);
+    });
+
     it("should return points for a user by handle", async () => {
       const user = await createTestUser("points-get");
 
@@ -40,14 +53,14 @@ describe("Points API Routes", () => {
       expect(data.recentRewards).toEqual([]);
     });
 
-    it("should return 400 without handle", async () => {
+    it("should return 400 without handle or userId", async () => {
       const response = await GET(
         createRequest("GET", "http://localhost/api/points")
       );
       const data = await response.json();
 
       expect(response.status).toBe(400);
-      expect(data.error).toContain("handle required");
+      expect(data.error).toContain("handle or userId required");
     });
 
     it("should return 404 for non-existent user", async () => {

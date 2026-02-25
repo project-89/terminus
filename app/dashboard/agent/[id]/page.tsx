@@ -67,7 +67,7 @@ interface AgentDossier {
     analyticalIndex: number;
     adminNotes: string | null;
     adminDirectives: string | null;
-    assignedMissions: string[] | null;
+    assignedMissions: any[] | null;
     watchlist: boolean;
     flagged: boolean;
     flagReason: string | null;
@@ -96,10 +96,18 @@ interface AgentDossier {
   }>;
   missionHistory: Array<{
     id: string;
+    missionId: string;
     title: string;
+    type: string;
+    prompt: string;
+    minEvidence: number;
+    tags: string[];
     status: string;
     score: number | null;
+    feedback: string | null;
+    payload: any;
     createdAt: string;
+    updatedAt: string;
   }>;
   experiments?: Experiment[];
   memory?: MemoryEvent[];
@@ -177,6 +185,70 @@ interface AgentDossier {
   }>;
 }
 
+interface BayesianTraitSignal {
+  estimate: number;
+  uncertainty: number;
+  sampleSize: number;
+}
+
+interface BayesianVariableSummary {
+  variableId: string;
+  type: string;
+  estimate: number | null;
+  uncertainty: number;
+  sampleSize: number;
+  distribution?: Record<string, number>;
+}
+
+interface BayesianHypothesisSummary {
+  id: string;
+  title: string;
+  source: string;
+  kind?: string;
+  status: string;
+  evidenceCount: number;
+  successProbability: number | null;
+  uncertainty: number;
+  variables: BayesianVariableSummary[];
+}
+
+interface BayesianQueueProposal {
+  id: string;
+  title: string;
+  rationale: string;
+  source: string;
+  kind?: string;
+  hypothesis: string;
+  task: string;
+  successCriteria?: string;
+  experimentType?: string;
+  createdAt: string;
+  score: number;
+}
+
+interface BayesianHistoryEntry {
+  at: string;
+  hypothesisId: string;
+  variableId: string;
+  event: string;
+  summary: string;
+}
+
+interface BayesianSnapshot {
+  agentId: string;
+  generatedAt: string;
+  stats: {
+    hypothesisCount: number;
+    activeHypotheses: number;
+    queueSize: number;
+    historyCount: number;
+  };
+  globalTraits: Record<string, BayesianTraitSignal>;
+  summaries: BayesianHypothesisSummary[];
+  queue: BayesianQueueProposal[];
+  history: BayesianHistoryEntry[];
+}
+
 const LAYER_COLORS: Record<number, string> = {
   0: "#666666",
   1: "#00aaff",
@@ -187,6 +259,22 @@ const LAYER_COLORS: Record<number, string> = {
 };
 
 const LAYER_NAMES = ["UNVERIFIED", "INITIATE", "AGENT", "OPERATIVE", "HANDLER", "ARCHITECT"];
+
+function pct(value: number | null | undefined): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "N/A";
+  return `${Math.round(value * 100)}%`;
+}
+
+function widthPct(value: number | null | undefined): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "0%";
+  return `${Math.max(0, Math.min(100, value * 100))}%`;
+}
+
+function formatLabel(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
 
 function StatBar({ label, value, max = 1, color = "#00ffff" }: { label: string; value: number; max?: number; color?: string }) {
   const pct = Math.min((value / max) * 100, 100);
@@ -220,14 +308,29 @@ export default function AgentDossierPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [dossier, setDossier] = useState<AgentDossier | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"profile" | "missions" | "research" | "puzzles" | "admin">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "missions" | "research" | "bayesian" | "puzzles" | "admin">("profile");
   const [adminNotes, setAdminNotes] = useState("");
   const [adminDirectives, setAdminDirectives] = useState("");
   const [saving, setSaving] = useState(false);
-  const [availableMissions, setAvailableMissions] = useState<Array<{id: string; title: string; type: string; prompt: string}>>([]);
+  const [availableMissions, setAvailableMissions] = useState<
+    Array<{
+      id: string;
+      title: string;
+      type: string;
+      prompt: string;
+      minEvidence?: number;
+      tags?: string[];
+      source?: string;
+    }>
+  >([]);
+  const [missionAssignError, setMissionAssignError] = useState<string | null>(null);
   const [showMissionModal, setShowMissionModal] = useState(false);
+  const [selectedMissionRunId, setSelectedMissionRunId] = useState<string | null>(null);
   const [playbackSession, setPlaybackSession] = useState<string | null>(null);
   const [flagReasonInput, setFlagReasonInput] = useState("");
+  const [bayesian, setBayesian] = useState<BayesianSnapshot | null>(null);
+  const [bayesianLoading, setBayesianLoading] = useState(false);
+  const [bayesianError, setBayesianError] = useState<string | null>(null);
 
   const agentId = params?.id as string | undefined;
 
@@ -251,13 +354,13 @@ export default function AgentDossierPage() {
     if (!authenticated || !agentId) return;
     Promise.all([
         adminFetch(`/api/admin/agents/${agentId}`).then((r) => r.json()),
-        adminFetch(`/api/admin/missions`).then((r) => r.json()),
+        adminFetch(`/api/admin/agents/${agentId}/missions`).then((r) => r.json()),
       ])
         .then(([agentData, missionsData]) => {
           setDossier(agentData);
           setAdminNotes(agentData.profile?.adminNotes || "");
           setAdminDirectives(agentData.profile?.adminDirectives || "");
-          setAvailableMissions(missionsData.missions || []);
+          setAvailableMissions(missionsData.availableTemplates || missionsData.missions || []);
           setLoading(false);
         })
         .catch((err) => {
@@ -265,6 +368,64 @@ export default function AgentDossierPage() {
           setLoading(false);
         });
   }, [authenticated, agentId]);
+
+  useEffect(() => {
+    const history = dossier?.missionHistory || [];
+    if (history.length === 0) {
+      if (selectedMissionRunId !== null) setSelectedMissionRunId(null);
+      return;
+    }
+    if (!selectedMissionRunId || !history.some((mission) => mission.id === selectedMissionRunId)) {
+      setSelectedMissionRunId(history[0].id);
+    }
+  }, [dossier?.missionHistory, selectedMissionRunId]);
+
+  const loadBayesian = useCallback(async (options?: { silent?: boolean }) => {
+    if (!agentId) return;
+    const silent = options?.silent === true;
+
+    if (!silent) {
+      setBayesianLoading(true);
+    }
+    setBayesianError(null);
+
+    try {
+      const response = await adminFetch(`/api/admin/agents/${agentId}/bayesian`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to load bayesian snapshot");
+      }
+
+      setBayesian(data);
+    } catch (error) {
+      console.error(error);
+      setBayesianError(error instanceof Error ? error.message : "Failed to load bayesian snapshot");
+    } finally {
+      if (!silent) {
+        setBayesianLoading(false);
+      }
+    }
+  }, [agentId]);
+
+  useEffect(() => {
+    if (!authenticated || !agentId) return;
+    void loadBayesian();
+  }, [authenticated, agentId, loadBayesian]);
+
+  useEffect(() => {
+    if (!authenticated || !agentId || activeTab !== "bayesian") return;
+    const interval = setInterval(() => {
+      void loadBayesian({ silent: true });
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [authenticated, agentId, activeTab, loadBayesian]);
+
+  useEffect(() => {
+    if (showMissionModal) {
+      setMissionAssignError(null);
+    }
+  }, [showMissionModal]);
 
   const updateProfile = useCallback(async (updates: Record<string, any>) => {
     if (!dossier) return;
@@ -304,12 +465,66 @@ export default function AgentDossierPage() {
     }
   };
 
-  const handleAssignMission = async (mission: {id: string; title: string; type: string; prompt: string}) => {
-    if (!dossier?.profile) return;
-    const current = (dossier.profile.assignedMissions as any[]) || [];
-    const newMission = { id: mission.id, title: mission.title, type: mission.type, description: mission.prompt.slice(0, 100) };
-    await updateProfile({ assignedMissions: [...current, newMission] });
-    setShowMissionModal(false);
+  const handleAssignMission = async (mission: {
+    id: string;
+    title: string;
+    type: string;
+    prompt: string;
+    minEvidence?: number;
+    tags?: string[];
+  }) => {
+    if (!dossier) return;
+    setSaving(true);
+    setMissionAssignError(null);
+    try {
+      const res = await adminFetch(`/api/admin/agents/${dossier.id}/missions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "assign_template",
+          templateId: mission.id,
+          createMissionRun: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.mission) {
+        throw new Error(data?.error || "Failed to assign mission");
+      }
+
+      setDossier((prev) => {
+        if (!prev) return prev;
+        const historyEntry = {
+          id: data.mission.id,
+          missionId: data.mission.definitionId || mission.id,
+          title: data.mission.title,
+          type: data.mission.type,
+          prompt: data.mission.briefing || mission.prompt,
+          minEvidence: mission.minEvidence || 1,
+          tags: mission.tags || [],
+          status: data.mission.status || "ACCEPTED",
+          score: null,
+          feedback: null,
+          payload: null,
+          createdAt: data.mission.createdAt || new Date().toISOString(),
+          updatedAt: data.mission.createdAt || new Date().toISOString(),
+        };
+        return {
+          ...prev,
+          stats: {
+            ...prev.stats,
+            totalMissions: prev.stats.totalMissions + 1,
+          },
+          missionHistory: [historyEntry, ...prev.missionHistory],
+        };
+      });
+      setSelectedMissionRunId(data.mission.id);
+      setShowMissionModal(false);
+    } catch (err) {
+      console.error(err);
+      setMissionAssignError(err instanceof Error ? err.message : "Failed to assign mission");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleRemoveMission = async (index: number) => {
@@ -350,6 +565,8 @@ export default function AgentDossierPage() {
 
   const profile = dossier.profile;
   const psychProfile = profile?.psychProfile;
+  const selectedMissionRun = dossier.missionHistory.find((mission) => mission.id === selectedMissionRunId) || null;
+  const assignedMissions = Array.isArray(profile?.assignedMissions) ? (profile?.assignedMissions as any[]) : [];
 
   return (
     <div className="min-h-screen bg-black text-cyan-400 font-mono">
@@ -388,7 +605,7 @@ export default function AgentDossierPage() {
         </div>
 
         <div className="flex gap-4 mt-4">
-          {(["profile", "missions", "research", "puzzles", "admin"] as const).map((tab) => (
+          {(["profile", "missions", "research", "bayesian", "puzzles", "admin"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -640,35 +857,57 @@ export default function AgentDossierPage() {
 
         {activeTab === "missions" && (
           <div className="grid grid-cols-12 gap-6">
-            <div className="col-span-8">
+            <div className="col-span-7">
               <Section title="MISSION HISTORY">
                 <div className="space-y-3">
-                  {dossier.missionHistory.length ? dossier.missionHistory.map((mission) => (
-                    <div key={mission.id} className="bg-cyan-900/20 border border-cyan-800 p-4 flex justify-between items-center">
-                      <div>
-                        <div className="text-cyan-300 font-bold">{mission.title}</div>
-                        <div className="text-xs text-cyan-700">{new Date(mission.createdAt).toLocaleDateString()}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className={`text-sm font-bold ${
-                          mission.status === "COMPLETED" ? "text-green-400" :
-                          mission.status === "FAILED" ? "text-red-400" :
-                          "text-cyan-400"
-                        }`}>
-                          {mission.status}
+                  {dossier.missionHistory.length ? dossier.missionHistory.map((mission) => {
+                    const selected = selectedMissionRunId === mission.id;
+                    return (
+                      <div
+                        key={mission.id}
+                        className={`border p-4 cursor-pointer transition ${
+                          selected ? "border-cyan-400 bg-cyan-900/30" : "border-cyan-800 bg-cyan-900/20 hover:border-cyan-600"
+                        }`}
+                        onClick={() => setSelectedMissionRunId(mission.id)}
+                      >
+                        <div className="flex justify-between items-start gap-4">
+                          <div>
+                            <div className="text-cyan-300 font-bold">{mission.title}</div>
+                            <div className="text-xs text-cyan-700 mt-1">
+                              {new Date(mission.createdAt).toLocaleString()} • {mission.type?.toUpperCase()}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className={`text-sm font-bold ${
+                              mission.status === "COMPLETED" ? "text-green-400" :
+                              mission.status === "FAILED" ? "text-red-400" :
+                              "text-cyan-400"
+                            }`}>
+                              {mission.status}
+                            </div>
+                            {mission.score !== null && (
+                              <div className="text-xs text-cyan-600">Score: {(mission.score * 100).toFixed(0)}%</div>
+                            )}
+                          </div>
                         </div>
-                        {mission.score !== null && (
-                          <div className="text-xs text-cyan-600">Score: {(mission.score * 100).toFixed(0)}%</div>
+                        {mission.tags?.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-3">
+                            {mission.tags.slice(0, 4).map((tag) => (
+                              <span key={tag} className="px-2 py-0.5 border border-cyan-800 text-cyan-600 text-[10px] uppercase">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  )) : (
+                    );
+                  }) : (
                     <div className="text-center py-8 text-cyan-700">NO MISSIONS ON RECORD</div>
                   )}
                 </div>
               </Section>
             </div>
-            <div className="col-span-4">
+            <div className="col-span-5 space-y-6">
               <Section title="MISSION STATS">
                 <div className="space-y-4">
                   <div className="text-center">
@@ -696,12 +935,63 @@ export default function AgentDossierPage() {
                 </div>
               </Section>
 
-              <Section title="ASSIGNED MISSIONS" className="mt-6">
+              <Section title="MISSION DETAILS">
+                {selectedMissionRun ? (
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <div className="text-xs text-cyan-700">TITLE</div>
+                      <div className="text-cyan-300">{selectedMissionRun.title}</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-xs text-cyan-700">TYPE</div>
+                        <div className="text-cyan-400">{selectedMissionRun.type?.toUpperCase()}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-cyan-700">MIN EVIDENCE</div>
+                        <div className="text-cyan-400">{selectedMissionRun.minEvidence || 1}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-cyan-700">OBJECTIVE</div>
+                      <div className="text-cyan-400 whitespace-pre-wrap">{selectedMissionRun.prompt}</div>
+                    </div>
+                    {selectedMissionRun.feedback && (
+                      <div>
+                        <div className="text-xs text-cyan-700">EVALUATOR FEEDBACK</div>
+                        <div className="text-cyan-400 whitespace-pre-wrap">{selectedMissionRun.feedback}</div>
+                      </div>
+                    )}
+                    {selectedMissionRun.payload && (
+                      <div>
+                        <div className="text-xs text-cyan-700">SUBMITTED REPORT</div>
+                        <div className="text-cyan-500 whitespace-pre-wrap">
+                          {typeof selectedMissionRun.payload === "string"
+                            ? selectedMissionRun.payload
+                            : JSON.stringify(selectedMissionRun.payload, null, 2)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-cyan-700 text-sm">Select a mission run to inspect full details.</div>
+                )}
+              </Section>
+
+              <Section title="ASSIGNED MISSIONS">
                 <div className="space-y-2">
-                  {profile?.assignedMissions?.length ? (
-                    (profile.assignedMissions as string[]).map((m, i) => (
-                      <div key={i} className="bg-cyan-900/20 border border-cyan-700 p-2 text-sm text-cyan-400">
-                        {m}
+                  {assignedMissions.length ? (
+                    assignedMissions.map((mission, i) => (
+                      <div key={i} className="bg-cyan-900/20 border border-cyan-700 p-2 text-sm">
+                        {typeof mission === "string" ? (
+                          <div className="text-cyan-400">{mission}</div>
+                        ) : (
+                          <>
+                            <div className="text-cyan-300 font-semibold">{mission.title || mission.id || "Assigned mission"}</div>
+                            {mission.type && <div className="text-cyan-600 text-xs">{String(mission.type).toUpperCase()}</div>}
+                            {mission.description && <div className="text-cyan-500 text-xs mt-1">{mission.description}</div>}
+                          </>
+                        )}
                       </div>
                     ))
                   ) : (
@@ -825,6 +1115,197 @@ export default function AgentDossierPage() {
                   )) || null}
                   {(!dossier.experiments?.filter(e => e.events.length === 0).length) && (
                     <div className="text-cyan-700 text-sm">No pending experiments</div>
+                  )}
+                </div>
+              </Section>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "bayesian" && (
+          <div className="grid grid-cols-12 gap-6">
+            <div className="col-span-4 space-y-6">
+              <Section title="BAYESIAN MONITOR">
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-cyan-700">LAST SNAPSHOT</span>
+                    <span className="text-cyan-300">
+                      {bayesian?.generatedAt ? new Date(bayesian.generatedAt).toLocaleTimeString() : "NONE"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-center">
+                    <div className="bg-cyan-900/20 border border-cyan-800 p-2">
+                      <div className="text-xl font-bold text-cyan-300">{bayesian?.stats.hypothesisCount ?? 0}</div>
+                      <div className="text-[10px] text-cyan-700">HYPOTHESES</div>
+                    </div>
+                    <div className="bg-green-900/20 border border-green-800 p-2">
+                      <div className="text-xl font-bold text-green-400">{bayesian?.stats.activeHypotheses ?? 0}</div>
+                      <div className="text-[10px] text-green-700">ACTIVE</div>
+                    </div>
+                    <div className="bg-yellow-900/20 border border-yellow-800 p-2">
+                      <div className="text-xl font-bold text-yellow-400">{bayesian?.stats.queueSize ?? 0}</div>
+                      <div className="text-[10px] text-yellow-700">QUEUE</div>
+                    </div>
+                    <div className="bg-purple-900/20 border border-purple-800 p-2">
+                      <div className="text-xl font-bold text-purple-400">{bayesian?.stats.historyCount ?? 0}</div>
+                      <div className="text-[10px] text-purple-700">EVENTS</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => void loadBayesian()}
+                    disabled={bayesianLoading}
+                    className="w-full bg-cyan-900/40 border border-cyan-600 px-3 py-2 text-xs tracking-widest text-cyan-300 hover:bg-cyan-800/50 disabled:opacity-50"
+                  >
+                    {bayesianLoading ? "SYNCING POSTERIORS..." : "REFRESH SNAPSHOT"}
+                  </button>
+                  {bayesianError && (
+                    <div className="bg-red-900/30 border border-red-700 p-2 text-xs text-red-300">
+                      {bayesianError}
+                    </div>
+                  )}
+                </div>
+              </Section>
+
+              <Section title="GLOBAL TRAIT POSTERIORS">
+                <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+                  {bayesian && Object.keys(bayesian.globalTraits).length > 0 ? (
+                    Object.entries(bayesian.globalTraits)
+                      .sort((a, b) => b[1].uncertainty - a[1].uncertainty)
+                      .map(([trait, signal]) => (
+                        <div key={trait} className="bg-cyan-900/20 border border-cyan-800 p-2">
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-cyan-500">{formatLabel(trait)}</span>
+                            <span className="text-cyan-300">{pct(signal.estimate)}</span>
+                          </div>
+                          <div className="h-2 bg-black border border-cyan-900 mb-1">
+                            <div
+                              className="h-full bg-cyan-500 transition-all"
+                              style={{ width: widthPct(signal.estimate) }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-cyan-700">Uncertainty {pct(signal.uncertainty)}</span>
+                            <span className="text-cyan-700">n={signal.sampleSize}</span>
+                          </div>
+                        </div>
+                      ))
+                  ) : (
+                    <div className="text-cyan-700 text-sm">No global trait posteriors available yet</div>
+                  )}
+                </div>
+              </Section>
+
+              <Section title="AUTONOMOUS HYPOTHESIS QUEUE">
+                <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+                  {bayesian?.queue.length ? (
+                    bayesian.queue.map((proposal) => (
+                      <div key={proposal.id} className="bg-yellow-900/20 border border-yellow-800 p-3">
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="text-yellow-300 font-bold text-sm">{proposal.title}</div>
+                          <div className="text-[10px] text-yellow-500">{pct(proposal.score)}</div>
+                        </div>
+                        <div className="text-xs text-yellow-600 mt-1 uppercase tracking-wider">
+                          {proposal.source} {proposal.kind ? `| ${proposal.kind}` : ""}
+                        </div>
+                        <div className="text-xs text-yellow-400 mt-2">{proposal.rationale}</div>
+                        <div className="text-xs text-yellow-500 mt-2">Task: {proposal.task}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-cyan-700 text-sm">No autonomous proposals queued</div>
+                  )}
+                </div>
+              </Section>
+            </div>
+
+            <div className="col-span-8 space-y-6">
+              <Section title="HYPOTHESIS POSTERIORS">
+                <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
+                  {bayesian?.summaries.length ? (
+                    bayesian.summaries.map((summary) => (
+                      <div key={summary.id} className="bg-cyan-900/20 border border-cyan-800 p-4">
+                        <div className="flex justify-between items-start gap-3">
+                          <div>
+                            <div className="text-cyan-300 font-bold">{summary.title}</div>
+                            <div className="text-xs text-cyan-600 mt-1">
+                              {summary.source.toUpperCase()} {summary.kind ? `| ${summary.kind}` : ""} | {summary.id}
+                            </div>
+                          </div>
+                          <div className="text-right text-xs">
+                            <div
+                              className={`inline-block px-2 py-1 border ${
+                                summary.status === "resolved"
+                                  ? "border-green-700 text-green-400 bg-green-900/20"
+                                  : "border-cyan-700 text-cyan-400 bg-cyan-900/20"
+                              }`}
+                            >
+                              {summary.status.toUpperCase()}
+                            </div>
+                            <div className="text-cyan-700 mt-1">evidence: {summary.evidenceCount}</div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3 mt-3 text-xs">
+                          <div className="bg-black/40 border border-cyan-900 p-2">
+                            <div className="text-cyan-700">Success Prob.</div>
+                            <div className="text-cyan-300 text-base font-bold">{pct(summary.successProbability)}</div>
+                          </div>
+                          <div className="bg-black/40 border border-cyan-900 p-2">
+                            <div className="text-cyan-700">Uncertainty</div>
+                            <div className="text-yellow-400 text-base font-bold">{pct(summary.uncertainty)}</div>
+                          </div>
+                          <div className="bg-black/40 border border-cyan-900 p-2">
+                            <div className="text-cyan-700">Variables</div>
+                            <div className="text-cyan-300 text-base font-bold">{summary.variables.length}</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          {summary.variables.slice(0, 5).map((variable) => (
+                            <div key={`${summary.id}:${variable.variableId}`} className="bg-black/40 border border-cyan-900 p-2">
+                              <div className="flex justify-between text-xs">
+                                <span className="text-cyan-500">{formatLabel(variable.variableId)}</span>
+                                <span className="text-cyan-300">{pct(variable.estimate)}</span>
+                              </div>
+                              <div className="h-1.5 bg-black border border-cyan-950 mt-1">
+                                <div className="h-full bg-cyan-500 transition-all" style={{ width: widthPct(variable.estimate) }} />
+                              </div>
+                              <div className="flex justify-between text-[10px] mt-1">
+                                <span className="text-cyan-700">
+                                  {variable.type} | uncertainty {pct(variable.uncertainty)}
+                                </span>
+                                <span className="text-cyan-700">n={variable.sampleSize}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-10 text-cyan-700">
+                      {bayesianLoading ? "LOADING BAYESIAN POSTERIORS..." : "NO BAYESIAN HYPOTHESES RECORDED"}
+                    </div>
+                  )}
+                </div>
+              </Section>
+
+              <Section title="RECENT BAYESIAN EVENTS">
+                <div className="space-y-2 max-h-[30vh] overflow-y-auto pr-1">
+                  {bayesian?.history.length ? (
+                    bayesian.history.map((entry, index) => (
+                      <div key={`${entry.at}:${entry.hypothesisId}:${index}`} className="bg-purple-900/20 border border-purple-800 p-2 text-xs">
+                        <div className="flex justify-between text-purple-600">
+                          <span>{new Date(entry.at).toLocaleString()}</span>
+                          <span>{entry.event}</span>
+                        </div>
+                        <div className="text-purple-300 mt-1">{entry.summary}</div>
+                        <div className="text-purple-700 mt-1">
+                          {entry.hypothesisId} | {entry.variableId}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-cyan-700 text-sm">No Bayesian history entries yet</div>
                   )}
                 </div>
               </Section>
@@ -1295,6 +1776,11 @@ export default function AgentDossierPage() {
               <button onClick={() => setShowMissionModal(false)} className="text-cyan-600 hover:text-cyan-400">X</button>
             </div>
             <div className="p-4 max-h-[60vh] overflow-y-auto space-y-2">
+              {missionAssignError && (
+                <div className="border border-red-700 bg-red-950/20 text-red-400 text-sm px-3 py-2">
+                  {missionAssignError}
+                </div>
+              )}
               {availableMissions.length ? availableMissions.map((mission) => (
                 <div 
                   key={mission.id}
@@ -1304,11 +1790,30 @@ export default function AgentDossierPage() {
                   <div className="flex justify-between items-start">
                     <div>
                       <div className="text-cyan-300 font-bold">{mission.title}</div>
-                      <div className="text-cyan-700 text-xs mt-1">{mission.type.toUpperCase()}</div>
+                      <div className="text-cyan-700 text-xs mt-1 flex items-center gap-2">
+                        <span>{mission.type.toUpperCase()}</span>
+                        <span>•</span>
+                        <span>{mission.minEvidence || 1} evidence</span>
+                        {mission.source && (
+                          <>
+                            <span>•</span>
+                            <span className="uppercase">{mission.source}</span>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <span className="text-cyan-600 text-xs">+ ASSIGN</span>
                   </div>
                   <div className="text-cyan-500 text-sm mt-2 line-clamp-2">{mission.prompt}</div>
+                  {Array.isArray(mission.tags) && mission.tags.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {mission.tags.slice(0, 4).map((tag) => (
+                        <span key={`${mission.id}:${tag}`} className="px-2 py-0.5 text-[10px] border border-cyan-800 text-cyan-600 uppercase">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )) : (
                 <div className="text-cyan-700 text-center py-8">No missions available. Create missions in the Missions tab.</div>

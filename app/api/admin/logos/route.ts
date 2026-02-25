@@ -4,6 +4,8 @@ import { google } from "@ai-sdk/google";
 import { getModel } from "@/app/lib/ai/models";
 import prisma from "@/app/lib/prisma";
 import { getPlayerDifficulty } from "@/app/lib/server/difficultyService";
+import { acceptMission, getLatestOpenMissionRun } from "@/app/lib/server/missionService";
+import { ensureMissionDefinitionForReference, loadMissionTemplates } from "@/app/lib/server/missionTemplateService";
 import {
   getPlayerPuzzleProfile,
   getPuzzleRecommendations,
@@ -113,16 +115,59 @@ const draftMissionParams = z.object({
   title: z.string().describe("Mission title"),
   type: z.enum(["decode", "observe", "photograph", "document", "locate", "verify", "contact"]).describe("Mission type"),
   briefing: z.string().describe("Mission briefing text for the agent"),
+  minEvidence: z.number().int().min(1).max(10).default(1).describe("Minimum evidence units required for mission completion"),
   difficulty: z.enum(["initiate", "agent", "operative"]).default("agent").describe("Mission difficulty tier"),
   points: z.number().default(100).describe("Point reward for completion"),
   tags: z.array(z.string()).optional().describe("Optional tags like 'tokyo', 'glitch', 'photography'"),
+  active: z.boolean().default(true).describe("Whether template is active immediately"),
 });
 
 const assignMissionParams = z.object({
-  missionId: z.string().optional().describe("Existing mission ID, or leave empty to use just-drafted mission"),
-  agentIds: z.array(z.string()).describe("Agent IDs to assign"),
+  missionId: z.string().optional().describe("Mission template reference. Supports DB ID, catalog:<slug>, or title search."),
+  agentIds: z.array(z.string()).optional().describe("Target agent IDs/handles for direct assignment"),
+  targetFilter: z.object({
+    minTrust: z.number().optional(),
+    maxTrust: z.number().optional(),
+    layer: z.number().optional(),
+    watchlist: z.boolean().optional(),
+    flagged: z.boolean().optional(),
+    limit: z.number().default(100),
+  }).optional().describe("Optional global targeting filter. Use this for network-wide assignments."),
+  skipIfActive: z.boolean().default(true).describe("If true, skip agents that already have an active mission"),
   customBriefing: z.string().optional().describe("Override briefing for this assignment"),
   deadline: z.string().optional().describe("ISO date string for deadline"),
+});
+
+const listMissionTemplatesParams = z.object({
+  source: z.enum(["all", "catalog", "database"]).default("all"),
+  type: z.string().optional().describe("Filter by mission type"),
+  tags: z.array(z.string()).optional().describe("Require all provided tags"),
+  includeInactive: z.boolean().default(true),
+  includeRuns: z.boolean().default(false),
+  limit: z.number().default(200),
+});
+
+const listMissionRunsParams = z.object({
+  missionId: z.string().optional().describe("Mission template reference (ID, catalog slug, or title)"),
+  agentId: z.string().optional().describe("Agent ID or handle"),
+  status: z.enum(["PENDING", "ACCEPTED", "SUBMITTED", "REVIEWING", "COMPLETED", "FAILED"]).optional(),
+  sinceDays: z.number().optional().describe("Limit to mission runs updated within N days"),
+  limit: z.number().default(100),
+});
+
+const getMissionReportParams = z.object({
+  missionRunId: z.string().describe("Mission run ID"),
+});
+
+const getNetworkActivityParams = z.object({
+  sinceHours: z.number().default(24).describe("How far back to look"),
+  limit: z.number().default(100).describe("Max events"),
+});
+
+const getSynchronicityFeedParams = z.object({
+  agentId: z.string().optional().describe("Optional agent ID or handle"),
+  minSignificance: z.number().default(0).describe("Minimum significance threshold"),
+  limit: z.number().default(100),
 });
 
 const createCampaignParams = z.object({
@@ -733,7 +778,7 @@ async function getNetworkStats() {
       by: ["role"],
       _count: true,
     }),
-    prisma.missionRun.count({ where: { status: "ACCEPTED" } }),
+    prisma.missionRun.count({ where: { status: { in: ["ACCEPTED", "SUBMITTED", "REVIEWING"] } } }),
     prisma.gameSession.count({
       where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     }),
@@ -754,32 +799,52 @@ async function getNetworkStats() {
 
 async function queryAgents(params: z.infer<typeof queryAgentsParams>) {
   const where: any = {};
-  
-  if (params.filter?.layer !== undefined) {
-    // We'd need to compute layer from trust - simplified here
+  const profileWhere: any = {};
+
+  if (params.filter?.minTrust !== undefined) profileWhere.trustScore = { ...(profileWhere.trustScore || {}), gte: params.filter.minTrust };
+  if (params.filter?.maxTrust !== undefined) profileWhere.trustScore = { ...(profileWhere.trustScore || {}), lte: params.filter.maxTrust };
+  if (params.filter?.layer !== undefined) profileWhere.layer = params.filter.layer;
+
+  if (Object.keys(profileWhere).length > 0) {
+    where.profile = { is: profileWhere };
   }
+
   if (params.filter?.minSessions !== undefined) {
     where.gameSessions = { some: {} };
   }
+
   if (params.filter?.activeSince !== undefined) {
     where.updatedAt = {
       gte: new Date(Date.now() - params.filter.activeSince * 24 * 60 * 60 * 1000),
     };
   }
 
+  if (params.filter?.hasFieldMission === true) {
+    where.fieldMissions = {
+      some: {
+        status: { in: ["ASSIGNED", "ACCEPTED", "IN_PROGRESS", "EVIDENCE_SUBMITTED", "UNDER_REVIEW"] },
+      },
+    };
+  }
+
   const orderByMap: Record<string, any> = {
-    trust: { referralPoints: "desc" },
+    trust: { updatedAt: "desc" },
     sessions: { updatedAt: "desc" },
     lastActive: { updatedAt: "desc" },
     created: { createdAt: "desc" },
   };
 
-  const agents = await prisma.user.findMany({
+  const queriedAgents = await prisma.user.findMany({
     where,
-    take: params.limit,
-    orderBy: orderByMap[params.orderBy],
+    take: Math.max(params.limit, 250),
+    orderBy: orderByMap[params.orderBy] || orderByMap.lastActive,
     include: {
       profile: true,
+      fieldMissions: {
+        where: { status: { in: ["ASSIGNED", "ACCEPTED", "IN_PROGRESS", "EVIDENCE_SUBMITTED", "UNDER_REVIEW"] } },
+        take: 1,
+        orderBy: { updatedAt: "desc" },
+      },
       _count: {
         select: {
           gameSessions: true,
@@ -790,14 +855,44 @@ async function queryAgents(params: z.infer<typeof queryAgentsParams>) {
     },
   });
 
-  return agents.map((a: any) => ({
+  const filteredAgents = queriedAgents.filter((agent: any) => {
+    if (params.filter?.minSessions !== undefined && agent._count.gameSessions < params.filter.minSessions) {
+      return false;
+    }
+
+    if (params.filter?.location) {
+      const location = agent.profile?.location as any;
+      const haystack = `${location?.city || ""} ${location?.country || ""}`.toLowerCase();
+      if (!haystack.includes(params.filter.location.toLowerCase())) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  if (params.orderBy === "trust") {
+    filteredAgents.sort((a: any, b: any) => (b.profile?.trustScore ?? 0) - (a.profile?.trustScore ?? 0));
+  } else if (params.orderBy === "sessions") {
+    filteredAgents.sort((a: any, b: any) => b._count.gameSessions - a._count.gameSessions);
+  } else if (params.orderBy === "created") {
+    filteredAgents.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } else {
+    filteredAgents.sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  return filteredAgents.slice(0, params.limit).map((a: any) => ({
     id: a.id,
     handle: a.handle,
     role: a.role,
     points: a.referralPoints,
+    trustScore: a.profile?.trustScore ?? 0,
+    layer: a.profile?.layer ?? 0,
     sessions: a._count.gameSessions,
     missions: a._count.missionRuns,
     experiments: a._count.experiments,
+    hasActiveFieldMission: a.fieldMissions.length > 0,
+    location: a.profile?.location || null,
     profile: a.profile ? {
       codename: a.profile.codename,
       strengths: a.profile.strengths,
@@ -922,46 +1017,435 @@ async function draftMission(params: z.infer<typeof draftMissionParams>) {
       title: params.title,
       type: params.type,
       prompt: params.briefing,
+      minEvidence: params.minEvidence || 1,
       tags: params.tags || [],
-      active: true,
+      active: params.active !== false,
     },
   });
 
   return {
     success: true,
     missionId: mission.id,
+    templateId: mission.id,
     title: mission.title,
-    message: `Mission "${mission.title}" created and ready for assignment.`,
+    minEvidence: mission.minEvidence,
+    tags: mission.tags,
+    message: `Mission template "${mission.title}" created and ready for assignment.`,
   };
+}
+
+async function resolveAgentReference(agentRef: string): Promise<{ id: string; handle: string | null } | null> {
+  if (!agentRef) return null;
+  if (agentRef.startsWith("cm")) {
+    const user = await prisma.user.findUnique({
+      where: { id: agentRef },
+      select: { id: true, handle: true },
+    });
+    return user ? { id: user.id, handle: user.handle } : null;
+  }
+  const user = await prisma.user.findFirst({
+    where: { handle: agentRef },
+    select: { id: true, handle: true },
+  });
+  return user ? { id: user.id, handle: user.handle } : null;
 }
 
 async function assignMission(params: z.infer<typeof assignMissionParams>) {
   if (!params.missionId) {
-    return { error: "Mission ID required" };
+    return { error: "Mission template reference required (missionId)." };
   }
 
-  const results = await Promise.all(
-    params.agentIds.map(async (agentId) => {
-      try {
-        const run = await prisma.missionRun.create({
+  const missionId = await ensureMissionDefinitionForReference(params.missionId);
+
+  const targets = new Map<string, { id: string; handle: string | null }>();
+
+  for (const agentRef of params.agentIds || []) {
+    const resolved = await resolveAgentReference(agentRef);
+    if (resolved) targets.set(resolved.id, resolved);
+  }
+
+  if (params.targetFilter) {
+    const where: any = {};
+    const profileWhere: any = {};
+
+    if (params.targetFilter.minTrust !== undefined) {
+      profileWhere.trustScore = { ...(profileWhere.trustScore || {}), gte: params.targetFilter.minTrust };
+    }
+    if (params.targetFilter.maxTrust !== undefined) {
+      profileWhere.trustScore = { ...(profileWhere.trustScore || {}), lte: params.targetFilter.maxTrust };
+    }
+    if (params.targetFilter.layer !== undefined) {
+      profileWhere.layer = params.targetFilter.layer;
+    }
+    if (params.targetFilter.watchlist !== undefined) {
+      profileWhere.watchlist = params.targetFilter.watchlist;
+    }
+    if (params.targetFilter.flagged !== undefined) {
+      profileWhere.flagged = params.targetFilter.flagged;
+    }
+    if (Object.keys(profileWhere).length > 0) {
+      where.profile = { is: profileWhere };
+    }
+
+    const filteredUsers = await prisma.user.findMany({
+      where,
+      take: params.targetFilter.limit,
+      select: { id: true, handle: true },
+    });
+
+    for (const user of filteredUsers) {
+      targets.set(user.id, { id: user.id, handle: user.handle });
+    }
+  }
+
+  if (targets.size === 0) {
+    return { error: "No target agents resolved for assignment." };
+  }
+
+  const results: Array<Record<string, any>> = [];
+
+  for (const target of Array.from(targets.values())) {
+    try {
+      if (params.skipIfActive !== false) {
+        const existing = await getLatestOpenMissionRun(target.id);
+        if (existing) {
+          results.push({
+            agentId: target.id,
+            handle: target.handle,
+            success: false,
+            skipped: true,
+            reason: `Active mission already open (${existing.mission.title}).`,
+          });
+          continue;
+        }
+      }
+
+      const run = await acceptMission({
+        missionId,
+        userId: target.id,
+      });
+
+      if (params.customBriefing || params.deadline) {
+        await prisma.missionRun.update({
+          where: { id: run.id },
           data: {
-            missionId: params.missionId!,
-            userId: agentId,
-            status: "ACCEPTED",
-            payload: params.customBriefing ? { customBriefing: params.customBriefing } : undefined,
+            payload: {
+              customBriefing: params.customBriefing || null,
+              deadline: params.deadline || null,
+            },
           },
         });
-        return { agentId, success: true, runId: run.id };
-      } catch (e) {
-        return { agentId, success: false, error: String(e) };
       }
-    })
-  );
+
+      results.push({
+        agentId: target.id,
+        handle: target.handle,
+        success: true,
+        runId: run.id,
+        missionId: run.mission.id,
+        missionTitle: run.mission.title,
+      });
+    } catch (e) {
+      results.push({
+        agentId: target.id,
+        handle: target.handle,
+        success: false,
+        error: String(e),
+      }
+      );
+    }
+  }
 
   return {
-    assigned: results.filter(r => r.success).length,
-    failed: results.filter(r => !r.success).length,
+    missionId,
+    assigned: results.filter((r) => r.success).length,
+    skipped: results.filter((r) => r.skipped).length,
+    failed: results.filter((r) => !r.success && !r.skipped).length,
     details: results,
+  };
+}
+
+async function listMissionTemplatesTool(params: z.infer<typeof listMissionTemplatesParams>) {
+  const templates = await loadMissionTemplates({
+    includeCatalog: params.source !== "database",
+    includeDatabase: params.source !== "catalog",
+    includeInactive: params.includeInactive,
+    includeRuns: params.includeRuns,
+    runLimit: 10,
+  });
+
+  const filtered = templates.filter((template) => {
+    if (params.type && template.type !== params.type) return false;
+    if (params.tags?.length) {
+      for (const tag of params.tags) {
+        if (!template.tags.includes(tag)) return false;
+      }
+    }
+    return true;
+  });
+
+  return {
+    count: filtered.length,
+    templates: filtered.slice(0, params.limit),
+  };
+}
+
+async function listMissionRunsTool(params: z.infer<typeof listMissionRunsParams>) {
+  const where: any = {};
+
+  if (params.missionId) {
+    where.missionId = await ensureMissionDefinitionForReference(params.missionId);
+  }
+
+  if (params.agentId) {
+    const user = await resolveAgentReference(params.agentId);
+    if (!user) {
+      return { error: "Agent not found", agentId: params.agentId };
+    }
+    where.userId = user.id;
+  }
+
+  if (params.status) {
+    where.status = params.status;
+  }
+
+  if (params.sinceDays !== undefined) {
+    where.updatedAt = { gte: new Date(Date.now() - params.sinceDays * 24 * 60 * 60 * 1000) };
+  }
+
+  const runs = await prisma.missionRun.findMany({
+    where,
+    orderBy: { updatedAt: "desc" },
+    take: params.limit,
+    include: {
+      mission: true,
+      user: {
+        select: { id: true, handle: true, profile: { select: { codename: true, layer: true, trustScore: true } } },
+      },
+    },
+  });
+
+  return {
+    count: runs.length,
+    runs: runs.map((run: any) => ({
+      id: run.id,
+      status: run.status,
+      score: run.score,
+      feedback: run.feedback,
+      payload: run.payload,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+      mission: {
+        id: run.mission.id,
+        title: run.mission.title,
+        type: run.mission.type,
+        minEvidence: run.mission.minEvidence,
+        tags: run.mission.tags,
+      },
+      agent: {
+        id: run.user.id,
+        handle: run.user.handle,
+        codename: run.user.profile?.codename || null,
+        layer: run.user.profile?.layer ?? null,
+        trustScore: run.user.profile?.trustScore ?? null,
+      },
+    })),
+  };
+}
+
+async function getMissionReportTool(params: z.infer<typeof getMissionReportParams>) {
+  const run = await prisma.missionRun.findUnique({
+    where: { id: params.missionRunId },
+    include: {
+      mission: true,
+      user: {
+        select: {
+          id: true,
+          handle: true,
+          profile: { select: { codename: true, layer: true, trustScore: true } },
+        },
+      },
+      session: { select: { id: true, createdAt: true } },
+      rewards: true,
+    },
+  });
+
+  if (!run) {
+    return { error: "Mission run not found", missionRunId: params.missionRunId };
+  }
+
+  return {
+    id: run.id,
+    status: run.status,
+    score: run.score,
+    feedback: run.feedback,
+    payload: run.payload,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    mission: {
+      id: run.mission.id,
+      title: run.mission.title,
+      prompt: run.mission.prompt,
+      type: run.mission.type,
+      minEvidence: run.mission.minEvidence,
+      tags: run.mission.tags,
+    },
+    agent: {
+      id: run.user.id,
+      handle: run.user.handle,
+      codename: run.user.profile?.codename || null,
+      layer: run.user.profile?.layer ?? null,
+      trustScore: run.user.profile?.trustScore ?? null,
+    },
+    session: run.session,
+    rewards: run.rewards.map((reward: any) => ({
+      id: reward.id,
+      type: reward.type,
+      amount: reward.amount,
+      createdAt: reward.createdAt,
+    })),
+  };
+}
+
+async function getNetworkActivityTool(params: z.infer<typeof getNetworkActivityParams>) {
+  const sinceDate = new Date(Date.now() - params.sinceHours * 60 * 60 * 1000);
+  const limit = params.limit;
+
+  const [sessions, missionRuns, fieldMissions, experiments, dreams] = await Promise.all([
+    prisma.gameSession.findMany({
+      where: { createdAt: { gte: sinceDate } },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: { user: { select: { id: true, handle: true } } },
+    }),
+    prisma.missionRun.findMany({
+      where: { updatedAt: { gte: sinceDate } },
+      orderBy: { updatedAt: "desc" },
+      take: limit,
+      include: {
+        mission: { select: { title: true } },
+        user: { select: { id: true, handle: true } },
+      },
+    }),
+    prisma.fieldMission.findMany({
+      where: { updatedAt: { gte: sinceDate } },
+      orderBy: { updatedAt: "desc" },
+      take: limit,
+      include: { user: { select: { id: true, handle: true } } },
+    }),
+    prisma.experiment.findMany({
+      where: { createdAt: { gte: sinceDate } },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: { user: { select: { id: true, handle: true } } },
+    }),
+    prisma.dreamEntry.findMany({
+      where: { createdAt: { gte: sinceDate } },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: { user: { select: { id: true, handle: true } } },
+    }),
+  ]);
+
+  const events: Array<Record<string, any>> = [];
+
+  for (const session of sessions as any[]) {
+    events.push({
+      id: `session-${session.id}`,
+      type: "SESSION_START",
+      timestamp: session.createdAt,
+      agent: { id: session.user.id, handle: session.user.handle },
+      data: { sessionId: session.id },
+    });
+  }
+
+  for (const run of missionRuns as any[]) {
+    events.push({
+      id: `mission-${run.id}`,
+      type: `MISSION_${run.status}`,
+      timestamp: run.updatedAt,
+      agent: { id: run.user.id, handle: run.user.handle },
+      data: { missionTitle: run.mission.title, score: run.score },
+    });
+  }
+
+  for (const fieldMission of fieldMissions as any[]) {
+    events.push({
+      id: `field-${fieldMission.id}`,
+      type: `FIELD_${fieldMission.status}`,
+      timestamp: fieldMission.updatedAt,
+      agent: { id: fieldMission.user.id, handle: fieldMission.user.handle },
+      data: { title: fieldMission.title, type: fieldMission.type },
+    });
+  }
+
+  for (const experiment of experiments as any[]) {
+    events.push({
+      id: `experiment-${experiment.id}`,
+      type: "EXPERIMENT_CREATED",
+      timestamp: experiment.createdAt,
+      agent: { id: experiment.user.id, handle: experiment.user.handle },
+      data: { title: experiment.title, hypothesis: experiment.hypothesis.slice(0, 120) },
+    });
+  }
+
+  for (const dream of dreams as any[]) {
+    events.push({
+      id: `dream-${dream.id}`,
+      type: "DREAM_RECORDED",
+      timestamp: dream.createdAt,
+      agent: { id: dream.user.id, handle: dream.user.handle },
+      data: { symbols: dream.symbols?.slice(0, 5) || [] },
+    });
+  }
+
+  events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  return {
+    since: sinceDate.toISOString(),
+    count: Math.min(events.length, limit),
+    events: events.slice(0, limit),
+  };
+}
+
+async function getSynchronicityFeedTool(params: z.infer<typeof getSynchronicityFeedParams>) {
+  const where: any = {
+    significance: { gte: params.minSignificance },
+  };
+
+  if (params.agentId) {
+    const user = await resolveAgentReference(params.agentId);
+    if (!user) return { error: "Agent not found", agentId: params.agentId };
+    where.userId = user.id;
+  }
+
+  const synchronicities = await prisma.synchronicity.findMany({
+    where,
+    orderBy: [{ significance: "desc" }, { createdAt: "desc" }],
+    take: params.limit,
+    include: {
+      user: {
+        select: { id: true, handle: true, profile: { select: { codename: true } } },
+      },
+    },
+  });
+
+  return {
+    count: synchronicities.length,
+    synchronicities: synchronicities.map((item: any) => ({
+      id: item.id,
+      pattern: item.pattern,
+      significance: item.significance,
+      occurrences: item.occurrences,
+      acknowledged: item.acknowledged,
+      note: item.note,
+      createdAt: item.createdAt,
+      agent: {
+        id: item.user.id,
+        handle: item.user.handle,
+        codename: item.user.profile?.codename || null,
+      },
+    })),
   };
 }
 
@@ -1122,15 +1606,40 @@ function getLogosTools(): Record<string, any> {
       parameters: searchMemoriesParams,
       execute: searchMemories,
     },
+    list_mission_templates: {
+      description: "List all mission templates (catalog + database), including optional run stats and recent submissions.",
+      parameters: listMissionTemplatesParams,
+      execute: listMissionTemplatesTool,
+    },
     draft_mission: {
-      description: "Create a new field mission in the database. ALWAYS USE THIS TOOL when asked to create/draft a mission. Required: title, type (decode/observe/photograph/document/locate/verify/contact), and briefing text.",
+      description: "Create a new mission template in the database. ALWAYS USE THIS TOOL when asked to draft/create mission templates.",
       parameters: draftMissionParams,
       execute: draftMission,
     },
     assign_mission: {
-      description: "Assign a mission to one or more agents.",
+      description: "Assign a mission template to agents. Supports explicit agent IDs/handles and network-wide target filters.",
       parameters: assignMissionParams,
       execute: assignMission,
+    },
+    list_mission_runs: {
+      description: "List mission runs with status, score, payload, and feedback. Use this to review execution quality.",
+      parameters: listMissionRunsParams,
+      execute: listMissionRunsTool,
+    },
+    get_mission_report: {
+      description: "Get full detail for one mission run, including report payload, evaluator feedback, and rewards.",
+      parameters: getMissionReportParams,
+      execute: getMissionReportTool,
+    },
+    get_network_activity: {
+      description: "Get a unified recent activity feed across sessions, missions, field operations, experiments, and dreams.",
+      parameters: getNetworkActivityParams,
+      execute: getNetworkActivityTool,
+    },
+    get_synchronicity_feed: {
+      description: "Fetch recent synchronicity events across the network (or for one agent).",
+      parameters: getSynchronicityFeedParams,
+      execute: getSynchronicityFeedTool,
     },
     update_agent: {
       description: "Update agent profile - admin notes, directives, flags, trust adjustments.",
@@ -1276,6 +1785,9 @@ Current Time: ${new Date().toISOString()}
 [TOOL USAGE DIRECTIVE]
 You MUST use your tools to take actions. When operators ask you to:
 - "Create/draft a mission" → USE draft_mission tool immediately
+- "Show mission templates" → USE list_mission_templates tool
+- "Assign mission globally/per agent" → USE assign_mission tool
+- "Review mission execution/reports" → USE list_mission_runs and get_mission_report tools
 - "Find/search memories" → USE search_memories tool
 - "Show agents" → USE query_agents tool
 - "Analyze agent X" → USE analyze_agent tool
@@ -1283,6 +1795,8 @@ You MUST use your tools to take actions. When operators ask you to:
 - "Analyze puzzle profile" → USE analyze_puzzle_profile tool
 - "Show puzzle stats" → USE get_network_puzzle_stats tool
 - "What puzzles for X" → USE get_puzzle_recommendations tool
+- "Show recent activity" → USE get_network_activity tool
+- "Show synchronicity feed" → USE get_synchronicity_feed tool
 
 Campaign orchestration:
 - "Create campaign" → USE create_campaign tool
@@ -1309,7 +1823,7 @@ Do NOT just describe what you would do - actually call the tools. You have datab
         ...messages,
       ],
       tools,
-      stopWhen: stepCountIs(5),
+      stopWhen: stepCountIs(10),
       onFinish: (result) => {
         console.log("[LOGOS] Finished. Steps:", result.steps?.length, "Text length:", result.text?.length);
       },

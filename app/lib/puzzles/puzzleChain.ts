@@ -143,13 +143,31 @@ export async function attemptSolution(
   if (!puzzle) {
     return { correct: false, message: "Puzzle not found" };
   }
-  
-  if (puzzle.status === "locked") {
+
+  const chain = await getChain(puzzle.chainId);
+  if (!chain) {
+    return { correct: false, message: "Puzzle chain not found" };
+  }
+
+  if (chain.targetUserId && chain.targetUserId !== userId) {
+    return { correct: false, message: "This puzzle chain is not assigned to this agent" };
+  }
+
+  if (puzzle.status === "expired") {
+    return { correct: false, message: "This puzzle has expired" };
+  }
+
+  if (puzzle.solvedBy?.includes(userId)) {
+    return { correct: false, message: "Already solved" };
+  }
+
+  if (!chain.globalChain && puzzle.status === "locked") {
     return { correct: false, message: "This puzzle is still locked" };
   }
-  
-  if (puzzle.status === "solved") {
-    return { correct: false, message: "Already solved" };
+
+  const unlockedForUser = await isPuzzleUnlockedForUser(puzzle, userId);
+  if (!unlockedForUser) {
+    return { correct: false, message: "This puzzle is still locked" };
   }
   
   // Increment attempts
@@ -162,8 +180,9 @@ export async function attemptSolution(
   if (normalizedAnswer !== normalizedSolution) {
     // Provide hint based on attempt count
     const attempts = puzzle.attempts + 1;
-    const hintIndex = Math.min(Math.floor(attempts / 3), puzzle.solutionHints.length - 1);
-    const hint = puzzle.solutionHints[hintIndex];
+    const hint = puzzle.solutionHints.length > 0
+      ? puzzle.solutionHints[Math.min(Math.floor(attempts / 3), puzzle.solutionHints.length - 1)]
+      : undefined;
     
     return {
       correct: false,
@@ -172,7 +191,7 @@ export async function attemptSolution(
   }
   
   // Correct!
-  await markSolved(puzzleId, userId);
+  await markSolved(puzzleId, userId, puzzle.attempts + 1);
   
   // Unlock next puzzles
   const unlockedPuzzles: string[] = [];
@@ -181,11 +200,10 @@ export async function attemptSolution(
     if (unlocked) unlockedPuzzles.push(nextId);
   }
   
-  // Check if chain is complete
-  const chain = await getChain(puzzle.chainId);
-  const allSolved = chain?.nodes.every((n) => n.status === "solved");
+  // Check if chain is complete for this specific user
+  const allSolved = await isChainSolvedByUser(chain.id, userId);
   
-  if (allSolved && chain) {
+  if (allSolved) {
     await markChainCompleted(chain.id, userId);
     return {
       correct: true,
@@ -512,30 +530,65 @@ async function incrementAttempts(puzzleId: string): Promise<void> {
   });
 }
 
-async function markSolved(puzzleId: string, userId: string): Promise<void> {
-  const puzzle = await prisma.puzzleNode.findUnique({ where: { id: puzzleId } });
+async function markSolved(
+  puzzleId: string,
+  userId: string,
+  attemptsUsed: number
+): Promise<void> {
+  const puzzle = await prisma.puzzleNode.findUnique({
+    where: { id: puzzleId },
+    include: {
+      chain: {
+        select: {
+          globalChain: true,
+          targetUserId: true,
+        },
+      },
+    },
+  });
   if (!puzzle) return;
-  
-  await prisma.$transaction([
-    prisma.puzzleNode.update({
-      where: { id: puzzleId },
-      data: { status: "SOLVED" },
-    }),
+
+  const transactions: any[] = [
     prisma.puzzleSolve.upsert({
       where: { puzzleId_userId: { puzzleId, userId } },
       create: {
         puzzleId,
         userId,
-        attemptsUsed: puzzle.attempts + 1,
+        attemptsUsed,
       },
-      update: {},
+      update: { attemptsUsed },
     }),
-  ]);
+  ];
+
+  // Personal chains preserve global status changes. Global chains track per-user solves only.
+  const shouldAdvanceGlobalStatus =
+    !puzzle.chain.globalChain &&
+    (!puzzle.chain.targetUserId || puzzle.chain.targetUserId === userId);
+  if (shouldAdvanceGlobalStatus) {
+    transactions.push(
+      prisma.puzzleNode.update({
+        where: { id: puzzleId },
+        data: { status: "SOLVED" },
+      })
+    );
+  }
+
+  await prisma.$transaction(transactions);
   console.log("[PuzzleChain] Mark solved:", puzzleId, "by", userId);
 }
 
 async function tryUnlock(puzzleId: string, userId: string): Promise<boolean> {
-  const puzzle = await getPuzzle(puzzleId);
+  const puzzle = await prisma.puzzleNode.findUnique({
+    where: { id: puzzleId },
+    include: {
+      chain: {
+        select: {
+          globalChain: true,
+          targetUserId: true,
+        },
+      },
+    },
+  });
   if (!puzzle) return false;
   
   // Check if all prerequisites are solved by this user
@@ -545,25 +598,69 @@ async function tryUnlock(puzzleId: string, userId: string): Promise<boolean> {
     });
     if (!prereq) return false;
   }
-  
-  // Unlock the puzzle
-  await prisma.puzzleNode.update({
-    where: { id: puzzleId },
-    data: { status: "AVAILABLE" },
-  });
+
+  // For global chains, puzzle availability is per-user and inferred from prerequisites.
+  if (
+    !puzzle.chain.globalChain &&
+    (!puzzle.chain.targetUserId || puzzle.chain.targetUserId === userId) &&
+    puzzle.status === "LOCKED"
+  ) {
+    await prisma.puzzleNode.update({
+      where: { id: puzzleId },
+      data: { status: "AVAILABLE" },
+    });
+  }
   
   console.log("[PuzzleChain] Unlocked:", puzzleId, "for", userId);
   return true;
 }
 
 async function markChainCompleted(chainId: string, userId: string): Promise<void> {
+  const chain = await prisma.puzzleChain.findUnique({
+    where: { id: chainId },
+    select: { completedBy: true },
+  });
+  if (!chain) return;
+  if (chain.completedBy.includes(userId)) return;
+
   await prisma.puzzleChain.update({
     where: { id: chainId },
     data: {
-      completedBy: { push: userId },
+      completedBy: [...chain.completedBy, userId],
     },
   });
   console.log("[PuzzleChain] Chain completed:", chainId, "by", userId);
+}
+
+async function isPuzzleUnlockedForUser(puzzle: PuzzleNode, userId: string): Promise<boolean> {
+  if (puzzle.prerequisites.length === 0) {
+    return true;
+  }
+  for (const prereqId of puzzle.prerequisites) {
+    const solved = await prisma.puzzleSolve.findUnique({
+      where: { puzzleId_userId: { puzzleId: prereqId, userId } },
+      select: { id: true },
+    });
+    if (!solved) return false;
+  }
+  return true;
+}
+
+async function isChainSolvedByUser(chainId: string, userId: string): Promise<boolean> {
+  const nodes = await prisma.puzzleNode.findMany({
+    where: { chainId },
+    select: { id: true },
+  });
+  const puzzleIds = nodes.map((node) => node.id);
+  if (puzzleIds.length === 0) return false;
+
+  const solvedNodes = await prisma.puzzleSolve.count({
+    where: {
+      userId,
+      puzzleId: { in: puzzleIds },
+    },
+  });
+  return solvedNodes >= puzzleIds.length;
 }
 
 // Utility

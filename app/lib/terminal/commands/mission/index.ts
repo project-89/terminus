@@ -30,6 +30,15 @@ async function fetchMission(ctx: any) {
     const data = await res.json();
     
     if (data.error || data.message) {
+      if (data.alreadyAssigned && data.mission) {
+        const m = data.mission;
+        await ctx.terminal.print("\n--- ACTIVE MISSION ---", { color: TERMINAL_COLORS.secondary });
+        await ctx.terminal.print(`TITLE: ${m.title}`, { color: TERMINAL_COLORS.primary });
+        await ctx.terminal.print(`TYPE: ${m.type.toUpperCase()}`, { color: TERMINAL_COLORS.secondary });
+        await ctx.terminal.print(`OBJECTIVE: ${m.prompt}`, { color: TERMINAL_COLORS.primary });
+        await ctx.terminal.print("\nSubmit your findings using: !report <evidence>", { color: TERMINAL_COLORS.system });
+        return;
+      }
       await ctx.terminal.print(`Status: ${data.error || data.message}`, { color: TERMINAL_COLORS.warning });
       return;
     }
@@ -68,10 +77,53 @@ async function acceptMission(ctx: any) {
        return;
     }
 
+    if (data.alreadyAssigned && data.missionRun?.mission) {
+      await ctx.terminal.print(`Mission already active: ${data.missionRun.mission.title}`, { color: TERMINAL_COLORS.warning });
+      await ctx.terminal.print("Continue with current mission and report via !report <evidence>.", { color: TERMINAL_COLORS.system });
+      return;
+    }
+
     await ctx.terminal.print("Mission Accepted. Good luck, Agent.", { color: TERMINAL_COLORS.success });
     await ctx.terminal.print("Submit your findings using: !report <evidence>", { color: TERMINAL_COLORS.system });
   } catch (e) {
     await ctx.terminal.print("Acceptance failed.", { color: TERMINAL_COLORS.error });
+  }
+}
+
+// Abandon active mission
+async function abandonMissionCmd(ctx: any, reason?: string) {
+  const { handle, userId } = getIdentity();
+
+  if (!handle && !userId) {
+    await ctx.terminal.print("Identity not established. Cannot abandon mission.", { color: TERMINAL_COLORS.error });
+    return;
+  }
+
+  await ctx.terminal.print("Requesting mission abort...", { color: TERMINAL_COLORS.warning });
+
+  try {
+    const res = await fetch("/api/mission", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle, userId, reason }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      await ctx.terminal.print(`Error: ${data.error}`, { color: TERMINAL_COLORS.error });
+      return;
+    }
+
+    await ctx.terminal.print("\n--- MISSION ABANDONED ---", { color: TERMINAL_COLORS.warning });
+    await ctx.terminal.print(`Mission "${data.mission?.mission?.title || 'Unknown'}" has been aborted.`, {
+      color: TERMINAL_COLORS.secondary,
+    });
+    await ctx.terminal.print("This will count against your performance record.", {
+      color: TERMINAL_COLORS.secondary,
+    });
+    await ctx.terminal.print("Type !mission to receive a new assignment.", { color: TERMINAL_COLORS.system });
+  } catch (e) {
+    await ctx.terminal.print("Abort request failed.", { color: TERMINAL_COLORS.error });
   }
 }
 
@@ -127,15 +179,48 @@ async function submitReport(ctx: any, content: string) {
   }
 }
 
+// Abandon mission
+async function abandonMission(ctx: any, reason?: string) {
+  const { handle, userId } = getIdentity();
+  await ctx.terminal.print("Requesting mission abandonment...", { color: TERMINAL_COLORS.system });
+
+  if (!handle && !userId) {
+    await ctx.terminal.print("Identity not established. Cannot abandon missions.", { color: TERMINAL_COLORS.error });
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/mission", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle, userId, reason }),
+    });
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      await ctx.terminal.print(`Error: ${data.error || "Failed to abandon mission."}`, { color: TERMINAL_COLORS.error });
+      return;
+    }
+
+    await ctx.terminal.print("Mission abandoned. Status set to FAILED.", { color: TERMINAL_COLORS.warning });
+  } catch (e) {
+    await ctx.terminal.print("Abandon request failed.", { color: TERMINAL_COLORS.error });
+  }
+}
+
 export const missionCommands: CommandConfig[] = [
   {
     name: "!mission",
     type: "game",
-    description: "Manage missions. Usage: !mission [accept]",
+    description: "Manage missions. Usage: !mission [accept|abandon]",
     handler: async (ctx) => {
-      const [_, action] = ctx.command.split(" ");
+      const parts = ctx.command.split(" ");
+      const action = parts[1];
+      const reason = parts.slice(2).join(" ");
       if (action === "accept") {
         await acceptMission(ctx);
+      } else if (action === "abandon") {
+        await abandonMission(ctx, reason);
       } else {
         await fetchMission(ctx);
       }
@@ -149,6 +234,16 @@ export const missionCommands: CommandConfig[] = [
       const parts = ctx.command.split(" ");
       const content = parts.slice(1).join(" ");
       await submitReport(ctx, content);
+    },
+  },
+  {
+    name: "!abandon",
+    type: "game",
+    description: "Abandon current mission. Usage: !abandon [reason]",
+    handler: async (ctx) => {
+      const parts = ctx.command.split(" ");
+      const reason = parts.slice(1).join(" ") || undefined;
+      await abandonMissionCmd(ctx, reason);
     },
   },
 ];

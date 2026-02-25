@@ -1,24 +1,35 @@
 import prisma from "@/app/lib/prisma";
 import { GameEngine, GameState } from "@/app/lib/game";
 import { WorldExtraction, createEmptyWorld } from "@/app/lib/game/narrativeParser";
+import { getTrustState } from "@/app/lib/server/trustService";
 
 export async function getOrCreateGameState(sessionId: string): Promise<GameEngine> {
   const session = await prisma.gameSession.findUnique({
     where: { id: sessionId },
-    select: { gameState: true },
+    select: { gameState: true, userId: true },
   });
 
   let engine: GameEngine;
+  let maxPuzzleLayer: number | undefined;
+
+  if (session?.userId) {
+    try {
+      const trust = await getTrustState(session.userId);
+      maxPuzzleLayer = trust.layer;
+    } catch (error) {
+      console.error("[GameState] Failed to resolve trust layer for puzzle gating:", error);
+    }
+  }
 
   if (session?.gameState) {
     try {
-      engine = GameEngine.deserialize(JSON.stringify(session.gameState));
+      engine = GameEngine.deserialize(JSON.stringify(session.gameState), maxPuzzleLayer);
     } catch (e) {
       console.error("Failed to deserialize game state, creating new:", e);
-      engine = new GameEngine();
+      engine = new GameEngine(undefined, false, maxPuzzleLayer);
     }
   } else {
-    engine = new GameEngine();
+    engine = new GameEngine(undefined, false, maxPuzzleLayer);
   }
 
   // Load dynamic world content (AI-created rooms, objects, puzzles)

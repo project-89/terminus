@@ -77,6 +77,7 @@ export async function getTrustState(userId: string): Promise<{
   decayedScore: number;
   pendingCeremony: TrustLayer | null;
   lastActiveAt: Date | null;
+  lastTrustUpdate: Date | null;
 }> {
   const profile = await prisma.playerProfile.findUnique({
     where: { userId },
@@ -84,6 +85,7 @@ export async function getTrustState(userId: string): Promise<{
       trustScore: true,
       layer: true,
       lastActiveAt: true,
+      lastTrustUpdate: true,
       pendingCeremony: true,
       user: { select: { createdAt: true } },
     },
@@ -96,6 +98,7 @@ export async function getTrustState(userId: string): Promise<{
       decayedScore: 0,
       pendingCeremony: null,
       lastActiveAt: null,
+      lastTrustUpdate: null,
     };
   }
 
@@ -112,6 +115,7 @@ export async function getTrustState(userId: string): Promise<{
     decayedScore,
     pendingCeremony: profile.pendingCeremony as TrustLayer | null,
     lastActiveAt: profile.lastActiveAt,
+    lastTrustUpdate: profile.lastTrustUpdate,
   };
 }
 
@@ -218,7 +222,7 @@ export async function recordActivity(userId: string): Promise<void> {
 
 export async function computeTrustDelta(
   userId: string,
-  event: "mission_complete" | "mission_fail" | "experiment_pass" | "experiment_fail" | "session_complete" | "report_submit" | "dream_submit" | "sync_report",
+  event: TrustEvent,
   score?: number
 ): Promise<number> {
   // Trust deltas calibrated for slow progression:
@@ -227,30 +231,8 @@ export async function computeTrustDelta(
   // - Layer 2→3 (50%): ~10-15 sessions + missions
   // - Layer 3→4 (75%): Many successful field missions
   // - Layer 4→5 (92%): Sustained network contribution
-  const baseDeltas: Record<string, number> = {
-    // Core progression events
-    session_complete: 0.008,        // Regular play (~12 sessions for Layer 1)
-    puzzle_complete: 0.015,         // Meaningful puzzle solving
-    experiment_pass: 0.012,         // LOGOS experiments
-    experiment_fail: -0.002,        // Slight penalty for failed experiments
-    
-    // Mission events (Layer 3+)
-    mission_complete: 0.025,        // Significant progression
-    mission_fail: -0.005,           // Small penalty
-    report_submit: 0.01,            // Engagement reward
-    
-    // Exploration & engagement
-    dream_submit: 0.008,            // Dream work
-    sync_report: 0.012,             // Synchronicity awareness
-    deep_exploration: 0.005,        // Finding hidden content
-    creative_action: 0.003,         // Novel interactions
-    
-    // Network actions (Layer 4+)
-    agent_recruited: 0.02,          // Successfully recruited someone
-    network_contribution: 0.015,    // Helping the network
-  };
-
-  let delta = baseDeltas[event] ?? 0;
+  void userId;
+  let delta = TRUST_EVENT_BASE_DELTAS[event] ?? 0;
 
   if (score !== undefined && event.includes("complete")) {
     delta *= (0.5 + score * 0.5);
@@ -258,6 +240,31 @@ export async function computeTrustDelta(
 
   return delta;
 }
+
+const TRUST_EVENT_BASE_DELTAS = {
+  // Core progression events
+  session_complete: 0.008,        // Regular play (~12 sessions for Layer 1)
+  puzzle_complete: 0.015,         // Meaningful puzzle solving
+  experiment_pass: 0.012,         // LOGOS experiments
+  experiment_fail: -0.002,        // Slight penalty for failed experiments
+
+  // Mission events (Layer 3+)
+  mission_complete: 0.025,        // Significant progression
+  mission_fail: -0.005,           // Small penalty
+  report_submit: 0.01,            // Engagement reward
+
+  // Exploration & engagement
+  dream_submit: 0.008,            // Dream work
+  sync_report: 0.012,             // Synchronicity awareness
+  deep_exploration: 0.005,        // Finding hidden content
+  creative_action: 0.003,         // Novel interactions
+
+  // Network actions (Layer 4+)
+  agent_recruited: 0.02,          // Successfully recruited someone
+  network_contribution: 0.015,    // Helping the network
+} as const;
+
+export type TrustEvent = keyof typeof TRUST_EVENT_BASE_DELTAS;
 
 export async function getLayerTools(layer: TrustLayer): Promise<string[]> {
   const toolsByLayer: Record<TrustLayer, string[]> = {
@@ -286,68 +293,101 @@ export async function getLayerTools(layer: TrustLayer): Promise<string[]> {
       "matrix_rain",
       "generate_sound",
       "generate_image",
+      "cipher_encode",
       "experiment_create",
       "experiment_note",
       "experiment_resolve",
       "award_points",
+      "puzzle_create",
+      "puzzle_solve",
       "profile_set",
       "embed_hidden_message",
       "synchronicity_log",
       "write_memory",
       "dream_record",
+      "world_create_room",
+      "world_create_object",
+      "world_modify_state",
+      "world_create_puzzle",
     ],
     3: [
       "glitch_screen",
       "matrix_rain",
       "generate_sound",
       "generate_image",
+      "cipher_encode",
+      "stego_image",
       "experiment_create",
       "experiment_note",
       "experiment_resolve",
       "award_points",
+      "puzzle_create",
+      "puzzle_solve",
       "profile_set",
       "embed_hidden_message",
       "synchronicity_log",
       "write_memory",
       "dream_record",
+      "world_create_room",
+      "world_create_object",
+      "world_modify_state",
+      "world_create_puzzle",
       "mission_request",
       "mission_expect_report",
+      "mission_abandon",
     ],
     4: [
       "glitch_screen",
       "matrix_rain",
       "generate_sound",
       "generate_image",
+      "cipher_encode",
+      "stego_image",
       "experiment_create",
       "experiment_note",
       "experiment_resolve",
       "award_points",
+      "puzzle_create",
+      "puzzle_solve",
       "profile_set",
       "embed_hidden_message",
       "synchronicity_log",
       "write_memory",
       "dream_record",
+      "world_create_room",
+      "world_create_object",
+      "world_modify_state",
+      "world_create_puzzle",
       "mission_request",
       "mission_expect_report",
+      "mission_abandon",
       "field_mission_assign",
-      "network_broadcast",
     ],
     5: [
       "glitch_screen",
       "matrix_rain",
       "generate_sound",
       "generate_image",
+      "cipher_encode",
+      "stego_image",
       "experiment_create",
       "experiment_note",
       "experiment_resolve",
       "award_points",
+      "puzzle_create",
+      "puzzle_solve",
       "profile_set",
       "embed_hidden_message",
       "synchronicity_log",
       "write_memory",
       "dream_record",
+      "world_create_room",
+      "world_create_object",
+      "world_modify_state",
+      "world_create_puzzle",
       "mission_request",
       "mission_expect_report",
+      "mission_abandon",
       "field_mission_assign",
       "verify_protocol_89",
       "network_broadcast",

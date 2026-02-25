@@ -285,12 +285,25 @@ export function TerminalCanvas() {
     function handleWheel(e: WheelEvent) {
       if (!terminalRef.current) return;
       e.preventDefault();
-      // Normalize delta: usually deltaY is ~100-120 for mouse wheels, variable for trackpads.
-      // Terminal.scroll expects a "direction" multiplier, where 1 = 1 line.
-      // We want ~3-5 lines per mouse wheel notch for snappy scrolling.
-      const linesPerNotch = 4;
-      const direction = Math.sign(e.deltaY) * Math.max(1, Math.round(Math.abs(e.deltaY) / 30));
-      terminalRef.current.scroll(direction * (linesPerNotch / 3));
+      const lineHeight = Math.max(
+        12,
+        (terminalRef.current.options.fontSize || 16) * 1.5
+      );
+
+      let linesToScroll = e.deltaY / lineHeight;
+      if (e.deltaMode === 1) {
+        // DOM_DELTA_LINE
+        linesToScroll = e.deltaY;
+      } else if (e.deltaMode === 2) {
+        // DOM_DELTA_PAGE
+        linesToScroll = (e.deltaY * window.innerHeight) / lineHeight;
+      }
+
+      // Prevent rare giant wheel spikes from jumping several screens at once.
+      const clamped = Math.max(-24, Math.min(24, linesToScroll));
+      if (Math.abs(clamped) > 0.001) {
+        terminalRef.current.scroll(clamped);
+      }
     }
 
     // Attach event listener to the canvas element

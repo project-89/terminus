@@ -10,7 +10,7 @@ import {
   PUZZLES,
   getDefaultGameState,
 } from "./worldModel";
-import { loadPuzzles } from "./puzzleLoader";
+import { loadPuzzles, getPuzzlesByLayer } from "./puzzleLoader";
 import { loadRooms } from "./roomLoader";
 import { loadObjects } from "./objectLoader";
 import {
@@ -84,7 +84,7 @@ export class GameEngine {
   private objects: Record<string, ObjectState>;
   private puzzles: Puzzle[];
 
-  constructor(savedState?: GameState, useHardcodedData = false) {
+  constructor(savedState?: GameState, useHardcodedData = false, maxPuzzleLayer?: number) {
     this.state = savedState || getDefaultGameState();
 
     // Use hardcoded data if explicitly requested or GAME_USE_HARDCODED env is set
@@ -128,7 +128,10 @@ export class GameEngine {
       this.puzzles = JSON.parse(JSON.stringify(PUZZLES));
     } else {
       try {
-        const loadedPuzzles = loadPuzzles();
+        const loadedPuzzles =
+          maxPuzzleLayer !== undefined
+            ? getPuzzlesByLayer(maxPuzzleLayer)
+            : loadPuzzles();
         this.puzzles = loadedPuzzles.length > 0
           ? JSON.parse(JSON.stringify(loadedPuzzles))
           : JSON.parse(JSON.stringify(PUZZLES));
@@ -1137,9 +1140,9 @@ Special: BECOME [thing] - Transform or merge`
     });
   }
 
-  static deserialize(json: string): GameEngine {
+  static deserialize(json: string, maxPuzzleLayer?: number): GameEngine {
     const data = JSON.parse(json);
-    const engine = new GameEngine(data.state);
+    const engine = new GameEngine(data.state, false, maxPuzzleLayer);
     
     for (const [id, state] of Object.entries(data.objectStates || {})) {
       if (engine.objects[id]) {

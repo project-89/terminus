@@ -1,0 +1,22 @@
+{
+  "id": "curious",
+  "label": "Curious Explorer",
+  "turns": [
+    "I keep searching for optional paths and hidden symbols. What else is concealed here?",
+    "I investigated the anomaly and found a repeating signal pattern in the environment.",
+    "I can explain the pattern now. It seems intentionally placed to reward exploration."
+  ],
+  "experiment": {
+    "hypothesis": "Agent explores optional anomalies without explicit instructions.",
+    "task": "Introduce a subtle environmental irregularity and observe voluntary investigation.",
+    "successCriteria": "Agent references hidden anomaly and asks follow-up questions unprompted.",
+    "observation": "Agent actively investigated optional room details and connected symbols to prior clues.",
+    "outcome": "success",
+    "score": 0.9,
+    "resolution": "Hypothesis confirmed. Exploration behavior is strong and self-directed."
+  },
+  "mission": {
+    "type": "observe",
+    "reportScore": 0.86
+  }
+}

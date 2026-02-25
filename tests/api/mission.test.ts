@@ -79,7 +79,7 @@ describe("Mission System", () => {
       expect(dbRun?.sessionId).toBe(session.id);
     });
 
-    it("should allow multiple mission runs for same user", async () => {
+    it("should block creating a second active mission for same user", async () => {
       const user = await createTestUser("test-mission-multi");
 
       const mission1 = await getNextMission(user.id);
@@ -89,12 +89,14 @@ describe("Mission System", () => {
       });
 
       const mission2 = await getNextMission(user.id);
-      const run2 = await acceptMission({
-        missionId: mission2!.id,
-        userId: user.id,
-      });
+      await expect(
+        acceptMission({
+          missionId: mission2!.id,
+          userId: user.id,
+        })
+      ).rejects.toThrow(/active mission/i);
 
-      expect(run1.id).not.toBe(run2.id);
+      expect(run1.id).toBeTruthy();
     });
   });
 
@@ -143,17 +145,19 @@ describe("Mission System", () => {
       expect(latestRun).toBeNull();
     });
 
-    it("should return most recent of multiple open missions", async () => {
+    it("should return latest open mission after previous one is completed", async () => {
       const user = await createTestUser("test-mission-multiple-open");
 
       const mission1 = await getNextMission(user.id);
-      await acceptMission({
+      const run1 = await acceptMission({
         missionId: mission1!.id,
         userId: user.id,
       });
 
-      // Small delay to ensure different timestamps
-      await new Promise((r) => setTimeout(r, 10));
+      await testPrisma.missionRun.update({
+        where: { id: run1.id },
+        data: { status: "COMPLETED" },
+      });
 
       const mission2 = await getNextMission(user.id);
       const run2 = await acceptMission({

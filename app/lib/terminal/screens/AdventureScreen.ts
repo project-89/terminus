@@ -320,6 +320,9 @@ All around you is a void, not as a thing but as the absence of any thing.`;
     // 2. System Commands (minimal)
     await this.terminal.print("\nTerminal Commands:", { color: TERMINAL_COLORS.system });
     await this.terminal.print(`  ${"!clear".padEnd(14)} Clear the screen`, { color: TERMINAL_COLORS.primary });
+    await this.terminal.print(`  ${"!render".padEnd(14)} Render scene (supports free-text focus)`, { color: TERMINAL_COLORS.primary });
+    await this.terminal.print(`  ${"!renders".padEnd(14)} View recent scene render metadata`, { color: TERMINAL_COLORS.primary });
+    await this.terminal.print(`  ${"!render-presets".padEnd(14)} List named render style presets`, { color: TERMINAL_COLORS.primary });
     await this.terminal.print(`  ${"!home".padEnd(14)} Return to main menu`, { color: TERMINAL_COLORS.primary });
 
     // 3. Identity Commands - gated by discovery status

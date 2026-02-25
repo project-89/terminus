@@ -1,6 +1,7 @@
 import prisma from "@/app/lib/prisma";
 import bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid";
+import { awardPoints } from "./rewardService";
 
 const generateAgentNumber = customAlphabet("0123456789ABCDEFGHJKLMNPQRSTUVWXYZ", 4);
 
@@ -258,9 +259,12 @@ export async function applyReferralCode(
     where: { id: userId },
     data: { referredById: referrer.id },
   });
-  
-  return { 
-    success: true, 
+
+  // Award points to the referrer
+  await awardPoints(referrer.id, "DIRECT_REFERRAL");
+
+  return {
+    success: true,
     referrerAgentId: referrer.agentId || undefined,
   };
 }

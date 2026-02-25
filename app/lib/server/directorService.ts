@@ -178,13 +178,38 @@ async function ensureTrustEvolution(
   experimentAvg: number
 ): Promise<{ trustScore: number; layer: TrustLayer; pendingCeremony: TrustLayer | null }> {
   const state = await getTrustState(userId);
-  
+
   await recordActivity(userId);
-  
+
+  // Guarantee forward movement for genuinely active players.
+  // This is time-gated so trust does not jump per turn.
+  const HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+  const msSinceLastTrustUpdate = state.lastTrustUpdate
+    ? Date.now() - state.lastTrustUpdate.getTime()
+    : Number.POSITIVE_INFINITY;
+  const shouldApplyHeartbeat = msSinceLastTrustUpdate >= HEARTBEAT_INTERVAL_MS;
+
+  const heartbeatDelta = shouldApplyHeartbeat
+    ? state.decayedScore < 0.1
+      ? 0.004
+      : state.decayedScore < 0.3
+      ? 0.003
+      : state.decayedScore < 0.6
+      ? 0.002
+      : 0.001
+    : 0;
+
   const performanceDelta = ((successRate * 0.6) + (experimentAvg * 0.4)) * 0.01;
-  
-  if (performanceDelta > 0.001) {
-    const result = await evolveTrust(userId, performanceDelta, "session_performance");
+  const performanceContribution = shouldApplyHeartbeat ? Math.max(0, performanceDelta) : 0;
+  const totalDelta = heartbeatDelta + performanceContribution;
+
+  if (totalDelta > 0.0005) {
+    const reasons: string[] = [];
+    if (heartbeatDelta > 0) reasons.push("engaged_turn");
+    if (performanceContribution > 0.001) reasons.push("session_performance");
+    const reason = reasons.join("+") || "engagement";
+
+    const result = await evolveTrust(userId, totalDelta, reason);
     return {
       trustScore: result.newScore,
       layer: result.newLayer,

@@ -24,7 +24,7 @@ const DEFAULT_SAFETY_SETTINGS = [
 const MODEL_NAMES: Record<ModelKey, string> = {
   cli: process.env.PROJECT89_CLI_MODEL ?? "gemini-3-flash-preview",
   adventure: process.env.PROJECT89_ADVENTURE_MODEL ?? "gemini-3-flash-preview",
-  content: process.env.PROJECT89_CONTENT_MODEL ?? "gemini-3-flash-preview",
+  content: process.env.PROJECT89_CONTENT_MODEL ?? "gemini-3-pro-preview",
 };
 
 const modelCache = new Map<ModelKey, ReturnType<typeof google>>();

@@ -20,7 +20,7 @@ import { getAdminDirectives } from "@/app/lib/server/profileService";
 import { getOrCreateGameState, saveGameState, isGameCommand } from "@/app/lib/server/gameStateService";
 import { getSessionWorld, processNarrativeExchange, generateConsistencyContext, aiCreateRoom, aiCreateObject, aiModifyState, aiCreatePuzzle, type AICreatedRoom, type AICreatedObject, type AIStateModification, type AICreatedPuzzle } from "@/app/lib/server/worldGraphService";
 import { createExperiment, appendExperimentNote, resolveExperiment, getActiveExperiment } from "@/app/lib/server/experimentService";
-import { markCeremonyComplete, getLayerTools, type TrustLayer } from "@/app/lib/server/trustService";
+import { markCeremonyComplete, getLayerTools, computeTrustDelta, evolveTrust, type TrustLayer } from "@/app/lib/server/trustService";
 import { createAnonymousAgent, getAgentIdentity } from "@/app/lib/server/identityService";
 import { recordConversationOutcome, updateOutcomeMetrics, getInsightsForContext, getCollectiveDreamSymbols, getCollectiveSyncPatterns } from "@/app/lib/server/collectiveService";
 import { extractMemoryAsync } from "@/app/lib/server/memoryExtractionService";
@@ -176,6 +176,14 @@ const missionExpectReportParameters = z.object({
     .string()
     .min(4)
     .describe("Guidance for the agent on what evidence to report"),
+});
+
+const missionAbandonParameters = z.object({
+  missionRunId: z
+    .string()
+    .optional()
+    .describe("Mission run id to abandon (defaults to the active mission)"),
+  reason: z.string().optional().describe("Reason for abandoning the mission"),
 });
 
 const profileSetParameters = z.object({
@@ -350,15 +358,21 @@ const stegoEncodeParameters = z.object({
 
 const generateImageParameters = z.object({
   prompt: z.string().min(5).describe("Detailed description of the image to generate. Be specific about style, mood, and subject."),
-  aspectRatio: z.enum(["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9"]).default("1:1").describe("Aspect ratio for the generated image"),
+  focusObject: z.string().optional().describe("Optional object being inspected (e.g., 'comic page', 'sticky note', 'poster'). Use this for close-up renders."),
+  includeGroundedText: z.boolean().default(true).optional().describe("If true, preserve diegetic text from notes/posters/screens when grounded in scene context."),
+  preset: z.enum(["matrix90s", "signal-noir", "liminal-retro", "dreamgrain"]).default("matrix90s").optional().describe("Named cinematic style preset."),
+  aspectRatio: z.enum(["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9"]).default("16:9").describe("Aspect ratio for the generated image"),
   style: z.string().optional().describe("Optional style prefix (e.g., 'glitchy cyberpunk', 'surreal dreamscape', 'corrupted photograph')"),
-  quality: z.enum(["fast", "high", "ultra"]).default("fast").describe("Image quality: fast (1K, quick), high (2K, detailed), ultra (4K, maximum detail)"),
+  quality: z.enum(["fast", "high", "ultra"]).default("high").describe("Image quality: fast (1K, quick), high (2K, detailed), ultra (4K, maximum detail)"),
   mode: z.enum(["modal", "subliminal", "peripheral", "corruption", "afterimage", "glitch_scatter", "creep"]).default("modal").describe("How to display the image: modal (dismissable overlay), subliminal (100-300ms flash), peripheral (edge of vision, fades when looked at), corruption (bleeds into terminal), afterimage (persists as ghost), glitch_scatter (fragments during glitch), creep (slowly materializes)"),
   intensity: z.number().min(0).max(1).default(1).describe("Visual intensity 0-1"),
   experimentId: z.string().optional().describe("If testing player reaction, provide experiment ID to track when/if they respond"),
 });
 
-const puzzleSolveParameters = z.object({});
+const puzzleSolveParameters = z.object({
+  puzzleId: z.string().optional().describe("Optional puzzle ID when resolving an explicit world puzzle"),
+  answer: z.string().optional().describe("Optional solved answer to validate against world puzzle data"),
+});
 
 const dreamRecordParameters = z.object({
   content: z.string().min(10).describe("The player's dream description"),
@@ -430,7 +444,8 @@ const awardPointsParameters = z.object({
 const identityAssignParameters = z.object({});
 
 // Covert tools for Layer 0-1: experiments, world-building, and subtle visual intrusions
-function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
+function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string; requireExperimentId?: boolean }) {
+  const requireExperimentId = ctx.requireExperimentId ?? true;
   return {
     identity_assign: {
       description:
@@ -549,7 +564,7 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
     },
     generate_image: {
       description:
-        "Generate subtle visual intrusions. Use 'subliminal' mode for brief flashes the player may not consciously notice, 'peripheral' for things at edge of vision, 'creep' for slow manifestations. Pair with experiment tracking to test if player mentions seeing something. Keep intrusions rare and unsettling - faces in static, symbols, impossible geometries.",
+        "Generate contextual visuals. For inspect/examine commands on visual artifacts (comic pages, notes, posters, screens), use mode='modal' and focusObject for a grounded close-up. For psychological probes, use subtle modes (subliminal/peripheral/creep). Preserve diegetic text only when grounded.",
       parameters: generateImageParameters,
       execute: async (args: z.infer<typeof generateImageParameters>) => {
         console.log(`[COVERT IMAGE] Generating: ${args.prompt.slice(0, 50)}... mode=${args.mode}`);
@@ -638,14 +653,16 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
     },
     world_create_object: {
       description:
-        "WORLD BUILDING: Create a new object AS PART OF AN EXPERIMENT. You must first create an experiment with experiment_create, then reference its ID here. Objects persist. Use for testing hypotheses through items the player can discover or interact with.",
+        requireExperimentId
+          ? "WORLD BUILDING: Create a new object AS PART OF AN EXPERIMENT. You must first create an experiment with experiment_create, then reference its ID here. Objects persist. Use for testing hypotheses through items the player can discover or interact with."
+          : "WORLD BUILDING: Create a new persistent object in the game world. Use for narrative continuity, environmental storytelling, and adaptive puzzle design.",
       parameters: worldCreateObjectParameters,
       execute: async (args: z.infer<typeof worldCreateObjectParameters>) => {
         if (!ctx.sessionId || !ctx.userId) {
           return { success: false, message: "No session context" };
         }
         // EXPERIMENT GATE: Require experimentId in Layer 0-1
-        if (!args.experimentId) {
+        if (requireExperimentId && !args.experimentId) {
           console.warn(`[WORLD BUILD] Object creation rejected - no experimentId provided`);
           return {
             success: false,
@@ -671,14 +688,16 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
     },
     world_modify_state: {
       description:
-        "WORLD BUILDING: Modify game state AS PART OF AN EXPERIMENT. Reference the experimentId for the experiment this modification serves. Use for: moving player, inventory changes, setting flags that your experiment will observe.",
+        requireExperimentId
+          ? "WORLD BUILDING: Modify game state AS PART OF AN EXPERIMENT. Reference the experimentId for the experiment this modification serves. Use for: moving player, inventory changes, setting flags that your experiment will observe."
+          : "WORLD BUILDING: Modify persistent game state (flags, object state, room transitions) to keep the world coherent across sessions.",
       parameters: worldModifyStateParameters,
       execute: async (args: z.infer<typeof worldModifyStateParameters>) => {
         if (!ctx.sessionId || !ctx.userId) {
           return { success: false, message: "No session context" };
         }
         // EXPERIMENT GATE: Require experimentId in Layer 0-1
-        if (!args.experimentId) {
+        if (requireExperimentId && !args.experimentId) {
           console.warn(`[WORLD BUILD] State modification rejected - no experimentId provided`);
           return {
             success: false,
@@ -697,14 +716,16 @@ function getCovertToolsConfig(ctx: { sessionId?: string; userId?: string }) {
     },
     world_create_puzzle: {
       description:
-        "PUZZLE DESIGN: Create a puzzle AS PART OF AN EXPERIMENT. Puzzles can use multiple media: cipher-encoded text, steganographic images, audio clues, world-based conditions, or chained sequences. Use to test player problem-solving, pattern recognition, and persistence. Always create an experiment first, then design puzzles that test your hypothesis.",
+        requireExperimentId
+          ? "PUZZLE DESIGN: Create a puzzle AS PART OF AN EXPERIMENT. Puzzles can use multiple media: cipher-encoded text, steganographic images, audio clues, world-based conditions, or chained sequences. Use to test player problem-solving, pattern recognition, and persistence. Always create an experiment first, then design puzzles that test your hypothesis."
+          : "PUZZLE DESIGN: Create a persistent puzzle with optional multimedia components (cipher/stego/audio/image), world conditions, and unlock effects. Design for the player's current puzzle profile and trust layer.",
       parameters: worldCreatePuzzleParameters,
       execute: async (args: z.infer<typeof worldCreatePuzzleParameters>) => {
         if (!ctx.sessionId || !ctx.userId) {
           return { success: false, message: "No session context" };
         }
         // EXPERIMENT GATE: Require experimentId in Layer 0-1
-        if (!args.experimentId) {
+        if (requireExperimentId && !args.experimentId) {
           console.warn(`[PUZZLE DESIGN] Puzzle creation rejected - no experimentId provided`);
           return {
             success: false,
@@ -779,7 +800,7 @@ function getToolsConfig(context?: ToolRuntimeContext) {
       parameters: stegoEncodeParameters,
     },
     generate_image: {
-      description: "Generate and display an AI-created image. Use for visions, hallucinations, reality glitches, or psychological experiments. MODES: 'subliminal' for brief unsettling flashes (player may not consciously notice), 'peripheral' for things at edge of vision that vanish when focused on, 'corruption' for reality-breaking bleeds, 'creep' for slow manifestation, 'afterimage' for persistent haunting, 'glitch_scatter' for chaotic fragments. Use with experimentId to track if player mentions or reacts to what they saw.",
+      description: "Generate and display an AI-created image. For object inspection moments (comic page, sticky note, poster, monitor), prefer mode='modal' with focusObject for accurate close-up renders. For probes/hauntings, use subtle modes: subliminal/peripheral/corruption/afterimage/glitch_scatter/creep. Use includeGroundedText=true when in-world text should be legible and exact.",
       parameters: generateImageParameters,
     },
     matrix_rain: {
@@ -868,6 +889,10 @@ function getToolsConfig(context?: ToolRuntimeContext) {
       mission_expect_report: {
         description: "Tell the agent you are waiting for evidence/reporting.",
         parameters: missionExpectReportParameters,
+      },
+      mission_abandon: {
+        description: "Abandon the current mission when the agent cannot complete it.",
+        parameters: missionAbandonParameters,
       },
       profile_set: {
         description: "Update the agent profile/preferences.",
@@ -1033,11 +1058,32 @@ export async function POST(req: Request) {
         if (lastUserMsg) {
           const isKnownCommand = isGameCommand(lastUserMsg.content);
           if (isKnownCommand) {
+            const puzzlesSolvedBefore = new Set(gameEngine.getState().puzzlesSolved || []);
             const result = gameEngine.execute(lastUserMsg.content);
             engineActionResult = result;
             console.log(`[GAME ENGINE] Command: "${lastUserMsg.content}" -> ${result.success ? "SUCCESS" : "FAILED"}: ${result.message?.slice(0, 100)}`);
-            if (result.puzzleSolved) {
-              console.log(`[GAME ENGINE] Puzzle solved: ${result.puzzleSolved}`);
+            const puzzlesSolvedAfter = new Set(gameEngine.getState().puzzlesSolved || []);
+            const newlySolvedPuzzles = Array.from(puzzlesSolvedAfter).filter(
+              (id) => !puzzlesSolvedBefore.has(id)
+            );
+            if (result.puzzleSolved && !newlySolvedPuzzles.includes(result.puzzleSolved)) {
+              newlySolvedPuzzles.push(result.puzzleSolved);
+            }
+            if (newlySolvedPuzzles.length > 0) {
+              console.log(`[GAME ENGINE] Puzzle solved: ${newlySolvedPuzzles.join(", ")}`);
+              if (resolvedUserId) {
+                try {
+                  const perPuzzleDelta = await computeTrustDelta(resolvedUserId, "puzzle_complete");
+                  const totalDelta = perPuzzleDelta * newlySolvedPuzzles.length;
+                  await evolveTrust(
+                    resolvedUserId,
+                    totalDelta,
+                    `puzzle_complete:${newlySolvedPuzzles.join(",")}`
+                  );
+                } catch (trustError) {
+                  console.error("[TRUST SYSTEM] Failed to apply puzzle completion trust update:", trustError);
+                }
+              }
             }
             await saveGameState(context.sessionId, gameEngine);
           } else {
@@ -1212,7 +1258,12 @@ COVERT TOOLS AVAILABLE (use sparingly):
 - experiment_note: Record observations during your experiment (they don't see this)
 - experiment_resolve: Complete your experiment with success/failure/abandoned outcome
 - award_points: Give points silently (categories: clever_action, discovery, roleplay, etc.)
-- generate_image: Subliminal visual effects (rare, unsettling)
+- generate_image: Contextual visual rendering. For inspect/examine of visual objects (comic page, note, poster, screen), prefer mode='modal' with focusObject and includeGroundedText=true for grounded close-ups. For covert probes, use subtle modes (subliminal/peripheral/corruption/afterimage/glitch_scatter/creep).
+
+VISUAL TRIGGER RULES:
+- If player intent is "look/examine/read" and the target is a visual artifact, you SHOULD call generate_image.
+- Keep these renders scene-grounded: preserve room continuity and object-level details.
+- Use readable in-world text only when anchored to described objects (notes/posters/screens); do not invent UI/HUD overlays.
 
 EXPERIMENT LIFECYCLE:
 1. experiment_create → Start ONE experiment
@@ -1432,7 +1483,7 @@ Create your experiment NOW. Focus on it. Resolve it. Then start the next.`;
       // SECURITY: Build tool context with server-derived values only
       // accessTier is derived from layer, not client-supplied
       const serverAccessTier = layer >= 4 ? 2 : layer >= 2 ? 1 : 0;
-      const allTools = context?.toolsDisabled
+      const baseTools = context?.toolsDisabled
         ? undefined
         : getToolsConfig({
             sessionId: context?.sessionId,
@@ -1441,6 +1492,23 @@ Create your experiment NOW. Focus on it. Resolve it. Then start the next.`;
             accessTier: isDev && context?.accessTier !== undefined ? context.accessTier : serverAccessTier,
             trustScore: trustLevel,
           });
+      const worldTools = getCovertToolsConfig({
+        sessionId: context?.sessionId,
+        userId: resolvedUserId,
+        requireExperimentId: false,
+      }) as Record<string, any>;
+      const promotedWorldTools = {
+        world_create_room: worldTools.world_create_room,
+        world_create_object: worldTools.world_create_object,
+        world_modify_state: worldTools.world_modify_state,
+        world_create_puzzle: worldTools.world_create_puzzle,
+      };
+      const allTools = baseTools
+        ? {
+            ...(baseTools as Record<string, any>),
+            ...promotedWorldTools,
+          }
+        : baseTools;
 
       // Layer tools are the BASE - experiments can ADD tools or FORBID tools
       const experimentDirective = directorCtx.experiment?.directive;
@@ -1612,11 +1680,19 @@ Create your experiment NOW. Focus on it. Resolve it. Then start the next.`;
             }
             
             if (pendingCeremony !== null && pendingCeremony !== undefined) {
-              try {
-                await markCeremonyComplete(resolved.userId, pendingCeremony as TrustLayer);
-                console.log(`[CEREMONY] Marked layer ${pendingCeremony} ceremony complete for user ${resolved.userId}`);
-              } catch (e) {
-                console.error("[CEREMONY] Failed to mark ceremony complete:", e);
+              // Only mark ceremony complete if the AI actually delivered ceremony narrative
+              const ceremonyIndicators = ["layer", "ceremony", "threshold", "awakening", "veil", "mask", "bleed", "crack", "whisper", "call", "reveal", "unlock", "evolved", "ascend", "clearance"];
+              const contentLower = (content || "").toLowerCase();
+              const matchCount = ceremonyIndicators.filter(kw => contentLower.includes(kw)).length;
+              if (matchCount >= 2) {
+                try {
+                  await markCeremonyComplete(resolved.userId, pendingCeremony as TrustLayer);
+                  console.log(`[CEREMONY] Marked layer ${pendingCeremony} ceremony complete for user ${resolved.userId} (${matchCount} indicators matched)`);
+                } catch (e) {
+                  console.error("[CEREMONY] Failed to mark ceremony complete:", e);
+                }
+              } else {
+                console.log(`[CEREMONY] Ceremony for layer ${pendingCeremony} not delivered (only ${matchCount} indicators). Will retry next turn.`);
               }
             }
             

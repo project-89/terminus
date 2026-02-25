@@ -11,6 +11,27 @@ import { TerminalOptions, PrintOptions } from "./types/options";
 import { DEFAULT_OPTIONS, TERMINAL_COLORS } from "./constants";
 
 export { TERMINAL_COLORS };
+
+export type TerminalTextBufferEntry = {
+  kind?: "text";
+  text: string;
+  color?: string;
+  effect?: "none" | "glitch" | "flicker";
+};
+
+export type TerminalImageBufferEntry = {
+  kind: "image";
+  text: string;
+  imageUrl: string;
+  imageStatus: "loading" | "ready" | "error";
+  image?: HTMLImageElement;
+  displayWidth: number;
+  displayHeight: number;
+  label?: string;
+};
+
+export type TerminalBufferEntry = TerminalTextBufferEntry | TerminalImageBufferEntry;
+
 export class Terminal extends EventEmitter {
   private static instance: Terminal | null = null;
 
@@ -28,11 +49,7 @@ export class Terminal extends EventEmitter {
   public thinkingAnimationFrame: number = 0;
   public bottomPadding: number = 0;
 
-  public buffer: Array<{
-    text: string;
-    color?: string;
-    effect?: "none" | "glitch" | "flicker";
-  }> = [];
+  public buffer: TerminalBufferEntry[] = [];
   private printQueue: Array<{
     text: string;
     options: PrintOptions;
@@ -181,13 +198,32 @@ export class Terminal extends EventEmitter {
     const { color = this.options.foregroundColor, speed = "normal" } = options;
 
     // Split text into lines and wrap each line
-    const lines = text.split("\n").flatMap((line) => {
+    const rawLines = text.split("\n").flatMap((line) => {
       if (!line.trim()) return [""];
       return this.renderer.wrapText(line);
     });
 
+    const lines: string[] = [];
+    const previousBufferLine = this.buffer.length > 0 ? this.buffer[this.buffer.length - 1].text : null;
+
+    for (const line of rawLines) {
+      const isBlank = line.trim().length === 0;
+      const previousLine =
+        lines.length > 0 ? lines[lines.length - 1] : previousBufferLine;
+      const previousIsBlank = previousLine !== null && previousLine.trim().length === 0;
+      if (isBlank && previousIsBlank) {
+        continue;
+      }
+      lines.push(isBlank ? "" : line);
+    }
+
+    if (lines.length === 0) {
+      return;
+    }
+
     for (const line of lines) {
       this.buffer.push({
+        kind: "text",
         text: line,
         color,
         effect: options.effect,
@@ -219,6 +255,7 @@ export class Terminal extends EventEmitter {
 
     for (const line of lines) {
       this.buffer.push({
+        kind: "text",
         text: line,
         color,
         effect: options.effect,
@@ -245,6 +282,95 @@ export class Terminal extends EventEmitter {
     this.processNextPrint();
   }
 
+  public async printInlineImage(
+    imageUrl: string,
+    options: { label?: string; reveal?: boolean } = {}
+  ): Promise<void> {
+    if (!imageUrl) return;
+    const reveal = options.reveal !== false;
+    const viewportHeight =
+      typeof this.getHeight === "function" ? this.getHeight() : this.options?.height || 800;
+    const revealPadding = Math.round(viewportHeight * 0.18);
+
+    const maxWidth = this.renderer.getInlineImageMaxWidth();
+    const placeholderHeight = this.renderer.getInlineImagePlaceholderHeight(maxWidth);
+    const placeholderTotalHeight = this.renderer.getInlineImageTotalHeight(placeholderHeight);
+
+    const entry: TerminalImageBufferEntry = {
+      kind: "image",
+      text: "",
+      imageUrl,
+      imageStatus: "loading",
+      displayWidth: maxWidth,
+      displayHeight: placeholderHeight,
+      label: options.label,
+    };
+
+    this.buffer.push(entry);
+    this.currentPrintY += placeholderTotalHeight;
+
+    if (reveal || this.isAtBottom) {
+      this.scrollToLatest({ extraPadding: reveal ? revealPadding : 0 });
+    }
+
+    this.render();
+
+    const image = new Image();
+    image.decoding = "async";
+
+    image.onload = () => {
+      // If the buffer was cleared or replaced before load completed, skip updates.
+      if (!this.buffer.includes(entry)) {
+        if (imageUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(imageUrl);
+        }
+        return;
+      }
+
+      const oldTotalHeight = this.renderer.getInlineImageTotalHeight(entry.displayHeight);
+      const fitted = this.renderer.fitInlineImageDimensions(
+        image.naturalWidth || image.width || maxWidth,
+        image.naturalHeight || image.height || placeholderHeight
+      );
+
+      entry.image = image;
+      entry.imageStatus = "ready";
+      entry.displayWidth = fitted.width;
+      entry.displayHeight = fitted.height;
+
+      const newTotalHeight = this.renderer.getInlineImageTotalHeight(entry.displayHeight);
+      this.currentPrintY += newTotalHeight - oldTotalHeight;
+
+      if (reveal || this.isAtBottom) {
+        this.scrollToLatest({ extraPadding: reveal ? revealPadding : 0 });
+      } else {
+        this.render();
+      }
+
+      if (imageUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(imageUrl);
+      }
+    };
+
+    image.onerror = () => {
+      if (!this.buffer.includes(entry)) {
+        if (imageUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(imageUrl);
+        }
+        return;
+      }
+
+      entry.imageStatus = "error";
+      this.render();
+
+      if (imageUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(imageUrl);
+      }
+    };
+
+    image.src = imageUrl;
+  }
+
   public async processCommand(command: string) {
     if (!this.commandAccess) return;
     await this.commandHandler.processCommand(command);
@@ -257,6 +383,7 @@ export class Terminal extends EventEmitter {
     if (this.loadingMessageInterval) clearInterval(this.loadingMessageInterval);
     this.inputHandler.destroy();
     this.toolHandler.destroy();
+    this.releaseBufferResources();
 
     // Mark as destroyed and clear singleton so next construction creates fresh instance
     this.destroyed = true;
@@ -312,6 +439,7 @@ export class Terminal extends EventEmitter {
 
   public clear() {
     this.clearPrintQueue();
+    this.releaseBufferResources();
     this.buffer = [];
     this.currentPrintY = 40;
     this.scrollOffset = 0;
@@ -421,7 +549,9 @@ export class Terminal extends EventEmitter {
   }
 
   public getBufferText(): string {
-    return this.buffer.map((line) => line.text).join("\n");
+    return this.buffer
+      .map((line) => (line.kind === "image" ? "[INLINE_IMAGE]" : line.text))
+      .join("\n");
   }
 
   public getLastMessage(): string {
@@ -434,6 +564,18 @@ export class Terminal extends EventEmitter {
       lastMessage = line + "\n" + lastMessage;
     }
     return lastMessage.trim();
+  }
+
+  private releaseBufferResources() {
+    for (const entry of this.buffer) {
+      if (entry.kind === "image" && entry.imageUrl.startsWith("blob:")) {
+        try {
+          URL.revokeObjectURL(entry.imageUrl);
+        } catch {
+          // Best effort cleanup.
+        }
+      }
+    }
   }
 
   public async copyToClipboard(content: string): Promise<void> {
@@ -481,70 +623,203 @@ export class Terminal extends EventEmitter {
       let codeBlockContent = "";
       let paragraphBuffer = "";
       let isFirstLine = true;
-      let justExecutedTool = false;
+      let suppressNextBlankLineAfterTool = false;
+      let pendingToolLines: string[] = [];
+      let pendingParagraphSpacer = false;
+      let printedParagraphSinceLastSpacer = false;
 
-      const flushParagraph = async () => {
+      const normalizeToolCandidate = (raw: string): string => {
+        return raw
+          .trim()
+          .replace(/^[-*]\s+/, "")
+          .replace(/^\d+\.\s+/, "")
+          .replace(/^`+|`+$/g, "");
+      };
+
+      const tryExtractToolCall = (raw: string): { tool: string; parameters: any } | null => {
+        const normalized = normalizeToolCandidate(raw);
+        const candidates = [normalized];
+        const firstBrace = normalized.indexOf("{");
+        const lastBrace = normalized.lastIndexOf("}");
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+          candidates.push(normalized.slice(firstBrace, lastBrace + 1));
+        }
+
+        for (const candidate of candidates) {
+          try {
+            const parsed = JSON.parse(candidate);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              const obj = parsed as Record<string, any>;
+              const toolKey = Object.keys(obj).find(
+                (key) => key.trim().toLowerCase() === "tool"
+              );
+              const paramsKey = Object.keys(obj).find(
+                (key) => key.trim().toLowerCase() === "parameters"
+              );
+              if (!toolKey) continue;
+
+              const rawTool = obj[toolKey];
+              const tool = typeof rawTool === "string" ? rawTool.trim() : "";
+              if (!tool) continue;
+
+              return {
+                tool,
+                parameters: paramsKey ? obj[paramsKey] : {},
+              };
+            }
+          } catch {
+            // Ignore invalid candidates.
+          }
+        }
+        return null;
+      };
+
+      const looksLikeToolFragment = (raw: string): boolean => {
+        const normalized = normalizeToolCandidate(raw);
+        if (!normalized) return false;
+        const deescaped = normalized.replace(/\\"/g, '"');
+        return (
+          normalized.startsWith("{") ||
+          normalized.includes('{"tool"') ||
+          normalized.includes('\\"tool\\"') ||
+          /"\s*tool\s*"/.test(normalized) ||
+          normalized.includes('\\"parameters\\"') ||
+          /"\s*parameters\s*"/.test(normalized) ||
+          /"\s*tool\s*"\s*:/.test(deescaped) ||
+          /"\s*parameters\s*"\s*:/.test(deescaped)
+        );
+      };
+
+      const looksLikeJsonContinuation = (raw: string): boolean => {
+        const normalized = raw.trim();
+        return /[{}\[\]":,]/.test(normalized);
+      };
+
+      const executeToolCandidate = async (raw: string): Promise<boolean> => {
+        const toolCall = tryExtractToolCall(raw);
+        if (!toolCall) return false;
+        try {
+          await toolEvents.emit(`tool:${toolCall.tool}`, toolCall.parameters);
+          suppressNextBlankLineAfterTool = true;
+          return true;
+        } catch (toolErr) {
+          console.warn("Tool execution failed, continuing stream", toolErr);
+          return false;
+        }
+      };
+
+      const flushParagraph = async (): Promise<boolean> => {
         const text = paragraphBuffer.trim();
         if (text) {
           await this.print(text, { speed: "normal" });
+          printedParagraphSinceLastSpacer = true;
+          paragraphBuffer = "";
+          return true;
         }
         paragraphBuffer = "";
+        return false;
       };
 
       const processLine = async (line: string) => {
+        const trimmedLine = line.trim();
+
         // Skip empty lines at the start
-        if (isFirstLine && !line.trim()) {
+        if (isFirstLine && !trimmedLine) {
           isFirstLine = false;
           return;
         }
         isFirstLine = false;
 
-        // Skip empty lines after tool execution
-        if (justExecutedTool && !line.trim()) {
+        // Suppress only one blank separator immediately after a hidden tool payload.
+        if (
+          suppressNextBlankLineAfterTool &&
+          !trimmedLine &&
+          paragraphBuffer.trim().length === 0 &&
+          !pendingParagraphSpacer &&
+          !printedParagraphSinceLastSpacer
+        ) {
+          suppressNextBlankLineAfterTool = false;
           return;
         }
 
-          // Handle inline JSON
-          if (line.startsWith("{") && line.endsWith("}")) {
-            try {
-              const json = JSON.parse(line);
-              if (json.tool && json.parameters) {
-                try {
-                  await toolEvents.emit(`tool:${json.tool}`, json.parameters);
-                  justExecutedTool = true;
-                  return;
-                } catch (toolErr) {
-                  console.warn("Tool execution failed, continuing stream", toolErr);
-                  // fall through to treat as text so we don't break the stream
-                }
-              }
-            } catch {
-              // If it's not valid JSON, treat it as regular text
-            }
+        if (trimmedLine) {
+          suppressNextBlankLineAfterTool = false;
+        }
+
+        if (trimmedLine === ">") {
+          return;
+        }
+
+        // If a tool line was split across multiple lines/chunks, accumulate and retry.
+        if (pendingToolLines.length > 0) {
+          pendingToolLines.push(line);
+          const joined = pendingToolLines.join("\n");
+          if (await executeToolCandidate(joined)) {
+            pendingToolLines = [];
+            return;
           }
 
-        // Reset tool execution flag when we get a non-empty line
-        if (line.trim()) {
-          justExecutedTool = false;
+          const currentLooksTool = looksLikeToolFragment(line);
+          const currentLooksContinuation = looksLikeJsonContinuation(line);
+          const canKeepWaiting =
+            (currentLooksTool || currentLooksContinuation) &&
+            pendingToolLines.length < 8 &&
+            joined.length < 8000;
+
+          if (canKeepWaiting) {
+            return;
+          }
+
+          console.warn("Dropping unparseable tool payload from stream");
+          pendingToolLines = [];
+
+          // Swallow suspicious JSON/tool fragments to prevent leaking internals.
+          if (currentLooksTool || currentLooksContinuation) {
+            return;
+          }
+        }
+
+        // Handle inline JSON tool calls.
+        if (await executeToolCandidate(line)) {
+          return;
+        }
+
+        // Tool-like fragments are buffered and hidden until parseable.
+        if (looksLikeToolFragment(line)) {
+          pendingToolLines = [line];
+          return;
         }
 
         // Sentence-aware buffering
-        if (!line) {
-          // Blank line → flush paragraph and add spacer
-          await flushParagraph();
-          await this.print("", { speed: "instant" });
-          fullContent += "\n";
+        if (!trimmedLine) {
+          // Blank line → flush paragraph and queue a spacer before the next paragraph.
+          const hadBufferedParagraph = paragraphBuffer.trim().length > 0;
+          const flushed = await flushParagraph();
+          // Preserve paragraph separators even if we already flushed early
+          // due to sentence heuristics.
+          const shouldQueueSpacer =
+            (hadBufferedParagraph || flushed || printedParagraphSinceLastSpacer) &&
+            !pendingParagraphSpacer;
+          if (shouldQueueSpacer) {
+            fullContent += "\n";
+            pendingParagraphSpacer = true;
+            printedParagraphSinceLastSpacer = false;
+          }
           return;
+        }
+
+        if (pendingParagraphSpacer) {
+          await this.print("", { speed: "instant" });
+          pendingParagraphSpacer = false;
         }
 
         // Accumulate into paragraph buffer
         const needsSpace = paragraphBuffer.length > 0 ? " " : "";
-        paragraphBuffer += needsSpace + line;
-        fullContent += line + "\n";
+        paragraphBuffer += needsSpace + trimmedLine;
+        fullContent += trimmedLine + "\n";
 
         // Heuristic: flush when line likely ends a sentence or buffer gets long
-        const trimmed = line.trim();
-        const endsSentence = /[\.!?][\)\]"']?$/.test(trimmed);
+        const endsSentence = /[\.!?][\)\]"']?$/.test(trimmedLine);
         const tooLong = paragraphBuffer.length > 420;
         if (endsSentence || tooLong) {
           await flushParagraph();
@@ -573,23 +848,20 @@ export class Terminal extends EventEmitter {
         // Process complete lines
         while (buffer.includes("\n")) {
           const newlineIndex = buffer.indexOf("\n");
-          const line = buffer.slice(0, newlineIndex).trim();
+          const line = buffer.slice(0, newlineIndex).replace(/\r$/, "");
           buffer = buffer.slice(newlineIndex + 1);
+          const trimmedLine = line.trim();
 
           // Handle code blocks
-          if (line === "```json" || line === "```tool") {
+          if (trimmedLine === "```json" || trimmedLine === "```tool") {
             inCodeBlock = true;
             continue;
           }
-          if (line === "```" && inCodeBlock) {
+          if (trimmedLine === "```" && inCodeBlock) {
             inCodeBlock = false;
-            try {
-              const json = JSON.parse(codeBlockContent);
-              if (json.tool && json.parameters) {
-                await toolEvents.emit(`tool:${json.tool}`, json.parameters);
-              }
-            } catch (e) {
-              console.warn("Failed to parse code block JSON:", e);
+            const executed = await executeToolCandidate(codeBlockContent);
+            if (!executed && looksLikeToolFragment(codeBlockContent)) {
+              console.warn("Failed to parse code block tool JSON");
             }
             codeBlockContent = "";
             continue;
@@ -605,9 +877,14 @@ export class Terminal extends EventEmitter {
       }
 
       // Process any remaining buffer
-      const remainingLine = buffer.trim();
-      if (remainingLine && !inCodeBlock) {
+      const remainingLine = buffer.replace(/\r+$/, "");
+      if (remainingLine.trim() && !inCodeBlock) {
         await processLine(remainingLine);
+      }
+
+      // Drop any dangling tool payload fragments so they never render.
+      if (pendingToolLines.length > 0) {
+        pendingToolLines = [];
       }
 
       // Final flush

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
-import { LAYER_NAMES } from "@/app/lib/server/trustService";
+import { LAYER_NAMES, getTrustState } from "@/app/lib/server/trustService";
 import { listRecentExperiments } from "@/app/lib/server/experimentService";
 import { loadPuzzles, getPuzzleMetadata } from "@/app/lib/game/puzzleLoader";
 
@@ -33,22 +33,21 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "status": {
-        const rewards = await prisma.reward.aggregate({
-          where: { userId },
-          _sum: { amount: true },
-        });
+        const trustState = await getTrustState(userId);
         const daysActive = Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24));
         
         return NextResponse.json({
           userId: user.id,
           agentId: user.agentId,
-          trustScore: profile.trustScore,
-          layer: profile.layer,
-          layerName: LAYER_NAMES[profile.layer] || "Unknown",
+          trustScore: trustState.trustScore,
+          effectiveTrustScore: trustState.decayedScore,
+          layer: trustState.layer,
+          layerName: LAYER_NAMES[trustState.layer] || "Unknown",
+          pendingCeremony: trustState.pendingCeremony,
           daysActive,
           isReferred: !!user.referredById,
           identityLocked: user.identityLocked,
-          points: rewards._sum?.amount || 0,
+          points: user.referralPoints || 0,
         });
       }
 
@@ -98,17 +97,10 @@ export async function POST(req: NextRequest) {
 
       case "points": {
         const amount = parseInt(value) || 0;
-        await prisma.reward.deleteMany({ where: { userId } });
-        if (amount > 0) {
-          await prisma.reward.create({
-            data: {
-              userId,
-              type: "CREDIT",
-              amount,
-              metadata: { reason: "dev_command" },
-            },
-          });
-        }
+        await prisma.user.update({
+          where: { id: userId },
+          data: { referralPoints: Math.max(0, amount) },
+        });
         return NextResponse.json({ 
           message: `Points set to ${amount}`,
           newValue: amount,
@@ -217,7 +209,7 @@ export async function POST(req: NextRequest) {
         // Get current active experiment for this user
         const experiments = await listRecentExperiments({ userId, limit: 5 });
         const activeSession = await prisma.gameSession.findFirst({
-          where: { userId, status: "ACTIVE" },
+          where: { userId, status: "OPEN" },
           orderBy: { createdAt: "desc" },
         });
 
@@ -288,7 +280,7 @@ export async function POST(req: NextRequest) {
       case "state": {
         // Get comprehensive session/game state
         const activeSession = await prisma.gameSession.findFirst({
-          where: { userId, status: "ACTIVE" },
+          where: { userId, status: "OPEN" },
           orderBy: { createdAt: "desc" },
           include: {
             messages: {
@@ -338,18 +330,18 @@ export async function POST(req: NextRequest) {
       case "puzzles": {
         // Get puzzle status from game state
         const activeSession = await prisma.gameSession.findFirst({
-          where: { userId, status: "ACTIVE" },
+          where: { userId, status: "OPEN" },
           orderBy: { createdAt: "desc" },
         });
 
         // Load all puzzles from JSON files
         const allPuzzles = loadPuzzles();
 
-        // Get solved puzzles from game state (stored in session metadata or state)
+        // Get solved puzzles from canonical saved game state
         let solvedPuzzles: string[] = [];
-        if (activeSession?.metadata) {
-          const meta = activeSession.metadata as any;
-          solvedPuzzles = meta.puzzlesSolved || meta.gameState?.puzzlesSolved || [];
+        if (activeSession?.gameState && typeof activeSession.gameState === "object") {
+          const gameState = activeSession.gameState as any;
+          solvedPuzzles = Array.isArray(gameState.puzzlesSolved) ? gameState.puzzlesSolved : [];
         }
 
         // Also check agentNotes for puzzle completions

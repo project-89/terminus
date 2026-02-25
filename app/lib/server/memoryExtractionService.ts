@@ -5,7 +5,7 @@ import prisma from "@/app/lib/prisma";
 
 // Use a fast flash model for classification
 const CLASSIFIER_MODEL = google(
-  process.env.PROJECT89_CLASSIFIER_MODEL ?? "gemini-2.0-flash-lite-preview-02-05"
+  process.env.PROJECT89_CLASSIFIER_MODEL ?? "gemini-3-flash-preview"
 );
 
 const ClassificationSchema = z.object({

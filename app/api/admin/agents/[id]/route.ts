@@ -240,10 +240,18 @@ export async function GET(
 
       missionHistory: agent.missionRuns.map((m: any) => ({
         id: m.id,
+        missionId: m.mission.id,
         title: m.mission.title,
+        type: m.mission.type,
+        prompt: m.mission.prompt,
+        minEvidence: m.mission.minEvidence,
+        tags: m.mission.tags,
         status: m.status,
         score: m.score,
+        feedback: m.feedback,
+        payload: m.payload,
         createdAt: m.createdAt,
+        updatedAt: m.updatedAt,
       })),
 
       behavior: {
@@ -263,11 +271,18 @@ export async function GET(
         avgScore,
         history: agent.missionRuns.map((m: any) => ({
           id: m.id,
+          missionId: m.mission.id,
           title: m.mission.title,
           type: m.mission.type,
+          prompt: m.mission.prompt,
+          minEvidence: m.mission.minEvidence,
+          tags: m.mission.tags,
           status: m.status,
           score: m.score,
+          feedback: m.feedback,
+          payload: m.payload,
           createdAt: m.createdAt,
+          updatedAt: m.updatedAt,
         })),
       },
 

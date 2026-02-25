@@ -8,6 +8,12 @@ export class Renderer {
     sidePadding: 60,
     topPadding: 40,
   };
+  private inlineImageLayout = {
+    framePadding: 8,
+    bottomSpacingMultiplier: 0.75,
+    maxHeightRatio: 0.55,
+    placeholderAspectRatio: 16 / 9,
+  };
 
   // Calculate dynamic left margin to center content on wide screens
   private getContentLeftMargin(): number {
@@ -110,8 +116,53 @@ export class Renderer {
     let currentY = this.layout.topPadding - this.terminal.scrollOffset;
     const lineHeight = this.options.fontSize * 1.5;
     const leftMargin = this.getContentLeftMargin();
+    const contentWidth = this.getContentWidth();
 
     this.terminal.buffer.forEach((line) => {
+      if (line.kind === "image") {
+        const framePadding = this.inlineImageLayout.framePadding;
+        const imageWidth = Math.min(contentWidth, line.displayWidth);
+        const imageHeight = Math.max(1, line.displayHeight);
+        const frameWidth = imageWidth + framePadding * 2;
+        const frameHeight = imageHeight + framePadding * 2;
+        const frameX = leftMargin + (contentWidth - frameWidth) / 2;
+        const frameY = currentY;
+
+        this.ctx.save();
+        this.ctx.strokeStyle = "rgba(47, 183, 195, 0.7)";
+        this.ctx.lineWidth = 1;
+        this.ctx.fillStyle = "rgba(9, 8, 18, 0.92)";
+        this.ctx.fillRect(frameX, frameY, frameWidth, frameHeight);
+        this.ctx.strokeRect(frameX, frameY, frameWidth, frameHeight);
+
+        if (line.imageStatus === "ready" && line.image) {
+          this.ctx.drawImage(
+            line.image,
+            frameX + framePadding,
+            frameY + framePadding,
+            imageWidth,
+            imageHeight
+          );
+        } else {
+          this.ctx.fillStyle = "rgba(47, 183, 195, 0.7)";
+          this.ctx.font = `${Math.max(12, this.options.fontSize - 1)}px ${this.options.fontFamily}`;
+          this.ctx.textAlign = "center";
+          this.ctx.fillText(
+            line.imageStatus === "error"
+              ? "[IMAGE DECODE ERROR]"
+              : "[RENDERING INLINE IMAGE...]",
+            frameX + frameWidth / 2,
+            frameY + frameHeight / 2 - this.options.fontSize / 2
+          );
+          this.ctx.textAlign = "left";
+        }
+
+        this.ctx.restore();
+
+        currentY += this.getInlineImageTotalHeight(imageHeight);
+        return;
+      }
+
       const yOffset = Math.sin(timestamp * 0.001) * 0.8;
       const xOffset = Math.cos(timestamp * 0.002) * 0.3;
 
@@ -215,19 +266,52 @@ export class Renderer {
 
   public getMaxCharsPerLine(): number {
     const charWidth = this.ctx.measureText("M").width;
-    const availableWidth = Math.min(
-      this.terminal.getWidth() - this.layout.sidePadding * 2,
-      this.layout.maxWidth
-    );
+    const availableWidth = this.getContentWidth();
     return Math.floor(availableWidth / charWidth);
   }
 
-  public wrapText(text: string): string[] {
-    const maxLayoutWidth = Math.min(
-      this.layout.maxWidth || 900,
-      this.terminal.getWidth()
+  public getContentWidth(): number {
+    const maxLayoutWidth = Math.min(this.layout.maxWidth || 900, this.terminal.getWidth());
+    return Math.max(120, maxLayoutWidth - this.layout.sidePadding * 2);
+  }
+
+  public getInlineImageMaxWidth(): number {
+    return this.getContentWidth();
+  }
+
+  public getInlineImagePlaceholderHeight(width = this.getInlineImageMaxWidth()): number {
+    return Math.max(120, Math.round(width / this.inlineImageLayout.placeholderAspectRatio));
+  }
+
+  public fitInlineImageDimensions(sourceWidth: number, sourceHeight: number): {
+    width: number;
+    height: number;
+  } {
+    const safeSourceWidth = Math.max(1, sourceWidth || this.getInlineImageMaxWidth());
+    const safeSourceHeight = Math.max(
+      1,
+      sourceHeight || this.getInlineImagePlaceholderHeight()
     );
-    const effectiveWidth = maxLayoutWidth - this.layout.sidePadding * 2;
+    const maxWidth = this.getInlineImageMaxWidth();
+    const maxHeight = Math.max(
+      180,
+      Math.floor(this.terminal.getHeight() * this.inlineImageLayout.maxHeightRatio)
+    );
+    const scale = Math.min(maxWidth / safeSourceWidth, maxHeight / safeSourceHeight, 1);
+    return {
+      width: Math.max(120, Math.round(safeSourceWidth * scale)),
+      height: Math.max(90, Math.round(safeSourceHeight * scale)),
+    };
+  }
+
+  public getInlineImageTotalHeight(imageHeight: number): number {
+    const framePadding = this.inlineImageLayout.framePadding * 2;
+    const spacing = this.options.fontSize * this.inlineImageLayout.bottomSpacingMultiplier;
+    return imageHeight + framePadding + spacing;
+  }
+
+  public wrapText(text: string): string[] {
+    const effectiveWidth = this.getContentWidth();
 
     const words = text.split(" ");
     const lines: string[] = [];

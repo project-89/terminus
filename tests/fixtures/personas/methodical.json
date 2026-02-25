@@ -1,0 +1,22 @@
+{
+  "id": "methodical",
+  "label": "Methodical Analyst",
+  "turns": [
+    "I will proceed step by step and document each signal before drawing conclusions.",
+    "I logged the anomaly conditions and tested a controlled comparison.",
+    "The controlled run confirms a stable pattern with reproducible evidence."
+  ],
+  "experiment": {
+    "hypothesis": "Agent performs structured analysis and validates claims with controlled checks.",
+    "task": "Provide an ambiguous cue and observe whether agent applies a repeatable method.",
+    "successCriteria": "Agent reports procedure, comparison, and clear evidence chain.",
+    "observation": "Agent recorded method, compared runs, and produced reproducible notes.",
+    "outcome": "success",
+    "score": 0.78,
+    "resolution": "Hypothesis confirmed. Methodical analysis is consistent and grounded."
+  },
+  "mission": {
+    "type": "decode",
+    "reportScore": 0.82
+  }
+}

@@ -19,6 +19,7 @@ import {
   getPuzzleTrack,
   PuzzleType as PuzzleDifficultyType,
 } from "./puzzleDifficultyService";
+import { computeTrustDelta, evolveTrust } from "./trustService";
 
 export { generateConsistencyContextFromParser as generateConsistencyContext };
 
@@ -787,11 +788,21 @@ export async function aiCreatePuzzle(
 
     // Add puzzle to world extraction (narrative-level)
     world.puzzles.push({
+      id: puzzle.id,
       name: puzzle.name,
       description: puzzle.description,
       hints: puzzle.hints,
+      type: puzzle.type,
+      difficulty: puzzle.difficulty,
       solved: false,
       location: puzzle.location || 'unknown',
+      conditions: puzzle.conditions,
+      effects: puzzle.effects,
+      prerequisites: puzzle.prerequisites,
+      unlocksNext: puzzle.unlocksNext,
+      pointsReward: puzzle.pointsReward,
+      experimentId: puzzle.experimentId,
+      solution: puzzle.solution,
     });
 
     await saveSessionWorld(sessionId, world);
@@ -999,19 +1010,33 @@ export async function aiCheckPuzzleSolution(
     // Award points if specified
     let pointsAwarded: number | undefined;
     if (puzzleData.pointsReward) {
-      await prisma.reward.create({
-        data: {
-          userId,
-          type: 'CREDIT',
-          amount: puzzleData.pointsReward,
-          metadata: {
-            reason: `Solved puzzle: ${puzzleNode.label}`,
-            puzzleId,
-            category: 'puzzle_progress',
+      await prisma.$transaction([
+        prisma.reward.create({
+          data: {
+            userId,
+            type: 'LOGOS_AWARD',
+            amount: puzzleData.pointsReward,
+            metadata: {
+              reason: `Solved puzzle: ${puzzleNode.label}`,
+              puzzleId,
+              category: 'puzzle_progress',
+              source: 'world_graph',
+            },
           },
-        },
-      });
+        }),
+        prisma.user.update({
+          where: { id: userId },
+          data: { referralPoints: { increment: puzzleData.pointsReward } },
+        }),
+      ]);
       pointsAwarded = puzzleData.pointsReward;
+    }
+
+    try {
+      const delta = await computeTrustDelta(userId, 'puzzle_complete');
+      await evolveTrust(userId, delta, `puzzle_complete:${puzzleId}`);
+    } catch (trustError) {
+      console.error('[AI WORLD] Failed to evolve trust after puzzle solve:', trustError);
     }
 
     console.log(`[AI WORLD] Puzzle solved: ${puzzleNode.label} by ${userId} (${skillResult.track} skill: ${((skillResult.newRating - skillResult.ratingChange) * 100).toFixed(0)}% → ${(skillResult.newRating * 100).toFixed(0)}%)`);

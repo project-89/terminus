@@ -8,6 +8,7 @@ import {
   getSessionById,
   getActiveSessionByHandle,
 } from "@/app/lib/server/sessionService";
+import { computeTrustDelta, evolveTrust } from "@/app/lib/server/trustService";
 
 type ResolveParams = {
   sessionId?: string | null;
@@ -93,6 +94,16 @@ export async function POST(req: Request) {
         resolution: typeof body.resolution === "string" ? body.resolution : undefined,
         finalScore,
       });
+
+      // Evolve trust based on experiment outcome
+      try {
+        const event = status === "RESOLVED_SUCCESS" ? "experiment_pass" as const : "experiment_fail" as const;
+        const delta = await computeTrustDelta(resolution.userId, event, finalScore);
+        await evolveTrust(resolution.userId, delta, `${event}: ${body.id}`);
+      } catch (e) {
+        console.error("[experiment] Trust evolution failed (non-blocking):", e);
+      }
+
       return NextResponse.json({ experiment: resolved });
     }
 

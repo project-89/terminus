@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
 import { validateAdminAuth } from "@/app/lib/server/adminAuth";
+import { loadMissionTemplates } from "@/app/lib/server/missionTemplateService";
 
 export const dynamic = "force-dynamic";
 
@@ -65,10 +66,12 @@ export async function GET(request: Request) {
       },
     });
 
-    // 3. Fetch Mission Definitions
-    const missions = await prisma.missionDefinition.findMany({
-      where: { active: true },
-      select: { id: true, title: true, type: true }
+    // 3. Fetch Mission Templates (catalog + DB)
+    const missions = await loadMissionTemplates({
+      includeCatalog: true,
+      includeDatabase: true,
+      includeInactive: false,
+      includeRuns: false,
     });
 
     // 4. Fetch Recent Experiments

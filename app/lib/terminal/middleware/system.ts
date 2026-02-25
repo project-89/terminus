@@ -498,11 +498,16 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
           content: submission,
         },
       });
-      await print("Mission report submitted.", TERMINAL_COLORS.success);
+      const isFinished = result?.status === "COMPLETED" || result?.status === "FAILED";
+      if (isFinished) {
+        await print("Mission report submitted.", TERMINAL_COLORS.success);
+      } else {
+        await print("Report received but requires more detail.", TERMINAL_COLORS.warning);
+      }
       if (result.feedback) {
         await print(result.feedback, TERMINAL_COLORS.secondary);
       }
-      if (typeof result.score === "number") {
+      if (isFinished && typeof result.score === "number") {
         await print(`Score: ${(result.score * 100).toFixed(0)}%`, TERMINAL_COLORS.system);
       }
       if (result.reward) {
@@ -511,7 +516,9 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
           TERMINAL_COLORS.system
         );
       }
-      terminalContext.setActiveMissionRun(undefined);
+      if (isFinished) {
+        terminalContext.setActiveMissionRun(undefined);
+      }
     } catch (error: any) {
       await print(`Report failed: ${error.message}`, TERMINAL_COLORS.error);
     }
@@ -643,7 +650,13 @@ export const systemCommandsMiddleware: TerminalMiddleware = async (
         await print(`  User ID:      ${data.userId}`, TERMINAL_COLORS.primary);
         await print(`  Agent ID:     ${data.agentId || "none"}`, TERMINAL_COLORS.primary);
         await print(`  Trust Score:  ${(data.trustScore * 100).toFixed(1)}%`, TERMINAL_COLORS.primary);
+        if (typeof data.effectiveTrustScore === "number") {
+          await print(`  Effective:    ${(data.effectiveTrustScore * 100).toFixed(1)}%`, TERMINAL_COLORS.primary);
+        }
         await print(`  Layer:        ${data.layer} (${data.layerName})`, TERMINAL_COLORS.primary);
+        if (data.pendingCeremony !== null && data.pendingCeremony !== undefined) {
+          await print(`  Ceremony:     pending layer ${data.pendingCeremony}`, TERMINAL_COLORS.secondary);
+        }
         await print(`  Days Active:  ${data.daysActive}`, TERMINAL_COLORS.primary);
         await print(`  Referred:     ${data.isReferred ? "yes" : "no"}`, TERMINAL_COLORS.primary);
         await print(`  ID Locked:    ${data.identityLocked ? "yes" : "no"}`, TERMINAL_COLORS.primary);

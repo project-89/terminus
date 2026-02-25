@@ -32,44 +32,31 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Mission not found" }, { status: 404 });
       }
 
-      const existing = await prisma.missionRun.findFirst({
-        where: {
-          userId,
+      // Use acceptMission which enforces single active mission rule
+      const { acceptMission } = await import("@/app/lib/server/missionService");
+      try {
+        const result = await acceptMission({
           missionId,
-          status: { in: ["ACCEPTED", "SUBMITTED", "REVIEWING"] },
-        },
-      });
-
-      if (existing) {
-        return NextResponse.json({ error: "Mission already active" }, { status: 400 });
-      }
-
-      const run = await prisma.missionRun.create({
-        data: {
           userId,
-          missionId,
-          status: "ACCEPTED",
-        },
-        include: {
+        });
+
+        return NextResponse.json({
+          success: true,
           mission: {
-            select: {
-              title: true,
-              type: true,
-            },
+            id: result.id,
+            title: result.mission.title,
+            type: result.mission.type,
+            status: result.status,
+            createdAt: new Date().toISOString(),
           },
-        },
-      });
-
-      return NextResponse.json({
-        success: true,
-        mission: {
-          id: run.id,
-          title: run.mission?.title || "Unknown",
-          type: run.mission?.type || "unknown",
-          status: run.status,
-          createdAt: run.createdAt.toISOString(),
-        },
-      });
+        });
+      } catch (e: any) {
+        // Handle "already have active mission" error gracefully
+        if (e.message?.includes("active mission")) {
+          return NextResponse.json({ error: e.message }, { status: 400 });
+        }
+        throw e;
+      }
     }
 
     if (action === "submit" && missionId && evidence) {
@@ -79,22 +66,27 @@ export async function POST(req: NextRequest) {
           userId,
           status: "ACCEPTED",
         },
+        include: { mission: true },
       });
 
       if (!run) {
         return NextResponse.json({ error: "No active mission found" }, { status: 404 });
       }
 
-      await prisma.missionRun.update({
-        where: { id: run.id },
-        data: {
-          status: "SUBMITTED",
-          report: evidence,
-          submittedAt: new Date(),
-        },
+      // Use the proper missionService for evaluation instead of just marking submitted
+      const { submitMissionReport } = await import("@/app/lib/server/missionService");
+      const result = await submitMissionReport({
+        missionRunId: run.id,
+        payload: evidence,
       });
 
-      return NextResponse.json({ success: true, status: "SUBMITTED" });
+      return NextResponse.json({
+        success: true,
+        status: result.status,
+        score: result.score,
+        feedback: result.feedback,
+        reward: result.reward,
+      });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

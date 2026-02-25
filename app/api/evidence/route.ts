@@ -6,6 +6,8 @@ import { detectSynchronicities } from "@/app/lib/server/synchronicityService";
 import { recordDiscovery } from "@/app/lib/server/knowledgeGraphService";
 
 const genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY || "" });
+const EVIDENCE_FLASH_MODEL = process.env.PROJECT89_EVIDENCE_FLASH_MODEL ?? "gemini-3-flash-preview";
+const EVIDENCE_PRO_MODEL = process.env.PROJECT89_EVIDENCE_PRO_MODEL ?? "gemini-3-pro-preview";
 
 type EvidenceType = "image" | "video" | "audio" | "document" | "text";
 
@@ -66,9 +68,10 @@ async function analyzeWithGemini(
   evidenceType: EvidenceType,
   missionContext?: string
 ): Promise<AnalysisResult> {
-  const model = evidenceType === "video" 
-    ? "gemini-2.0-flash" 
-    : "gemini-2.0-flash";
+  const model =
+    evidenceType === "video" || evidenceType === "image"
+      ? EVIDENCE_PRO_MODEL
+      : EVIDENCE_FLASH_MODEL;
 
   const contextPrompt = missionContext
     ? `\n\nMISSION CONTEXT: ${missionContext}`
@@ -188,7 +191,7 @@ Respond in JSON format:
 
   try {
     const response = await genai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: EVIDENCE_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: analysisPrompt }] }],
     });
 

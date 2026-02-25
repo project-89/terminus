@@ -1,5 +1,11 @@
 import prisma from "@/app/lib/prisma";
 import { memoryStore, uid } from "./memoryStore";
+import { getProfile, upsertProfile } from "./profileService";
+import {
+  initializeExperimentHypothesis,
+  recordExperimentObservation,
+  resolveExperimentHypothesis,
+} from "./bayes/orchestrator";
 
 export type ExperimentStatus = "ACTIVE" | "RESOLVED_SUCCESS" | "RESOLVED_FAILURE" | "ABANDONED";
 
@@ -23,6 +29,27 @@ export type ExperimentNoteRecord = {
   score?: number;
   createdAt: Date;
 };
+
+// Keyword → trait mapping for experiment-to-profile feedback
+const HYPOTHESIS_TRAIT_MAP: Record<string, string[]> = {
+  curiosity: ["curiosity", "curious", "explore", "discover", "investigate", "wonder"],
+  analytical: ["logic", "pattern", "cipher", "puzzle", "decode", "analyze", "deduc"],
+  resilience: ["persist", "pressure", "endur", "resist", "challenge", "difficult"],
+  creativity: ["creative", "novel", "imagin", "invent", "original", "unorthodox"],
+  trust: ["trust", "secret", "confid", "loyal", "betray", "reveal"],
+  empathy: ["empathy", "empath", "moral", "ethic", "feel", "compassion"],
+};
+
+function inferTraitsFromHypothesis(hypothesis: string): string[] {
+  const lower = hypothesis.toLowerCase();
+  const matched: string[] = [];
+  for (const [trait, keywords] of Object.entries(HYPOTHESIS_TRAIT_MAP)) {
+    if (keywords.some(kw => lower.includes(kw))) {
+      matched.push(trait);
+    }
+  }
+  return matched;
+}
 
 // Fallback in-memory notes when DB is unavailable
 const notesByUser: Map<string, Array<{ key: string; value: string; createdAt: Date }>> =
@@ -95,6 +122,51 @@ export async function resolveExperiment(params: {
 
       console.log(`[ExperimentService] Resolved experiment ${params.experimentId} as ${params.status}`);
 
+      // Post-resolution: update player profile traits based on hypothesis keywords
+      try {
+        const matchedTraits = inferTraitsFromHypothesis(updated.hypothesis || "");
+        if (matchedTraits.length > 0) {
+          const isSuccess = params.status === "RESOLVED_SUCCESS";
+          const score = params.finalScore ?? (isSuccess ? 0.7 : 0.3);
+          const delta = isSuccess ? 0.05 * score : -0.02;
+          const profile = await getProfile(params.userId);
+          const updatedTraits = { ...profile.traits };
+          for (const trait of matchedTraits) {
+            const key = `${trait}_score`;
+            const current = typeof updatedTraits[key] === "number" ? updatedTraits[key] : 0;
+            updatedTraits[key] = Math.max(0, Math.min(1, current + delta));
+          }
+          await upsertProfile(params.userId, { ...profile, traits: updatedTraits });
+          console.log(`[ExperimentService] Updated traits for ${params.userId}: ${matchedTraits.join(", ")} (delta: ${delta})`);
+        }
+      } catch (traitErr) {
+        console.warn("[ExperimentService] Trait update failed (non-blocking):", traitErr);
+      }
+
+      // Bayesian hypothesis engine integration
+      try {
+        const outcome =
+          params.status === "RESOLVED_SUCCESS"
+            ? "success"
+            : params.status === "RESOLVED_FAILURE"
+              ? "failure"
+              : "abandoned";
+        await resolveExperimentHypothesis({
+          userId: params.userId,
+          experimentId: params.experimentId,
+          outcome,
+          finalScore: params.finalScore,
+          resolution: params.resolution,
+          hypothesis: updated.hypothesis,
+          task: updated.task,
+          title: updated.title || undefined,
+          createdAt: updated.createdAt,
+          resolvedAt: updated.updatedAt || new Date(),
+        });
+      } catch (bayesErr) {
+        console.warn("[ExperimentService] Bayesian resolve integration failed (non-blocking):", bayesErr);
+      }
+
       return {
         id: updated.id,
         hypothesis: updated.hypothesis,
@@ -129,6 +201,18 @@ export async function createExperiment(params: {
   const activeExperiment = await getActiveExperiment(params.userId);
   if (activeExperiment) {
     console.log(`[ExperimentService] User ${params.userId} already has active experiment ${activeExperiment.id}, returning it`);
+    try {
+      await initializeExperimentHypothesis({
+        userId: params.userId,
+        experimentId: activeExperiment.id,
+        hypothesis: activeExperiment.hypothesis,
+        task: activeExperiment.task,
+        successCriteria: activeExperiment.success_criteria,
+        title: activeExperiment.title,
+      });
+    } catch (bayesErr) {
+      console.warn("[ExperimentService] Bayesian init on active experiment failed (non-blocking):", bayesErr);
+    }
     return activeExperiment;
   }
 
@@ -181,6 +265,19 @@ export async function createExperiment(params: {
     }
   }
 
+  try {
+    await initializeExperimentHypothesis({
+      userId: params.userId,
+      experimentId: id,
+      hypothesis: params.hypothesis,
+      task: params.task,
+      successCriteria: params.success_criteria,
+      title: params.title,
+    });
+  } catch (bayesErr) {
+    console.warn("[ExperimentService] Bayesian create integration failed (non-blocking):", bayesErr);
+  }
+
   return payload;
 }
 
@@ -227,6 +324,18 @@ export async function appendExperimentNote(params: {
     } catch {
       memPush(params.userId, `experiment:${params.id}:note`, JSON.stringify(note));
     }
+  }
+
+  try {
+    await recordExperimentObservation({
+      userId: params.userId,
+      experimentId: params.id,
+      observation: params.observation,
+      result: params.result,
+      score: params.score,
+    });
+  } catch (bayesErr) {
+    console.warn("[ExperimentService] Bayesian note integration failed (non-blocking):", bayesErr);
   }
   return note;
 }

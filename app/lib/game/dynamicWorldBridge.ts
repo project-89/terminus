@@ -132,21 +132,27 @@ export function extractedObjectToObjectState(
 export function extractedPuzzleToPuzzle(
   extracted: ExtractedPuzzle
 ): Puzzle {
-  const id = nameToId(extracted.name);
+  const id = extracted.id ? nameToId(extracted.id) : nameToId(extracted.name);
 
   return {
     id,
     name: extracted.name,
     solved: extracted.solved ?? false,
-    // AI-created puzzles use a flag-based condition
-    conditions: [
-      { type: 'flag', target: `puzzle-${id}-complete`, value: true }
-    ],
-    onSolve: [
-      { type: 'set_flag', target: `puzzle-${id}-solved`, value: true }
-    ],
+    conditions: extracted.conditions && extracted.conditions.length > 0
+      ? extracted.conditions
+      : [
+          { type: "flag", target: `puzzle-${id}-complete`, value: true },
+        ],
+    onSolve: extracted.effects && extracted.effects.length > 0
+      ? extracted.effects
+      : [
+          { type: "set_flag", target: `puzzle-${id}-solved`, value: true },
+        ],
     hint: extracted.hints[0],
-    logosExperiment: 'AI-generated puzzle for dynamic world expansion',
+    logosExperiment: extracted.experimentId
+      ? `AI-generated puzzle (${extracted.type || "world"}) linked to ${extracted.experimentId}`
+      : `AI-generated puzzle (${extracted.type || "world"}) for dynamic world expansion`,
+    dependsOn: extracted.prerequisites,
   };
 }
 
@@ -208,6 +214,9 @@ export function mergeDynamicContent(
     if (!rooms[id]) {
       rooms[id] = room;
       console.log(`[DynamicWorld] Added AI room: ${id}`);
+    } else if (rooms[id].region === "dynamic") {
+      rooms[id] = room;
+      console.log(`[DynamicWorld] Updated AI room: ${id}`);
     }
   }
 
@@ -215,13 +224,20 @@ export function mergeDynamicContent(
     if (!objects[id]) {
       objects[id] = obj;
       console.log(`[DynamicWorld] Added AI object: ${id}`);
+    } else if (objects[id].customState?.aiCreated) {
+      objects[id] = obj;
+      console.log(`[DynamicWorld] Updated AI object: ${id}`);
     }
   }
 
   for (const puzzle of dynamicPuzzles) {
-    if (!puzzles.some(p => p.id === puzzle.id)) {
+    const existingIndex = puzzles.findIndex((p) => p.id === puzzle.id);
+    if (existingIndex === -1) {
       puzzles.push(puzzle);
       console.log(`[DynamicWorld] Added AI puzzle: ${puzzle.id}`);
+    } else if (puzzles[existingIndex].logosExperiment?.includes("AI-generated")) {
+      puzzles[existingIndex] = puzzle;
+      console.log(`[DynamicWorld] Updated AI puzzle: ${puzzle.id}`);
     }
   }
 

@@ -232,6 +232,16 @@ describe("Trust/Layer System", () => {
       expect(layer3).toContain("mission_request");
     });
 
+    it("should expose puzzle design tools from layer 2 onward", async () => {
+      const layer1 = await getLayerTools(1);
+      const layer2 = await getLayerTools(2);
+
+      expect(layer1).not.toContain("world_create_puzzle");
+      expect(layer2).toContain("puzzle_create");
+      expect(layer2).toContain("puzzle_solve");
+      expect(layer2).toContain("world_create_puzzle");
+    });
+
     it("should include network tools at layer 5", async () => {
       const layer4 = await getLayerTools(4);
       const layer5 = await getLayerTools(5);

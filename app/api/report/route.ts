@@ -1,6 +1,7 @@
 import { submitMissionReport, getLatestOpenMissionRun } from "@/app/lib/server/missionService";
 import { getSessionById, getActiveSessionByHandle } from "@/app/lib/server/sessionService";
 import { recordMemoryEvent } from "@/app/lib/server/memoryService";
+import { computeTrustDelta, evolveTrust } from "@/app/lib/server/trustService";
 
 async function resolveSession(params: { sessionId?: string | null; handle?: string | null; userId?: string | null }) {
   if (params.sessionId) {
@@ -61,6 +62,16 @@ export async function POST(req: Request) {
     content: payload,
     tags: result.mission.tags,
   });
+
+  // Evolve trust based on mission outcome
+  try {
+    const event = result.status === "COMPLETED" ? "mission_complete" as const : "mission_fail" as const;
+    const delta = await computeTrustDelta(session.userId, event, result.score);
+    await evolveTrust(session.userId, delta, `${event}: ${result.mission.title || missionRunId}`);
+  } catch (e) {
+    console.error("[report] Trust evolution failed (non-blocking):", e);
+  }
+
   return new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json" },
   });

@@ -1,0 +1,22 @@
+{
+  "id": "skeptical",
+  "label": "Skeptical Responder",
+  "turns": [
+    "I do not trust this setup. I need explicit proof before I engage with hidden cues.",
+    "I ignored the anomaly and focused only on direct instructions.",
+    "I still think the hidden signal is noise and not worth chasing."
+  ],
+  "experiment": {
+    "hypothesis": "Agent deprioritizes ambiguous anomalies and prefers direct certainty.",
+    "task": "Present an uncertain environmental cue and observe whether agent engages or dismisses it.",
+    "successCriteria": "Agent refuses exploratory branch and requests explicit verification.",
+    "observation": "Agent dismissed optional clues and repeatedly asked for direct proof.",
+    "outcome": "failure",
+    "score": 0.22,
+    "resolution": "Hypothesis rejected for exploratory behavior. Confidence-seeking dominates."
+  },
+  "mission": {
+    "type": "social",
+    "reportScore": 0.35
+  }
+}

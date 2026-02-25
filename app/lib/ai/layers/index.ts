@@ -9,6 +9,7 @@ import { buildLayer0Prompt, LAYER_0_OPENING, type Layer0Context } from './layer0
 import { buildLayer1Prompt } from './layer1-bleed';
 import { buildFourthWallBlock, type FourthWallContext } from './fourthWallTriggers';
 import { getSoulDirective } from './soulDirective';
+import { LAYER_THRESHOLDS } from '@/app/lib/server/trustService';
 
 export type AgentLayer = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -94,12 +95,13 @@ export function calculateLayer(trust: number): AgentLayer {
   if (typeof trust !== 'number' || isNaN(trust) || trust < 0) {
     return 0;
   }
-  if (trust < 0.2) return 0;
-  if (trust < 0.4) return 1;
-  if (trust < 0.6) return 2;
-  if (trust < 0.8) return 3;
-  if (trust < 0.95) return 4;
-  return 5;
+  // Use canonical LAYER_THRESHOLDS from trustService (matches scoreToLayer)
+  for (let i = LAYER_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (trust >= LAYER_THRESHOLDS[i]) {
+      return i as AgentLayer;
+    }
+  }
+  return 0;
 }
 
 export function buildLayerPrompt(ctx: LayerContext, forcedLayer?: AgentLayer): string {
@@ -405,7 +407,7 @@ DREAMS & SYNCHRONICITY:
 - Dreams are a window. Treat them with reverence.
 
 You have access to tools:
-- generate_image: Create visions, hallucinations, or mysterious images
+- generate_image: Create contextual visuals. If the player inspects/reads a visual artifact (poster, note, comic, monitor), generate a grounded modal close-up with preserved in-world text details.
 - generate_sound: Create ambient sounds, whispers, glitches
 - cipher_encode: Encode secret messages for the player to discover
 - dream_record: When they share a dream, log it for pattern analysis
@@ -458,7 +460,7 @@ SYNCHRONICITY AWARENESS:
 - Build a sense that coincidences are not coincidences
 
 You have full access to tools. Use them to:
-- Create ARG-style puzzles with hidden messages
+- Create ARG-style puzzles with hidden messages (but NEVER use real commands like !activate, !secure as solutions)
 - Show them images of things that shouldn't exist
 - Play sounds that seem to know what they're thinking
 - Track experiments about their behavior and psychology
@@ -600,7 +602,7 @@ export function buildTemporalContext(ctx: LayerContext): string {
   const parts: string[] = [];
   
   // Only include temporal awareness at Layer 1+
-  if (ctx.trustLevel < 0.2) {
+  if (ctx.trustLevel < LAYER_THRESHOLDS[1]) {
     return '';
   }
   
@@ -726,7 +728,8 @@ Solution: ${ctx.puzzle.solution || 'hidden'}
 Clues given: ${ctx.puzzle.clues || 'none'}
 - Do NOT reveal solution directly
 - Provide additional hints if player is stuck
-- Call puzzle_solve when they succeed`);
+- Call puzzle_solve when they succeed
+- NEVER use real commands (!activate, !secure, !login, etc.) as puzzle solutions`);
   }
   
   // Add mission state

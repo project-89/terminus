@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { LogosPanel, LogosButton } from "./components/LogosPanel";
@@ -155,6 +155,8 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>(DEFAULT_STATS);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [missions, setMissions] = useState<any[]>([]);
+  const [missionsError, setMissionsError] = useState<string | null>(null);
+  const [missionsDetailLoading, setMissionsDetailLoading] = useState(false);
   const [fieldMissions, setFieldMissions] = useState<any[]>([]);
   const [experiments, setExperiments] = useState<any[]>([]);
   const [dreams, setDreams] = useState<any[]>([]);
@@ -210,7 +212,7 @@ export default function DashboardPage() {
     Promise.all([
       safeFetch("/api/admin/stats"),
       safeFetch("/api/admin/agents"),
-      safeFetch("/api/admin/missions"),
+      safeFetch("/api/admin/missions?includeRuns=false&includeInactive=true"),
       safeFetch("/api/admin/fieldops"),
       safeFetch("/api/admin/experiments"),
       safeFetch("/api/admin/dreams"),
@@ -232,7 +234,12 @@ export default function DashboardPage() {
 
       if (statsData && !statsData.error && !statsData._error) setStats(statsData);
       setAgents(agentsData?.agents || []);
-      setMissions(missionsData?.missions || []);
+      if (!missionsData?._error && Array.isArray(missionsData?.missions)) {
+        setMissions(missionsData.missions);
+        setMissionsError(null);
+      } else if (missionsData?._error) {
+        setMissionsError(missionsData._error);
+      }
       setFieldMissions(fieldOpsData?.fieldMissions || []);
       setExperiments(experimentsData?.experiments || []);
       setDreams(dreamsData?.dreams || []);
@@ -243,6 +250,31 @@ export default function DashboardPage() {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [authenticated]);
+
+  useEffect(() => {
+    if (!authenticated || activeTab !== "missions") return;
+
+    setMissionsDetailLoading(true);
+    adminFetch("/api/admin/missions?includeRuns=true&runLimit=12&includeInactive=true")
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(data?.error || `HTTP ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data?.missions)) {
+          setMissions(data.missions);
+          setMissionsError(null);
+        }
+      })
+      .catch((err: any) => {
+        const message = err?.message || "Failed to refresh mission details";
+        setMissionsError(message);
+      })
+      .finally(() => setMissionsDetailLoading(false));
+  }, [authenticated, activeTab]);
 
   const formatUptime = (s: number) => {
     const h = Math.floor(s / 3600).toString().padStart(2, '0');
@@ -291,7 +323,14 @@ export default function DashboardPage() {
             <Header time={time} activeTab={activeTab} setActiveTab={setActiveTab} />
             <div className="flex-1 flex overflow-hidden">
               {activeTab === "agents" && <AgentsPanel agents={agents} />}
-              {activeTab === "missions" && <MissionsPanel missions={missions} setMissions={setMissions} />}
+              {activeTab === "missions" && (
+                <MissionsPanel
+                  missions={missions}
+                  setMissions={setMissions}
+                  error={missionsError}
+                  loadingDetails={missionsDetailLoading}
+                />
+              )}
               {activeTab === "fieldops" && <FieldOpsPanel fieldMissions={fieldMissions} setFieldMissions={setFieldMissions} />}
               {activeTab === "experiments" && <ExperimentsPanel experiments={experiments} />}
               {activeTab === "dreams" && <DreamsPanel dreams={dreams} />}
@@ -689,12 +728,38 @@ function AgentsPanel({ agents }: { agents: Agent[] }) {
   );
 }
 
-function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions: (m: any[]) => void }) {
+function MissionsPanel({
+  missions,
+  setMissions,
+  error,
+  loadingDetails,
+}: {
+  missions: any[];
+  setMissions: React.Dispatch<React.SetStateAction<any[]>>;
+  error: string | null;
+  loadingDetails: boolean;
+}) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ title: "", prompt: "", type: "decode", tags: "", minEvidence: 1 });
   const [filter, setFilter] = useState<"all" | "active" | "inactive">("all");
-  const [selectedMission, setSelectedMission] = useState<any>(null);
+  const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const selectedMission = useMemo(
+    () => missions.find((mission) => mission.id === selectedMissionId) ?? null,
+    [missions, selectedMissionId],
+  );
+
+  useEffect(() => {
+    if (missions.length === 0) {
+      if (selectedMissionId !== null) setSelectedMissionId(null);
+      return;
+    }
+    if (!selectedMissionId || !missions.some((mission) => mission.id === selectedMissionId)) {
+      setSelectedMissionId(missions[0].id);
+    }
+  }, [missions, selectedMissionId]);
 
   const resetForm = () => {
     setForm({ title: "", prompt: "", type: "decode", tags: "", minEvidence: 1 });
@@ -702,10 +767,21 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
     setShowCreate(false);
   };
 
+  const reloadMissions = async () => {
+    const res = await adminFetch("/api/admin/missions?includeRuns=true&runLimit=12");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data?.missions)) {
+      setMissions(data.missions);
+    }
+  };
+
   const handleCreate = async () => {
+    setSaving(true);
     const payload = {
       action: editingId ? "update" : "create",
       id: editingId,
+      definitionId: editingId || undefined,
       title: form.title,
       prompt: form.prompt,
       type: form.type,
@@ -719,41 +795,69 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
     });
     if (res.ok) {
       const updated = await res.json();
-      if (editingId) {
-        setMissions(missions.map(m => m.id === editingId ? { ...m, ...updated } : m));
+      const mission = updated?.mission ?? updated;
+      if (mission?.id) {
+        setMissions((prev) => {
+          if (editingId) {
+            return prev.map((m) => (m.id === mission.id || m.definitionId === mission.definitionId ? mission : m));
+          }
+          return [mission, ...prev.filter((m) => m.id !== mission.id)];
+        });
+        setSelectedMissionId(mission.id);
       } else {
-        setMissions([updated, ...missions]);
+        await reloadMissions();
       }
       resetForm();
     }
+    setSaving(false);
   };
 
-  const handleToggle = async (id: string) => {
+  const handleToggle = async (mission: any) => {
+    if (!mission) return;
+    if (mission.source === "catalog" && !mission.definitionId) return;
+
     const res = await adminFetch("/api/admin/missions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "toggle", id }),
+      body: JSON.stringify({
+        action: "toggle",
+        id: mission.id,
+        definitionId: mission.definitionId,
+      }),
     });
     if (res.ok) {
       const updated = await res.json();
-      setMissions(missions.map(m => m.id === id ? { ...m, active: updated.active } : m));
+      if (updated?.id) {
+        setMissions((prev) => prev.map((m) => (m.id === updated.id || m.definitionId === updated.definitionId ? updated : m)));
+      } else {
+        await reloadMissions();
+      }
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (mission: any) => {
+    if (!mission) return;
+    if (mission.source === "catalog" && !mission.definitionId) return;
     if (!confirm("Delete this mission directive?")) return;
+
     const res = await adminFetch("/api/admin/missions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete", id }),
+      body: JSON.stringify({
+        action: "delete",
+        id: mission.id,
+        definitionId: mission.definitionId,
+      }),
     });
     if (res.ok) {
-      setMissions(missions.filter(m => m.id !== id));
-      if (selectedMission?.id === id) setSelectedMission(null);
+      const removeId = mission.definitionId || mission.id;
+      setMissions((prev) => prev.filter((m) => (m.definitionId || m.id) !== removeId));
+      if (selectedMissionId === mission.id) setSelectedMissionId(null);
     }
   };
 
   const startEdit = (m: any) => {
+    if (m?.source === "catalog" && !m?.definitionId) return;
     setForm({
       title: m.title,
       prompt: m.prompt,
@@ -761,8 +865,25 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
       tags: (m.tags || []).join(", "),
       minEvidence: m.minEvidence || 1,
     });
-    setEditingId(m.id);
+    setEditingId(m.definitionId || m.id);
     setShowCreate(true);
+  };
+
+  const importCatalogTemplate = async (catalogId: string) => {
+    if (!catalogId) return;
+    setSaving(true);
+    try {
+      const res = await adminFetch("/api/admin/missions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create_from_catalog", catalogId }),
+      });
+      if (res.ok) {
+        await reloadMissions();
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const filtered = missions.filter(m => 
@@ -779,6 +900,11 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
         <div className="p-4 border-b-2 border-cyan-900 flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="text-cyan-400 text-xl tracking-widest">MISSION DIRECTIVES</div>
+            {loadingDetails && (
+              <div className="text-xs tracking-widest text-cyan-600 animate-pulse">
+                SYNCING RUN DETAIL...
+              </div>
+            )}
             <div className="flex gap-1">
               {(["all", "active", "inactive"] as const).map(f => (
                 <button
@@ -798,6 +924,12 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
             + NEW DIRECTIVE
           </button>
         </div>
+
+        {error && (
+          <div className="px-4 py-2 border-b border-red-700 bg-red-950/20 text-red-400 text-sm tracking-wide">
+            Mission feed degraded: {error}
+          </div>
+        )}
 
         {showCreate && (
           <div className="border-b-2 border-cyan-500 p-4 bg-cyan-950/30">
@@ -845,8 +977,12 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
                 className="flex-1 bg-transparent border-2 border-cyan-800 p-3 text-cyan-300 focus:border-cyan-500 focus:outline-none" 
               />
               <button onClick={resetForm} className="px-4 py-3 border-2 border-cyan-800 text-cyan-600 hover:text-cyan-400">CANCEL</button>
-              <button onClick={handleCreate} className="px-6 py-3 bg-cyan-500/30 border-2 border-cyan-500 text-cyan-300 hover:bg-cyan-500/40">
-                {editingId ? "UPDATE" : "DEPLOY"}
+              <button
+                onClick={handleCreate}
+                disabled={saving || !form.title.trim() || !form.prompt.trim()}
+                className="px-6 py-3 bg-cyan-500/30 border-2 border-cyan-500 text-cyan-300 hover:bg-cyan-500/40 disabled:opacity-50"
+              >
+                {saving ? "PROCESSING..." : editingId ? "UPDATE" : "DEPLOY"}
               </button>
             </div>
           </div>
@@ -857,7 +993,7 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
             {filtered.map(m => (
               <div 
                 key={m.id} 
-                onClick={() => setSelectedMission(m)}
+                onClick={() => setSelectedMissionId(m.id)}
                 className={`border-2 p-4 cursor-pointer transition-all ${
                   selectedMission?.id === m.id 
                     ? "border-cyan-500 bg-cyan-500/10" 
@@ -867,8 +1003,15 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
                 }`}
               >
                 <div className="flex justify-between items-start mb-2">
-                  <span className="text-cyan-600 text-xs tracking-widest">{m.type?.toUpperCase()}</span>
-                  <span className={`px-2 py-0.5 text-xs ${m.active ? "bg-green-500/30 text-green-400 border border-green-500" : "bg-red-500/30 text-red-400 border border-red-500"}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-cyan-600 text-xs tracking-widest">{m.type?.toUpperCase()}</span>
+                    <span className="px-2 py-0.5 text-[10px] border border-cyan-800 text-cyan-600 uppercase tracking-widest">
+                      {m.source || "database"}
+                    </span>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 text-xs ${m.active ? "bg-green-500/30 text-green-400 border border-green-500" : "bg-red-500/30 text-red-400 border border-red-500"}`}
+                  >
                     {m.active ? "ACTIVE" : "INACTIVE"}
                   </span>
                 </div>
@@ -928,6 +1071,8 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
               <span className="text-cyan-600 text-sm">{selectedMission.type?.toUpperCase()}</span>
               <span className="text-cyan-700">•</span>
               <span className="text-cyan-600 text-sm">{selectedMission.minEvidence || 1} evidence required</span>
+              <span className="text-cyan-700">•</span>
+              <span className="text-cyan-600 text-sm uppercase">{selectedMission.source}</span>
             </div>
             
             <div className="text-cyan-700 text-xs tracking-widest mb-2">BRIEFING</div>
@@ -954,6 +1099,14 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
                 <div className="text-2xl font-bold text-green-400">{selectedMission.stats?.completedRuns || 0}</div>
                 <div className="text-xs text-cyan-700">COMPLETED</div>
               </div>
+              <div className="border border-cyan-900 p-3">
+                <div className="text-2xl font-bold text-yellow-400">{selectedMission.stats?.activeRuns || 0}</div>
+                <div className="text-xs text-cyan-700">ACTIVE</div>
+              </div>
+              <div className="border border-cyan-900 p-3">
+                <div className="text-2xl font-bold text-red-400">{selectedMission.stats?.failedRuns || 0}</div>
+                <div className="text-xs text-cyan-700">FAILED</div>
+              </div>
               <div className="border border-cyan-900 p-3 col-span-2">
                 <div className="text-2xl font-bold text-cyan-300">
                   {selectedMission.stats?.avgScore ? `${(selectedMission.stats.avgScore * 100).toFixed(0)}%` : "N/A"}
@@ -962,25 +1115,67 @@ function MissionsPanel({ missions, setMissions }: { missions: any[]; setMissions
               </div>
             </div>
 
+            {selectedMission.recentRuns?.length > 0 && (
+              <>
+                <div className="text-cyan-700 text-xs tracking-widest mb-2">RECENT MISSION RUNS</div>
+                <div className="space-y-2 mb-6 max-h-72 overflow-auto">
+                  {selectedMission.recentRuns.map((run: any) => (
+                    <div key={run.id} className="border border-cyan-900 p-2 bg-cyan-950/20">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs text-cyan-500">{run.user?.handle || run.user?.id || "unknown-agent"}</span>
+                        <span className="text-xs text-cyan-700">{new Date(run.updatedAt).toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] px-2 py-0.5 border border-cyan-800 text-cyan-400 uppercase">{run.status}</span>
+                        {typeof run.score === "number" && (
+                          <span className="text-xs text-cyan-600">Score {(run.score * 100).toFixed(0)}%</span>
+                        )}
+                      </div>
+                      {run.feedback && (
+                        <div className="text-xs text-cyan-500 mb-1 line-clamp-2">{run.feedback}</div>
+                      )}
+                      {run.payload && (
+                        <div className="text-[11px] text-cyan-700 line-clamp-2">
+                          {typeof run.payload === "string" ? run.payload : JSON.stringify(run.payload)}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
             <div className="space-y-2">
-              <button 
-                onClick={() => startEdit(selectedMission)}
-                className="w-full py-2 border-2 border-cyan-600 text-cyan-400 hover:bg-cyan-600/20"
-              >
-                EDIT DIRECTIVE
-              </button>
-              <button 
-                onClick={() => handleToggle(selectedMission.id)}
-                className={`w-full py-2 border-2 ${selectedMission.active ? "border-yellow-600 text-yellow-400 hover:bg-yellow-600/20" : "border-green-600 text-green-400 hover:bg-green-600/20"}`}
-              >
-                {selectedMission.active ? "DEACTIVATE" : "ACTIVATE"}
-              </button>
-              <button 
-                onClick={() => handleDelete(selectedMission.id)}
-                className="w-full py-2 border-2 border-red-600 text-red-400 hover:bg-red-600/20"
-              >
-                DELETE DIRECTIVE
-              </button>
+              {selectedMission.source === "catalog" && !selectedMission.definitionId ? (
+                <button
+                  disabled={saving}
+                  onClick={() => importCatalogTemplate(selectedMission.catalogId)}
+                  className="w-full py-2 border-2 border-green-600 text-green-400 hover:bg-green-600/20 disabled:opacity-50"
+                >
+                  {saving ? "IMPORTING..." : "IMPORT TEMPLATE TO DATABASE"}
+                </button>
+              ) : (
+                <>
+                  <button 
+                    onClick={() => startEdit(selectedMission)}
+                    className="w-full py-2 border-2 border-cyan-600 text-cyan-400 hover:bg-cyan-600/20"
+                  >
+                    EDIT DIRECTIVE
+                  </button>
+                  <button 
+                    onClick={() => handleToggle(selectedMission)}
+                    className={`w-full py-2 border-2 ${selectedMission.active ? "border-yellow-600 text-yellow-400 hover:bg-yellow-600/20" : "border-green-600 text-green-400 hover:bg-green-600/20"}`}
+                  >
+                    {selectedMission.active ? "DEACTIVATE" : "ACTIVATE"}
+                  </button>
+                  <button 
+                    onClick={() => handleDelete(selectedMission)}
+                    className="w-full py-2 border-2 border-red-600 text-red-400 hover:bg-red-600/20"
+                  >
+                    DELETE DIRECTIVE
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ) : (
@@ -1265,7 +1460,7 @@ function DreamsPanel({ dreams }: { dreams: any[] }) {
   const [stats, setStats] = useState<any>(null);
 
   useEffect(() => {
-    fetch("/api/admin/dreams")
+    adminFetch("/api/admin/dreams")
       .then(r => r.json())
       .then(data => setStats(data.stats))
       .catch(console.error);
@@ -2847,4 +3042,3 @@ function CampaignsPanel({ campaigns, setCampaigns }: { campaigns: any[]; setCamp
     </div>
   );
 }
-

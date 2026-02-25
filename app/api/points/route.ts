@@ -6,14 +6,17 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const handle = searchParams.get("handle");
+  const userId = searchParams.get("userId");
 
-  if (!handle) {
-    return NextResponse.json({ error: "handle required" }, { status: 400 });
+  if (!handle && !userId) {
+    return NextResponse.json({ error: "handle or userId required" }, { status: 400 });
   }
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { handle },
+    const user = await prisma.user.findFirst({
+      where: userId
+        ? { id: userId }
+        : { handle: handle || undefined },
       select: {
         referralPoints: true,
         rewards: {

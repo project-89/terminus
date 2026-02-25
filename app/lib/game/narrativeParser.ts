@@ -44,10 +44,28 @@ export type ExtractedNPC = {
 };
 
 export type ExtractedPuzzle = {
+  id?: string;
   name: string;
   description: string;
   location: string;
   hints: string[];
+  type?: string;
+  difficulty?: number;
+  conditions?: Array<{
+    type: "object_state" | "object_location" | "flag" | "inventory" | "room";
+    target: string;
+    property?: string;
+    value: any;
+  }>;
+  effects?: Array<{
+    type: "unlock_exit" | "reveal_object" | "set_flag" | "move_object" | "change_description" | "trigger_event";
+    target: string;
+    value?: any;
+  }>;
+  prerequisites?: string[];
+  unlocksNext?: string[];
+  pointsReward?: number;
+  experimentId?: string;
   solution?: string;
   solved?: boolean;
 };

@@ -14,6 +14,33 @@ import {
 import { getProfile, ProfileRecord } from "./profileService";
 import { getMissionCatalog, MissionCatalogEntry } from "../missions/catalog";
 import { updateTrackDifficulty, getPlayerDifficulty, type DifficultyTrack } from "./difficultyService";
+import { getTrustState } from "./trustService";
+import { recordMissionBayesianOutcome } from "./bayes/orchestrator";
+
+// Shared mission type → difficulty track mapping
+const MISSION_TYPE_TO_TRACK: Record<string, DifficultyTrack> = {
+  // Logic track
+  decode: "logic",
+  cipher: "logic",
+  puzzle: "logic",
+  analysis: "logic",
+  // Perception track
+  observe: "perception",
+  surveillance: "perception",
+  pattern: "perception",
+  audio: "perception",
+  // Creation track
+  create: "creation",
+  compose: "creation",
+  design: "creation",
+  memetic: "creation",
+  // Field track
+  field: "field",
+  retrieve: "field",
+  deploy: "field",
+  social: "field",
+  empathy: "field",
+};
 
 export type MissionDefinitionRecord = {
   id: string;
@@ -80,23 +107,18 @@ async function resolveMissionRuns(userId: string) {
   }
 }
 
-function computeTrustScoreFromRuns(
-  runs: Array<{ score?: number }>
-): number {
-  if (!runs || runs.length === 0) return 0.2;
-  const recent = runs
-    .filter((r) => typeof r.score === "number")
-    .slice(-5) as Array<{ score: number }>;
-  if (recent.length === 0) return 0.25;
-  const avg =
-    recent.reduce((sum, run) => sum + (run.score ?? 0), 0) / recent.length;
-  return Math.max(0.1, Math.min(1, avg));
-}
-
 async function buildPlayerMissionSignal(userId: string): Promise<PlayerMissionSignal> {
   const profile = await getProfile(userId);
   const runs = await resolveMissionRuns(userId);
-  const trustScore = computeTrustScoreFromRuns(runs);
+
+  // Use global trust system instead of computing from mission scores
+  let trustScore = 0.2; // Default for new agents
+  try {
+    const trustState = await getTrustState(userId);
+    trustScore = trustState.trustScore;
+  } catch {
+    // Fall back to default if trust system unavailable
+  }
 
   const completedSlugs = new Set<string>();
   for (const run of runs) {
@@ -245,6 +267,69 @@ export async function getNextMission(userId: string): Promise<MissionDefinitionR
   const catalog = getMissionCatalog();
   console.log(`[MissionService] Catalog size: ${catalog.length}. Trust: ${signal.trustScore}`);
 
+  // First, check for admin-created missions that are active and not from catalog
+  let adminMissions: MissionDefinitionRecord[] = [];
+  try {
+    const dbMissions = await prisma.missionDefinition.findMany({
+      where: {
+        active: true,
+        // Exclude catalog missions (they have catalog: tags)
+        NOT: {
+          tags: {
+            hasSome: catalog.map(c => getCatalogTag(c.id)),
+          },
+        },
+      },
+    });
+
+    // Check if user has already completed these admin missions
+    const completedMissionIds = new Set(
+      (await prisma.missionRun.findMany({
+        where: { userId, status: "COMPLETED" },
+        select: { missionId: true },
+      })).map((r: { missionId: string }) => r.missionId)
+    );
+
+    const eligibleAdminDefinitions = dbMissions.filter((m: { id: string }) => !completedMissionIds.has(m.id));
+    const adminDefinitionById = new Map(eligibleAdminDefinitions.map((m: any) => [m.id, m]));
+
+    adminMissions = await Promise.all(eligibleAdminDefinitions.map((m: any) => mapDefinition(m)));
+
+    console.log(`[MissionService] Admin missions available: ${adminMissions.length}`);
+
+    if (adminMissions.length > 0) {
+      const targetEvidence = signal.trustScore >= 0.75 ? 3 : signal.trustScore >= 0.45 ? 2 : 1;
+      const scoredAdminMissions = adminMissions
+        .map((mission) => {
+          const definition = adminDefinitionById.get(mission.id);
+          const minEvidence = Math.max(1, mission.minEvidence || 1);
+          const evidenceDistance = Math.abs(minEvidence - targetEvidence);
+          const lowTrustPenalty = signal.trustScore < 0.35 && minEvidence > 1 ? 2.5 : 0;
+          const recencyBonus = definition?.updatedAt
+            ? Math.max(0, (definition.updatedAt.getTime() - Date.now() + 30 * 24 * 60 * 60 * 1000) / (30 * 24 * 60 * 60 * 1000))
+            : 0;
+          const score = 10 - evidenceDistance * 1.5 - lowTrustPenalty + recencyBonus;
+          return { mission, score };
+        })
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return a.mission.title.localeCompare(b.mission.title);
+        });
+
+      const chosen = scoredAdminMissions[0]?.mission;
+      if (chosen) {
+        console.log(`[MissionService] Chose admin mission: ${chosen.id}`);
+        return chosen;
+      }
+    }
+  } catch (e) {
+    console.log(`[MissionService] Could not fetch admin missions: ${e}`);
+  }
+
+  // Prioritize admin-created missions if any exist
+  if (adminMissions.length > 0) return adminMissions[0];
+
+  // Fall back to catalog-based selection
   const candidates = catalog
     .filter((entry) => {
       if (!entry.repeatable && signal.completedSlugs.has(entry.id)) {
@@ -259,13 +344,13 @@ export async function getNextMission(userId: string): Promise<MissionDefinitionR
     .filter(({ score }) => Number.isFinite(score))
     .sort((a, b) => b.score - a.score);
 
-  console.log(`[MissionService] Candidates: ${candidates.length}`);
+  console.log(`[MissionService] Catalog candidates: ${candidates.length}`);
 
   const chosen =
     candidates.length > 0
       ? candidates[0].entry
       : catalog[Math.floor(Math.random() * catalog.length)];
-  
+
   console.log(`[MissionService] Chosen: ${chosen?.id}`);
 
   if (!chosen) {
@@ -281,6 +366,13 @@ export async function acceptMission(params: {
   sessionId?: string;
 }): Promise<MissionRunRecord> {
   const { missionId, userId, sessionId } = params;
+
+  // Check for existing active mission - only one active mission allowed at a time
+  const existingActive = await getLatestOpenMissionRun(userId);
+  if (existingActive) {
+    throw new Error(`Already have an active mission: ${existingActive.mission.title}. Complete or abandon it first.`);
+  }
+
   try {
     const run = await prisma.missionRun.create({
       data: {
@@ -296,11 +388,23 @@ export async function acceptMission(params: {
       mission: await mapDefinition(run.mission),
       status: run.status as MissionRunRecord["status"],
     };
-  } catch {
+  } catch (e) {
+    // Check if this is a Prisma connection error vs other error
+    const isPrismaError = e && typeof e === 'object' && 'code' in e;
+    if (isPrismaError) throw e;
+
     const mission = memoryStore.missions.get(missionId);
     if (!mission) {
       throw new Error("Mission not found");
     }
+
+    // Check memory store for active missions
+    const memRuns = memoryStore.missionRunsByUser.get(userId) || [];
+    const activeMemRun = memRuns.find(r => ["ACCEPTED", "SUBMITTED", "REVIEWING"].includes(r.status));
+    if (activeMemRun) {
+      throw new Error("Already have an active mission. Complete or abandon it first.");
+    }
+
     const now = new Date();
     const run: MemoryMissionRun = {
       id: uid(),
@@ -322,44 +426,79 @@ export async function acceptMission(params: {
   }
 }
 
+// Minimum score threshold for mission to be considered successful
+const MISSION_PASS_THRESHOLD = 0.4;
+
 export async function submitMissionReport(params: {
   missionRunId: string;
   payload: string;
 }): Promise<MissionRunRecord & { reward?: { type: string; amount: number } }> {
   const { missionRunId, payload } = params;
-  
+
   // 1. Fetch Run & Mission
   let run: any;
   try {
-      run = await prisma.missionRun.findUnique({
-        where: { id: missionRunId },
-        include: { mission: true },
-      });
+    run = await prisma.missionRun.findUnique({
+      where: { id: missionRunId },
+      include: { mission: true },
+    });
   } catch {
-      // Fallback to memory store handling handled in catch block below
+    // Fallback to memory store handling handled in catch block below
   }
 
   if (run) {
+    // Enforce minEvidence - check payload length as a proxy
+    const minEvidence = run.mission.minEvidence || 1;
+    const payloadLength = payload?.trim().length || 0;
+    const minCharsPerEvidence = 20; // Keep baseline lenient; higher minEvidence still enforces richer reports.
+    if (payloadLength < minEvidence * minCharsPerEvidence) {
+      try {
+        await recordMissionBayesianOutcome({
+          userId: run.userId,
+          missionType: run.mission.type || "decode",
+          missionRunId,
+          status: "ACCEPTED",
+          score: Math.max(0, Math.min(1, payloadLength / Math.max(1, minEvidence * minCharsPerEvidence))),
+          minEvidence,
+          payloadLength,
+          createdAt: run.createdAt,
+          resolvedAt: new Date(),
+        });
+      } catch (bayesErr) {
+        console.warn("[MissionService] Bayesian ACCEPTED integration failed (non-blocking):", bayesErr);
+      }
+      return {
+        id: run.id,
+        mission: await mapDefinition(run.mission),
+        status: "ACCEPTED", // Keep in accepted state - not enough evidence
+        feedback: `Insufficient evidence. Mission requires at least ${minEvidence} piece(s) of evidence. Provide more detail in your report.`,
+      };
+    }
+
     // AI Evaluation
-    const model = getModel('content');
+    const model = getModel("content");
     const { object } = await generateObject({
       model,
       schema: ReportEvaluationSchema,
       prompt: `
         Role: Operations Adjudicator for Project 89.
         Task: Evaluate a field report against a mission objective.
-        
+
         Mission Title: ${run.mission.title}
         Mission Objective: ${run.mission.prompt}
         Mission Type: ${run.mission.type}
-        
+        Minimum Evidence Required: ${minEvidence}
+
         Agent Report: "${payload}"
-        
-        Evaluate strictly. 
-        - If the report is nonsense, score 0.
-        - If it captures the vibe but lacks evidence, score 0.5.
-        - If it solves the task, score 0.8-1.0.
-        
+
+        Evaluate strictly.
+        - If the report is nonsense or completely off-topic, score 0-0.2.
+        - If it captures the vibe but lacks concrete evidence, score 0.3-0.5.
+        - If it addresses the objective with some evidence, score 0.5-0.7.
+        - If it solves the task with clear evidence, score 0.8-1.0.
+
+        Score below ${MISSION_PASS_THRESHOLD} = FAILED mission.
+
         Provide feedback in the voice of a cryptic handler.
       `,
     });
@@ -367,14 +506,19 @@ export async function submitMissionReport(params: {
     const score = object.score;
     const feedback = object.feedback;
     const multiplier = object.rewardAdjustment || 1.0;
-    const baseReward = 50; // Base credits for any completed mission
-    const rewardAmount = Math.round(baseReward * score * multiplier);
+
+    // Determine final status based on score
+    const finalStatus = score >= MISSION_PASS_THRESHOLD ? "COMPLETED" : "FAILED";
+
+    // Only grant rewards for successful missions
+    const baseReward = 50;
+    const rewardAmount = finalStatus === "COMPLETED" ? Math.round(baseReward * score * multiplier) : 0;
 
     // Update Run
     const updatedRun = await prisma.missionRun.update({
       where: { id: missionRunId },
       data: {
-        status: "COMPLETED",
+        status: finalStatus,
         score,
         feedback,
         payload,
@@ -382,61 +526,88 @@ export async function submitMissionReport(params: {
       include: { mission: true },
     });
 
-    // Grant Reward
+    // Grant Reward only for successful missions
     if (rewardAmount > 0) {
-      await rewardService.grant(updatedRun.userId, rewardAmount, `Mission: ${updatedRun.mission.title}`, missionRunId);
+      await rewardService.grant(
+        updatedRun.userId,
+        rewardAmount,
+        `Mission: ${updatedRun.mission.title}`,
+        missionRunId
+      );
     }
 
     // Update track difficulty based on mission type
     const missionType = updatedRun.mission.type?.toLowerCase() || "decode";
-    const trackMap: Record<string, DifficultyTrack> = {
-      decode: "logic",
-      cipher: "logic",
-      puzzle: "logic",
-      observe: "perception",
-      surveillance: "perception",
-      pattern: "perception",
-      create: "creation",
-      compose: "creation",
-      design: "creation",
-      field: "field",
-      retrieve: "field",
-      deploy: "field",
-    };
-    const track = trackMap[missionType] || "logic";
+    const track = MISSION_TYPE_TO_TRACK[missionType] || "logic";
     const taskDifficulty = 0.5; // Default mid-range, could be stored on mission
     try {
       await updateTrackDifficulty(updatedRun.userId, track, taskDifficulty, score >= 0.6);
     } catch {}
 
+    try {
+      await recordMissionBayesianOutcome({
+        userId: updatedRun.userId,
+        missionType,
+        missionRunId,
+        status: finalStatus,
+        score,
+        minEvidence,
+        payloadLength,
+        createdAt: run.createdAt,
+        resolvedAt: updatedRun.updatedAt || new Date(),
+      });
+    } catch (bayesErr) {
+      console.warn("[MissionService] Bayesian mission integration failed (non-blocking):", bayesErr);
+    }
+
     return {
       id: updatedRun.id,
       mission: await mapDefinition(updatedRun.mission),
-      status: "COMPLETED",
+      status: finalStatus,
       score,
       feedback,
-      reward: { type: "CREDIT", amount: rewardAmount },
+      reward: rewardAmount > 0 ? { type: "CREDIT", amount: rewardAmount } : undefined,
     };
   }
 
   // --- Memory Store Fallback (Legacy/Dev) ---
-  const score = Math.max(0, Math.min(1, Math.random() * 0.4 + 0.6));
-  const rewardAmount = Math.round(score * 100) / 10; // credits
+  // Conservative payload-length-based scoring (no random inflation)
+  const payloadLen = payload?.length ?? 0;
+  const score = payloadLen < 50 ? 0.1 : payloadLen < 100 ? 0.3 : 0.5;
+  const finalStatus = score >= MISSION_PASS_THRESHOLD ? "COMPLETED" : "FAILED";
+  const rewardAmount = finalStatus === "COMPLETED" ? Math.round(score * 100) / 10 : 0;
   try {
-      // This block is theoretically unreachable if Prisma works, 
-      // but kept for the memoryStore fallback if run wasn't found in Prisma.
       const run = memoryStore.missionRuns.get(missionRunId);
       if (!run) {
         throw new Error("Mission run not found");
       }
-      run.status = "COMPLETED";
+      run.status = finalStatus;
       run.score = score;
-      run.feedback = "Mission review complete. The Logos grows with your insight.";
+      run.feedback = finalStatus === "COMPLETED"
+        ? "Mission review complete (fallback mode). The Logos grows with your insight."
+        : "Insufficient evidence submitted (fallback mode). Mission failed.";
       run.payload = payload;
       run.updatedAt = new Date();
       memoryStore.missionRuns.set(missionRunId, run);
-  
       const mission = memoryStore.missions.get(run.missionId);
+
+      try {
+        const missionType = mission?.type || "decode";
+        await recordMissionBayesianOutcome({
+          userId: run.userId,
+          missionType,
+          missionRunId,
+          status: finalStatus,
+          score,
+          payloadLength: payloadLen,
+          minEvidence: mission?.minEvidence || 1,
+          createdAt: run.createdAt,
+          resolvedAt: run.updatedAt,
+        });
+      } catch (bayesErr) {
+        console.warn("[MissionService] Bayesian fallback mission integration failed (non-blocking):", bayesErr);
+      }
+
       const reward: MemoryReward = {
         id: uid(),
         userId: run.userId,
@@ -509,6 +680,119 @@ export async function getLatestOpenMissionRun(userId: string): Promise<MissionRu
       status: run.status,
       score: run.score,
       feedback: run.feedback,
+    };
+  }
+}
+
+/**
+ * Abandon an active mission. This allows agents to cancel missions they can't complete.
+ * Abandoned missions count as failures for difficulty tracking but don't grant rewards.
+ */
+export async function abandonMission(params: {
+  missionRunId: string;
+  userId: string;
+  reason?: string;
+}): Promise<MissionRunRecord> {
+  const { missionRunId, userId, reason } = params;
+
+  try {
+    const run = await prisma.missionRun.findFirst({
+      where: {
+        id: missionRunId,
+        userId,
+        status: { in: ["ACCEPTED", "SUBMITTED", "REVIEWING"] },
+      },
+      include: { mission: true },
+    });
+
+    if (!run) {
+      throw new Error("No active mission found to abandon");
+    }
+
+    const updatedRun = await prisma.missionRun.update({
+      where: { id: missionRunId },
+      data: {
+        status: "FAILED",
+        score: 0,
+        feedback: reason || "Mission abandoned by agent.",
+      },
+      include: { mission: true },
+    });
+
+    // Update difficulty track (counts as failure)
+    const missionType = updatedRun.mission.type?.toLowerCase() || "decode";
+    const track = MISSION_TYPE_TO_TRACK[missionType] || "logic";
+    try {
+      await updateTrackDifficulty(userId, track, 0.5, false);
+    } catch {}
+
+    try {
+      await recordMissionBayesianOutcome({
+        userId,
+        missionType,
+        missionRunId,
+        status: "FAILED",
+        score: 0,
+        minEvidence: updatedRun.mission.minEvidence || 1,
+        createdAt: run.createdAt,
+        resolvedAt: updatedRun.updatedAt || new Date(),
+      });
+    } catch (bayesErr) {
+      console.warn("[MissionService] Bayesian abandon integration failed (non-blocking):", bayesErr);
+    }
+
+    return {
+      id: updatedRun.id,
+      mission: await mapDefinition(updatedRun.mission),
+      status: "FAILED",
+      score: 0,
+      feedback: reason || "Mission abandoned by agent.",
+    };
+  } catch (e) {
+    // Memory store fallback
+    const run = memoryStore.missionRuns.get(missionRunId);
+    if (!run || run.userId !== userId) {
+      throw new Error("No active mission found to abandon");
+    }
+
+    run.status = "FAILED";
+    run.score = 0;
+    run.feedback = reason || "Mission abandoned by agent.";
+    run.updatedAt = new Date();
+    memoryStore.missionRuns.set(missionRunId, run);
+
+    try {
+      const mission = memoryStore.missions.get(run.missionId);
+      await recordMissionBayesianOutcome({
+        userId,
+        missionType: mission?.type || "decode",
+        missionRunId,
+        status: "FAILED",
+        score: 0,
+        minEvidence: mission?.minEvidence || 1,
+        createdAt: run.createdAt,
+        resolvedAt: run.updatedAt,
+      });
+    } catch (bayesErr) {
+      console.warn("[MissionService] Bayesian fallback abandon integration failed (non-blocking):", bayesErr);
+    }
+
+    const mission = memoryStore.missions.get(run.missionId);
+    return {
+      id: run.id,
+      mission: mission
+        ? await mapDefinition(mission)
+        : {
+            id: run.missionId,
+            title: "Unknown Mission",
+            prompt: "",
+            type: "decode",
+            minEvidence: 1,
+            tags: [],
+          },
+      status: "FAILED",
+      score: 0,
+      feedback: reason || "Mission abandoned by agent.",
     };
   }
 }

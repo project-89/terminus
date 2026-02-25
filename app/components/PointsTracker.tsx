@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { toolEvents } from "@/app/lib/terminal/tools/registry";
 
 interface PointsPopup {
@@ -9,87 +9,130 @@ interface PointsPopup {
   reason: string;
 }
 
+interface PointsIdentity {
+  userId?: string;
+  handle?: string;
+}
+
 export function PointsTracker() {
   const [points, setPoints] = useState<number | null>(null);
   const [popups, setPopups] = useState<PointsPopup[]>([]);
   const [pulse, setPulse] = useState(false);
   const popupIdRef = useRef(0);
-  const handleRef = useRef<string | null>(null);
+  const identityRef = useRef<PointsIdentity | null>(null);
+  const requestSeqRef = useRef(0);
 
-  useEffect(() => {
-    const getHandle = () => {
-      try {
-        const directHandle = localStorage.getItem("p89_handle");
-        if (directHandle) {
-          return directHandle;
-        }
-        const saved = localStorage.getItem("terminalState");
-        if (saved) {
-          const state = JSON.parse(saved);
-          const h = state.handle;
-          if (h) {
-            return h;
-          }
-        }
-      } catch (e) {}
+  const readIdentity = useCallback((): PointsIdentity | null => {
+    try {
+      const directUserId = localStorage.getItem("p89_userId") || undefined;
+      const directHandle = localStorage.getItem("p89_handle") || undefined;
+      const saved = localStorage.getItem("terminalState");
+      const parsedState = saved ? JSON.parse(saved) : null;
+      const stateUserId = parsedState?.userId || undefined;
+      const stateHandle = parsedState?.handle || undefined;
+
+      const identity: PointsIdentity = {
+        userId: directUserId || stateUserId,
+        handle: directHandle || stateHandle,
+      };
+
+      if (!identity.userId && !identity.handle) {
+        return null;
+      }
+
+      return identity;
+    } catch {
       return null;
-    };
+    }
+  }, []);
 
-    const handle = getHandle();
-    if (handle) {
-      handleRef.current = handle;
-      fetchPoints(handle);
+  const identityEquals = (a: PointsIdentity | null, b: PointsIdentity | null) =>
+    (a?.userId || "") === (b?.userId || "") &&
+    (a?.handle || "") === (b?.handle || "");
+
+  const fetchPoints = useCallback(async (identity: PointsIdentity) => {
+    const attempts: string[] = [];
+    if (identity.userId) {
+      attempts.push(`userId=${encodeURIComponent(identity.userId)}`);
+    }
+    if (identity.handle) {
+      attempts.push(`handle=${encodeURIComponent(identity.handle)}`);
     }
 
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === "p89_handle" && e.newValue) {
-        handleRef.current = e.newValue;
-        fetchPoints(e.newValue);
-      } else if (e.key === "terminalState" && e.newValue) {
-        try {
-          const state = JSON.parse(e.newValue);
-          const h = state.handle;
-          if (h && h !== handleRef.current) {
-            handleRef.current = h;
-            fetchPoints(h);
-          }
-        } catch (e) {}
+    if (attempts.length === 0) {
+      setPoints(null);
+      return;
+    }
+
+    const requestId = ++requestSeqRef.current;
+    let lastError: string | undefined;
+
+    for (const query of attempts) {
+      try {
+        const res = await fetch(`/api/points?${query}`, { cache: "no-store" });
+        const data = await res.json();
+
+        if (requestId !== requestSeqRef.current) {
+          return;
+        }
+
+        if (res.ok || data.points !== undefined) {
+          setPoints(data.points ?? 0);
+          return;
+        }
+
+        lastError = data?.error;
+      } catch (e) {
+        console.warn("Failed to fetch points:", e);
+      }
+    }
+
+    // Hide tracker only when identity lookup truly fails.
+    if (lastError === "User not found") {
+      setPoints(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    const syncIdentity = (forceRefresh = false) => {
+      const identity = readIdentity();
+      if (!identity) {
+        identityRef.current = null;
+        setPoints(null);
+        return;
+      }
+
+      const changed = !identityEquals(identityRef.current, identity);
+      identityRef.current = identity;
+      if (changed || forceRefresh) {
+        void fetchPoints(identity);
       }
     };
 
-    window.addEventListener("storage", handleStorage);
+    syncIdentity(true);
 
-    const interval = setInterval(() => {
-      const h = getHandle();
-      if (h && h !== handleRef.current) {
-        handleRef.current = h;
-        fetchPoints(h);
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "p89_handle" || e.key === "p89_userId" || e.key === "terminalState") {
+        syncIdentity(true);
       }
-    }, 2000);
+    };
+
+    const handleFocus = () => syncIdentity(true);
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("focus", handleFocus);
+
+    // Keep the corner value aligned with server truth, including silent awards.
+    const interval = setInterval(() => {
+      syncIdentity(true);
+    }, 6000);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", handleFocus);
       clearInterval(interval);
     };
-  }, []);
-
-  const fetchPoints = async (handle: string) => {
-    try {
-      const res = await fetch(`/api/points?handle=${encodeURIComponent(handle)}`);
-      const data = await res.json();
-      // Show 0 points if user exists, or if they have any points data
-      // Hide only if truly no session exists yet
-      if (res.ok || data.points !== undefined) {
-        setPoints(data.points ?? 0);
-      } else if (data.error === "User not found") {
-        // User doesn't exist yet - they'll be created on first interaction
-        // Don't show tracker until they have a session
-        setPoints(null);
-      }
-    } catch (e) {
-      console.warn("Failed to fetch points:", e);
-    }
-  };
+  }, [fetchPoints, readIdentity]);
 
   useEffect(() => {
     const handleAward = (params: {
@@ -97,23 +140,44 @@ export function PointsTracker() {
       reason: string;
       silent?: boolean;
     }) => {
-      if (params.silent) return;
+      if (!params.silent) {
+        const id = ++popupIdRef.current;
+        setPopups((prev) => [...prev, { id, amount: params.amount, reason: params.reason }]);
+        setPoints((prev) => (prev ?? 0) + params.amount);
+        setPulse(true);
 
-      const id = ++popupIdRef.current;
-      setPopups((prev) => [...prev, { id, amount: params.amount, reason: params.reason }]);
-      setPoints((prev) => (prev ?? 0) + params.amount);
-      setPulse(true);
+        setTimeout(() => {
+          setPopups((prev) => prev.filter((p) => p.id !== id));
+        }, 3000);
 
-      setTimeout(() => {
-        setPopups((prev) => prev.filter((p) => p.id !== id));
-      }, 3000);
+        setTimeout(() => setPulse(false), 600);
+      }
 
-      setTimeout(() => setPulse(false), 600);
+      // Always reconcile against ledger truth after awards (including silent ones).
+      const identity = identityRef.current || readIdentity();
+      if (identity) {
+        identityRef.current = identity;
+        setTimeout(() => void fetchPoints(identity), 150);
+      }
     };
 
     toolEvents.on("tool:award_points", handleAward);
     return () => {
       toolEvents.off("tool:award_points", handleAward);
+    };
+  }, [fetchPoints, readIdentity]);
+
+  useEffect(() => {
+    const handlePointsSync = (params: { points?: number | string }) => {
+      const parsed = Number(params?.points);
+      if (!Number.isNaN(parsed)) {
+        setPoints(parsed);
+      }
+    };
+
+    toolEvents.on("tool:points_sync", handlePointsSync);
+    return () => {
+      toolEvents.off("tool:points_sync", handlePointsSync);
     };
   }, []);
 

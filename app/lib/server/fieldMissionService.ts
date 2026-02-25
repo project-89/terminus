@@ -1,3 +1,13 @@
+/**
+ * Field Mission Service
+ *
+ * Field missions are real-world tasks (photograph, observe, locate, etc.) that
+ * intentionally coexist alongside standard in-game missions from missionService.
+ * They operate on a different track (longer timescale, GPS/media evidence) and
+ * are unlocked at higher trust layers (Layer 4+). Standard missions handle the
+ * in-terminal puzzle/decode/social gameplay; field missions extend the experience
+ * into the physical world.
+ */
 import prisma from "@/app/lib/prisma";
 import { uid } from "./memoryStore";
 import { createNode, createEdge } from "./knowledgeGraphService";
