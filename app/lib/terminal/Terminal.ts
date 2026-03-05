@@ -64,6 +64,7 @@ export class Terminal extends EventEmitter {
   private animationFrame: number | null = null;
   private hasFullAccess: boolean = false;
   private isAtBottom: boolean = true;
+  private responseStartY: number = 0;
   private typingSpeeds = {
     instant: 0,
     fast: 2,
@@ -232,9 +233,14 @@ export class Terminal extends EventEmitter {
 
     this.currentPrintY += lines.length * (this.options.fontSize * 1.5);
 
-    // Only auto-scroll if we're at the bottom
+    // During AI response generation, keep the response start visible at top.
+    // Otherwise, auto-scroll to bottom as usual.
     if (this.isAtBottom) {
-      this.scrollToLatest();
+      if (this.isGenerating) {
+        this.scrollToResponseStart();
+      } else {
+        this.scrollToLatest();
+      }
     }
 
     this.render();
@@ -473,6 +479,8 @@ export class Terminal extends EventEmitter {
   public startGeneration() {
     this.isGenerating = true;
     this.cursorVisible = true;
+    // Record where the AI response starts so we can scroll to it
+    this.responseStartY = this.currentPrintY;
 
     if (this.thinkingInterval) {
       clearInterval(this.thinkingInterval);
@@ -485,10 +493,9 @@ export class Terminal extends EventEmitter {
       this.render();
     }, 240);
 
-    // Only scroll if we're already at bottom
-    if (this.isAtBottom) {
-      this.scrollToLatest();
-    }
+    // Scroll so the response start is visible at the top of the viewport
+    this.isAtBottom = true;
+    this.scrollToResponseStart();
   }
 
   public endGeneration() {
@@ -501,12 +508,10 @@ export class Terminal extends EventEmitter {
 
     this.thinkingAnimationFrame = 0;
     this.cursorVisible = true;
-    this.render();
 
-    // Only scroll if we're already at bottom
-    if (this.isAtBottom) {
-      this.scrollToLatest();
-    }
+    // After generation completes, scroll to latest so the input line is visible
+    this.isAtBottom = true;
+    this.scrollToLatest();
   }
 
   public scrollToLatest(options: { extraPadding?: number } = {}) {
@@ -530,6 +535,20 @@ export class Terminal extends EventEmitter {
     this.isAtBottom = nextOffset >= maxScroll - lineHeight / 2;
 
     // Force immediate render
+    this.render();
+  }
+
+  private scrollToResponseStart() {
+    const lineHeight = this.options.fontSize * 1.5;
+    const visibleHeight = this.getHeight();
+    const totalContentHeight = this.currentPrintY;
+    const maxScroll = Math.max(0, totalContentHeight - visibleHeight + lineHeight);
+
+    // Scroll so response start is near the top with a small offset for context
+    const targetScroll = Math.max(0, this.responseStartY - lineHeight * 2);
+    // But don't scroll past the end of content
+    this.scrollOffset = Math.min(targetScroll, maxScroll);
+    this.isAtBottom = this.scrollOffset >= maxScroll - lineHeight / 2;
     this.render();
   }
 

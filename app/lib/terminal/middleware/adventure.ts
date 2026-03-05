@@ -215,7 +215,9 @@ async function maybeAutoRenderScene(
     });
 
     if (!response.ok) {
-      throw new Error(`render failed (${response.status})`);
+      const errorBody = await response.json().catch(() => ({}));
+      console.error("[Adventure] Auto-render server error:", response.status, errorBody);
+      throw new Error(errorBody.details || errorBody.error || `render failed (${response.status})`);
     }
 
     const blob = await response.blob();

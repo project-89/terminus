@@ -9,7 +9,9 @@ import { buildAdventureSystemPrompt, getToolDocumentation } from "@/app/lib/ai/p
 import { buildDirectorContext } from "@/app/lib/server/directorService";
 import { loadKnowledge } from "@/app/lib/ai/knowledge";
 import { loadIFCanon } from "@/app/lib/ai/canon";
-import { recordMemoryEvent } from "@/app/lib/server/memoryService";
+// recordMemoryEvent removed — raw chat is not a memory event.
+// Intentional memories come from extractMemoryAsync (AI-classified real-world content)
+// and explicit tool calls (mission reports, dream submissions, etc.).
 import { getSessionById, getActiveSessionByHandle, getSessionContext } from "@/app/lib/server/sessionService";
 import { buildLayerPrompt, calculateLayer, buildTemporalContext, type LayerContext } from "@/app/lib/ai/layers";
 import { detectSynchronicities, getSynchronicitySummary } from "@/app/lib/server/synchronicityService";
@@ -33,6 +35,15 @@ const clampNumber = (min: number, max: number) =>
     if (!Number.isFinite(num)) return undefined;
     return Math.max(min, Math.min(max, num));
   }, z.number().min(min).max(max));
+
+function parserResponse(body: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+  });
+}
 
 // Define tool parameter schemas with clamping to avoid model validation failures
 const glitchParameters = z.object({
@@ -1035,6 +1046,11 @@ export async function POST(req: Request) {
       console.log(`[TRUST SYSTEM] trustScore=${(trustLevel * 100).toFixed(1)}%, layer=${layer} (${directorCtx.player?.layerName}), pendingCeremony=${pendingCeremony}`);
     }
 
+    const lastUserMsg = [...validMessages].reverse().find((m: any) => m.role === "user");
+    const lastUserInput =
+      typeof lastUserMsg?.content === "string" ? lastUserMsg.content.trim() : "";
+    let isKnownGameEngineCommand = false;
+
     // Load or create game state and world graph for this session
     let gameConstraints: string | undefined;
     let consistencyContext: string | undefined;
@@ -1054,10 +1070,9 @@ export async function POST(req: Request) {
         
         // Try to execute the command through the game engine first
         // The engine provides grounding; the AI provides narrative and expansion
-        const lastUserMsg = validMessages.filter((m: any) => m.role === "user").pop();
         if (lastUserMsg) {
-          const isKnownCommand = isGameCommand(lastUserMsg.content);
-          if (isKnownCommand) {
+          isKnownGameEngineCommand = isGameCommand(lastUserMsg.content);
+          if (isKnownGameEngineCommand) {
             const puzzlesSolvedBefore = new Set(gameEngine.getState().puzzlesSolved || []);
             const result = gameEngine.execute(lastUserMsg.content);
             engineActionResult = result;
@@ -1096,6 +1111,19 @@ export async function POST(req: Request) {
         console.log(`[GAME STATE] Room: ${gameEngine.getCurrentRoom().name}, Inventory: ${gameEngine.getState().inventory.length} items`);
       } catch (e) {
         console.error("[GAME STATE] Failed to load game state:", e);
+      }
+    }
+
+    // Layer 0/1 parser-first behavior:
+    // - Unknown commands return a classic parser response.
+    // - Failed engine actions return the engine message directly.
+    // This prevents mixed outputs like "I don't understand..." followed by long narrative blocks.
+    if (context?.sessionId && layer <= 1 && lastUserInput) {
+      if (isKnownGameEngineCommand && engineActionResult && !engineActionResult.success) {
+        return parserResponse(engineActionResult.message || "I don't understand that verb.");
+      }
+      if (!isKnownGameEngineCommand) {
+        return parserResponse("I don't understand that verb.");
       }
     }
 
@@ -1641,30 +1669,15 @@ Create your experiment NOW. Focus on it. Resolve it. Then start the next.`;
           const lastUser = validMessages[validMessages.length - 1];
           if (lastUser?.content) {
             // Fire-and-forget: classify and extract real-world content
-            // This runs async and won't block the response
+            // Only intentional, AI-classified memories are stored as MemoryEvents.
+            // Raw chat messages live in GameMessage — not duplicated here.
             extractMemoryAsync({
               userId: resolved.userId,
               sessionId: resolved.sessionId,
               message: lastUser.content,
             });
-
-            // Also record raw message for full transcript
-            await recordMemoryEvent({
-              userId: resolved.userId,
-              sessionId: resolved.sessionId,
-              type: "OBSERVATION",
-              content: lastUser.content,
-              tags: ["adventure", "user", "raw"],
-            });
           }
           if (content) {
-            await recordMemoryEvent({
-              userId: resolved.userId,
-              sessionId: resolved.sessionId,
-              type: "REFLECTION",
-              content,
-              tags: ["adventure", "assistant"],
-            });
             
             try {
               const playerCommand = lastUser?.content || '';

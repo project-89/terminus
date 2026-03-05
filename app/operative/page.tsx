@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 
 interface OperativeProfile {
   id: string;
@@ -40,12 +42,6 @@ interface OperativeProfile {
     active: boolean;
     recruitedAt: string;
   }>;
-}
-
-interface TerminalMessage {
-  role: "user" | "logos";
-  content: string;
-  timestamp: Date;
 }
 
 const LAYER_NAMES = ["THE MASK", "THE BLEED", "THE CRACK", "THE WHISPER", "THE CALL", "THE REVEAL"];
@@ -124,58 +120,64 @@ function TrustBar({ score, showLabel = true }: { score: number; showLabel?: bool
   );
 }
 
-function LogosTerminal({ userId }: { userId: string }) {
-  const [messages, setMessages] = useState<TerminalMessage[]>([
-    { role: "logos", content: "◈ LOGOS INTERFACE ACTIVE ◈\n\nSecure channel established.\n\nI am your handler for network operations. Mission planning, intelligence analysis, strategic guidance - speak freely.\n\nThe simulation bends to those who understand its nature.", timestamp: new Date() }
-  ]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+function getMessageText(msg: any): string {
+  if (typeof msg.content === "string" && msg.content.length > 0) return msg.content;
+  if (Array.isArray(msg.parts)) {
+    return msg.parts
+      .filter((p: any) => p.type === "text")
+      .map((p: any) => p.text)
+      .join("");
+  }
+  return "";
+}
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+function LogosTerminal({ userId }: { userId: string }) {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasGreeted = useRef(false);
+  const [inputValue, setInputValue] = useState("");
+
+  const transport = useMemo(
+    () => new DefaultChatTransport({ api: "/api/operative/chat", body: { userId } }),
+    [userId]
+  );
+
+  const welcomeMessage = {
+    id: "welcome",
+    role: "assistant" as const,
+    parts: [{ type: "text" as const, text: "◈ LOGOS INTERFACE ACTIVE ◈\n\nEstablishing secure channel...\n\nInitializing operative dossier..." }],
   };
 
+  const { messages: chatMessages, sendMessage, status } = useChat({ transport });
+
+  const messages = chatMessages.length === 0 ? [welcomeMessage] : chatMessages;
+  const isLoading = status === "submitted" || status === "streaming";
+
+  // Send initial greeting on mount
   useEffect(() => {
-    scrollToBottom();
+    if (!hasGreeted.current) {
+      hasGreeted.current = true;
+      sendMessage({
+        text: "[SYSTEM: Operative has opened the LOGOS terminal. Generate a personalized welcome based on their current state — active missions, recent activity, patterns. Keep it concise.]",
+      });
+    }
+  }, [sendMessage]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || loading) return;
-
-    const userMessage = input.trim();
-    setInput("");
-    setMessages(prev => [...prev, { role: "user", content: userMessage, timestamp: new Date() }]);
-    setLoading(true);
-
-    try {
-      const res = await fetch("/api/operative/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, message: userMessage, context: "operative_dashboard" }),
-      });
-      
-      const data = await res.json();
-      setMessages(prev => [...prev, { 
-        role: "logos", 
-        content: data.response || "Signal interrupted. Retry transmission.", 
-        timestamp: new Date() 
-      }]);
-    } catch (err) {
-      setMessages(prev => [...prev, { 
-        role: "logos", 
-        content: "◈ CONNECTION SEVERED ◈\n\nThe network is experiencing dimensional interference. Stand by.", 
-        timestamp: new Date() 
-      }]);
+    if (inputValue.trim() && !isLoading) {
+      sendMessage({ text: inputValue });
+      setInputValue("");
     }
-    setLoading(false);
   };
 
   return (
     <div className="h-full flex flex-col bg-black/80 border border-cyan-700 shadow-[0_0_30px_rgba(0,255,255,0.1)] relative overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-b from-cyan-900/10 to-transparent pointer-events-none" />
-      
+
       <div className="bg-gradient-to-r from-cyan-900/50 via-cyan-800/30 to-cyan-900/50 px-4 py-3 border-b border-cyan-700 flex items-center justify-between relative">
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -193,23 +195,30 @@ function LogosTerminal({ userId }: { userId: string }) {
           </div>
         </div>
       </div>
-      
+
       <div className="flex-1 overflow-y-auto p-4 font-mono text-sm space-y-4 relative">
-        {messages.map((msg, i) => (
-          <div key={i} className={`${msg.role === "user" ? "ml-8" : "mr-8"}`}>
+        {messages
+          .filter((msg: any) => {
+            // Hide the initial system-triggered greeting from the user side
+            const text = getMessageText(msg);
+            if (msg.role === "user" && text.startsWith("[SYSTEM:")) return false;
+            return text.length > 0;
+          })
+          .map((msg: any) => (
+          <div key={msg.id} className={`${msg.role === "user" ? "ml-8" : "mr-8"}`}>
             <div className={`text-[10px] mb-1 tracking-widest ${msg.role === "user" ? "text-right text-cyan-600" : "text-cyan-700"}`}>
-              {msg.role === "user" ? "OPERATIVE" : "◈ LOGOS"} • {msg.timestamp.toLocaleTimeString()}
+              {msg.role === "user" ? "OPERATIVE" : "◈ LOGOS"} • {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString() : new Date().toLocaleTimeString()}
             </div>
             <div className={`p-3 border ${
-              msg.role === "user" 
-                ? "border-cyan-700 bg-cyan-900/20 text-cyan-300" 
+              msg.role === "user"
+                ? "border-cyan-700 bg-cyan-900/20 text-cyan-300"
                 : "border-cyan-600 bg-gradient-to-r from-cyan-900/30 to-transparent text-cyan-400"
             }`}>
-              <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+              <div className="whitespace-pre-wrap leading-relaxed">{getMessageText(msg)}</div>
             </div>
           </div>
         ))}
-        {loading && (
+        {isLoading && messages[messages.length - 1]?.role === "user" && (
           <div className="mr-8">
             <div className="text-[10px] mb-1 tracking-widest text-cyan-700">◈ LOGOS • processing...</div>
             <div className="p-3 border border-cyan-600 bg-gradient-to-r from-cyan-900/30 to-transparent">
@@ -229,15 +238,15 @@ function LogosTerminal({ userId }: { userId: string }) {
           <span className="text-cyan-500 text-lg">◈</span>
           <input
             type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
             placeholder="transmit query..."
-            disabled={loading}
+            disabled={isLoading}
             className="flex-1 bg-transparent text-cyan-300 placeholder:text-cyan-800 focus:outline-none font-mono text-sm tracking-wide"
           />
           <button
             type="submit"
-            disabled={loading || !input.trim()}
+            disabled={isLoading || !inputValue.trim()}
             className="px-4 py-2 border border-cyan-600 text-cyan-400 text-xs tracking-[0.2em] hover:bg-cyan-900/50 hover:border-cyan-400 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
           >
             TRANSMIT

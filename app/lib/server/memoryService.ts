@@ -42,11 +42,23 @@ export async function recordMemoryEvent(params: {
 export async function getRecentMemoryEvents(params: {
   userId: string;
   limit?: number;
+  /** Only return events that have ALL of these tags */
+  requireTags?: string[];
+  /** Exclude events that have ANY of these tags */
+  excludeTags?: string[];
 }): Promise<Array<{ type: string; content: string; tags?: string[] }>> {
   const limit = params.limit ?? 5;
   try {
+    const where: Record<string, any> = { userId: params.userId };
+    if (params.requireTags && params.requireTags.length > 0) {
+      where.tags = { hasEvery: params.requireTags };
+    }
+    if (params.excludeTags && params.excludeTags.length > 0) {
+      where.NOT = { tags: { hasSome: params.excludeTags } };
+    }
+
     const rows = await prisma.memoryEvent.findMany({
-      where: { userId: params.userId },
+      where,
       orderBy: { createdAt: "desc" },
       take: limit,
     });
@@ -56,9 +68,25 @@ export async function getRecentMemoryEvents(params: {
       tags: Array.isArray(r.tags) ? r.tags : [],
     }));
   } catch {
-    const events = Array.from(memoryStore.memoryEvents.values()).filter(
+    let events = Array.from(memoryStore.memoryEvents.values()).filter(
       (e: any) => e.userId === params.userId
     );
+
+    if (params.requireTags && params.requireTags.length > 0) {
+      const required = params.requireTags;
+      events = events.filter((e: any) => {
+        const tags = Array.isArray(e.tags) ? e.tags : [];
+        return required.every((t) => tags.includes(t));
+      });
+    }
+    if (params.excludeTags && params.excludeTags.length > 0) {
+      const excluded = params.excludeTags;
+      events = events.filter((e: any) => {
+        const tags = Array.isArray(e.tags) ? e.tags : [];
+        return !excluded.some((t) => tags.includes(t));
+      });
+    }
+
     return events
       .sort(
         (a, b) =>

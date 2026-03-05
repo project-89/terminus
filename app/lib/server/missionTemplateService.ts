@@ -3,6 +3,35 @@ import { getMissionCatalog, type MissionCatalogEntry } from "@/app/lib/missions/
 
 const CATALOG_TAG_PREFIX = "catalog:";
 
+export type MissionMetadata = {
+  catalogId?: string;
+  minTrust?: number;
+  maxTrust?: number;
+  track?: string;
+  requiredTraits?: Record<string, number>;
+  preferredTraits?: Record<string, number>;
+  repeatable?: boolean;
+  priority?: number;
+};
+
+function buildMetadataFromCatalog(entry: MissionCatalogEntry): MissionMetadata {
+  return {
+    catalogId: entry.id,
+    minTrust: entry.minTrust,
+    maxTrust: entry.maxTrust,
+    track: entry.track,
+    requiredTraits: entry.requiredTraits,
+    preferredTraits: entry.preferredTraits,
+    repeatable: entry.repeatable,
+    priority: entry.priority,
+  };
+}
+
+export function parseMissionMetadata(raw: unknown): MissionMetadata {
+  if (!raw || typeof raw !== "object") return {};
+  return raw as MissionMetadata;
+}
+
 export type MissionTemplateSource = "catalog" | "database" | "catalog+database";
 
 export type MissionRunSummary = {
@@ -31,6 +60,7 @@ export type MissionTemplateRecord = {
   minEvidence: number;
   tags: string[];
   active: boolean;
+  metadata: MissionMetadata;
   createdAt: Date | null;
   updatedAt: Date | null;
   stats: {
@@ -59,6 +89,7 @@ type MissionDefinitionWithCounts = {
   minEvidence: number;
   tags: string[];
   active: boolean;
+  metadata: unknown;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -189,6 +220,7 @@ function buildCatalogOnlyRecord(entry: MissionCatalogEntry): MissionTemplateReco
     minEvidence: 1,
     tags: Array.from(new Set([getCatalogTag(entry.id), ...entry.tags])),
     active: true,
+    metadata: buildMetadataFromCatalog(entry),
     createdAt: null,
     updatedAt: null,
     stats: {
@@ -212,6 +244,11 @@ export async function loadMissionTemplates(
     includeRuns = false,
     runLimit = 10,
   } = options;
+
+  // Auto-seed catalog to database on first load
+  if (includeCatalog && includeDatabase) {
+    await ensureCatalogSeeded();
+  }
 
   const catalogEntries = includeCatalog ? getMissionCatalog() : [];
 
@@ -264,6 +301,7 @@ export async function loadMissionTemplates(
       minEvidence: definition.minEvidence ?? 1,
       tags: Array.isArray(definition.tags) ? definition.tags : [],
       active: definition.active,
+      metadata: parseMissionMetadata(definition.metadata),
       createdAt: definition.createdAt,
       updatedAt: definition.updatedAt,
       stats,
@@ -321,6 +359,7 @@ export async function ensureMissionDefinitionForReference(reference: string): Pr
         minEvidence: 1,
         tags: Array.from(new Set([tag, ...catalogEntry.tags])),
         active: true,
+        metadata: buildMetadataFromCatalog(catalogEntry),
       },
       select: { id: true },
     });
@@ -342,4 +381,58 @@ export async function ensureMissionDefinitionForReference(reference: string): Pr
   if (byTitle) return byTitle.id;
 
   throw new Error(`Mission template not found for reference: ${reference}`);
+}
+
+let _seedChecked = false;
+
+export async function seedCatalogMissions(): Promise<number> {
+  const catalog = getMissionCatalog();
+  let seeded = 0;
+
+  for (const entry of catalog) {
+    const tag = getCatalogTag(entry.id);
+    const existing = await prisma.missionDefinition.findFirst({
+      where: { tags: { has: tag } },
+      select: { id: true },
+    });
+
+    if (existing) continue;
+
+    await prisma.missionDefinition.create({
+      data: {
+        title: entry.title,
+        prompt: entry.prompt,
+        type: entry.type,
+        minEvidence: 1,
+        tags: Array.from(new Set([tag, ...entry.tags])),
+        active: true,
+        metadata: buildMetadataFromCatalog(entry),
+      },
+    });
+    seeded++;
+  }
+
+  return seeded;
+}
+
+export async function ensureCatalogSeeded(): Promise<void> {
+  if (_seedChecked) return;
+  _seedChecked = true;
+
+  try {
+    const catalogTags = getMissionCatalog().map((e) => getCatalogTag(e.id));
+    const existing = await prisma.missionDefinition.findFirst({
+      where: { tags: { hasSome: catalogTags } },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      const count = await seedCatalogMissions();
+      if (count > 0) {
+        console.log(`[MissionTemplateService] Seeded ${count} catalog missions to database`);
+      }
+    }
+  } catch (e) {
+    console.warn("[MissionTemplateService] Catalog seed check failed (non-blocking):", e);
+  }
 }

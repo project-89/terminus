@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { POST } from "@/app/api/adventure/route";
 import { POST as createSession } from "@/app/api/session/route";
 import { testPrisma } from "../setup";
+import { streamText } from "ai";
 
 /**
  * Adventure Streaming API Tests
@@ -254,6 +255,45 @@ describe("Adventure Streaming API", () => {
       );
 
       expect(response.status).toBe(200);
+    });
+  });
+
+  describe("Layer 0 Parser-First Behavior", () => {
+    let testSession: { sessionId: string; userId: string; handle: string };
+
+    beforeEach(async () => {
+      const handle = `parser-test-${Date.now()}`;
+      const res = await createSession(
+        createRequest("POST", "http://localhost/api/session", { handle })
+      );
+      testSession = await res.json();
+      vi.mocked(streamText).mockClear();
+    });
+
+    it("returns classic parser feedback for unknown commands without invoking AI stream", async () => {
+      const response = await POST(
+        createRequest("POST", "http://localhost/api/adventure", {
+          messages: [{ role: "user", content: "testing" }],
+          context: { sessionId: testSession.sessionId },
+        })
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain("I don't understand that verb.");
+      expect(vi.mocked(streamText)).not.toHaveBeenCalled();
+    });
+
+    it("returns raw engine failure text for known command failures without invoking AI stream", async () => {
+      const response = await POST(
+        createRequest("POST", "http://localhost/api/adventure", {
+          messages: [{ role: "user", content: "take moon" }],
+          context: { sessionId: testSession.sessionId },
+        })
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('You don\'t see any "moon" here.');
+      expect(vi.mocked(streamText)).not.toHaveBeenCalled();
     });
   });
 });

@@ -122,6 +122,13 @@ const draftMissionParams = z.object({
   tags: z.array(z.string()).optional().describe("Optional tags like 'tokyo', 'glitch', 'photography'"),
   targetAgentIds: z.array(z.string()).optional().describe("Optional agent IDs/handles to scope template visibility to specific agents only"),
   active: z.boolean().default(true).describe("Whether template is active immediately"),
+  metadata: z.object({
+    minTrust: z.number().optional().describe("Minimum trust score (0-1) required to see this mission"),
+    track: z.enum(["logic", "perception", "creation", "field"]).optional().describe("Skill track this mission targets"),
+    requiredTraits: z.array(z.string()).optional().describe("Bayesian traits required for this mission"),
+    location: z.string().optional().describe("Geographic location context"),
+    narrativeArc: z.string().optional().describe("Campaign or narrative arc this mission belongs to"),
+  }).optional().describe("Optional mission metadata for targeting and categorization"),
 });
 
 const assignMissionParams = z.object({
@@ -170,17 +177,6 @@ const getSynchronicityFeedParams = z.object({
   agentId: z.string().optional().describe("Optional agent ID or handle"),
   minSignificance: z.number().default(0).describe("Minimum significance threshold"),
   limit: z.number().default(100),
-});
-
-const createCampaignParams = z.object({
-  name: z.string(),
-  description: z.string(),
-  objectives: z.array(z.object({
-    description: z.string(),
-    assignedTo: z.array(z.string()).optional().describe("Agent IDs"),
-    dependsOn: z.array(z.string()).optional().describe("Other objective IDs that must complete first"),
-  })),
-  duration: z.number().describe("Campaign duration in days"),
 });
 
 const updateAgentParams = z.object({
@@ -1025,6 +1021,10 @@ async function draftMission(params: z.infer<typeof draftMissionParams>) {
     tags = withAgentTargetTags(tags, targetId);
   }
 
+  const metadata = params.metadata
+    ? { ...params.metadata, difficulty: params.difficulty, points: params.points }
+    : { difficulty: params.difficulty, points: params.points };
+
   const mission = await prisma.missionDefinition.create({
     data: {
       title: params.title,
@@ -1033,6 +1033,7 @@ async function draftMission(params: z.infer<typeof draftMissionParams>) {
       minEvidence: params.minEvidence || 1,
       tags,
       active: params.active !== false,
+      metadata,
     },
   });
 

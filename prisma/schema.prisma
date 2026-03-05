@@ -255,6 +255,7 @@ model MissionDefinition {
     minEvidence  Int        @default(1)
     tags         String[]   @default([])
     active       Boolean    @default(true)
+    metadata     Json?
     missionRuns  MissionRun[]
 }
 

@@ -13,6 +13,7 @@ import {
 } from "./memoryStore";
 import { getProfile, ProfileRecord } from "./profileService";
 import { getMissionCatalog, MissionCatalogEntry } from "../missions/catalog";
+import { parseMissionMetadata, type MissionMetadata } from "./missionTemplateService";
 import { updateTrackDifficulty, getPlayerDifficulty, type DifficultyTrack } from "./difficultyService";
 import { getTrustState } from "./trustService";
 import { recordMissionBayesianOutcome } from "./bayes/orchestrator";
@@ -63,6 +64,7 @@ export type MissionRunRecord = {
 type AdminMissionDefinition = {
   id: string;
   tags?: string[];
+  metadata?: unknown;
   updatedAt?: Date;
 };
 
@@ -101,6 +103,8 @@ type PlayerMissionSignal = {
   trustScore: number;
   weakestTrack?: string;
   completedSlugs: Set<string>;
+  recentFailedTracks: Set<string>;
+  difficulty?: { logic: number; perception: number; creation: number; field: number; overall: number };
 };
 
 async function resolveMissionRuns(userId: string) {
@@ -157,7 +161,18 @@ async function buildPlayerMissionSignal(userId: string): Promise<PlayerMissionSi
     return value < lowestValue ? track : lowest;
   }, trackEntries[0][0]);
 
-  return { profile, trustScore, weakestTrack, completedSlugs };
+  // B4: Identify recently failed tracks for cooldown
+  const recentFailedTracks = new Set<string>();
+  const recentFailedRuns = runs
+    .filter((r: any) => r.status === "FAILED")
+    .slice(-3);
+  for (const run of recentFailedRuns) {
+    const missionType = ((run as any)?.mission?.type || "decode").toLowerCase();
+    const track = MISSION_TYPE_TO_TRACK[missionType];
+    if (track) recentFailedTracks.add(track);
+  }
+
+  return { profile, trustScore, weakestTrack, completedSlugs, recentFailedTracks, difficulty };
 }
 
 function scoreMissionEntry(
@@ -193,10 +208,78 @@ function scoreMissionEntry(
     score += 1.5;
   }
 
+  // B4: Penalize tracks where player has failed recently
+  if (entry.track && signal.recentFailedTracks.has(entry.track)) {
+    score -= 2.0;
+  }
+
   // Encourage variety when trust increases
   score += trustScore * 0.5;
 
   // Tiny noise to break ties
+  score += Math.random() * 0.1;
+
+  return score;
+}
+
+function scoreDbMissionWithMetadata(
+  metadata: MissionMetadata,
+  mission: { minEvidence?: number; updatedAt?: Date },
+  signal: PlayerMissionSignal,
+): number {
+  const { trustScore, profile, weakestTrack } = signal;
+
+  // Apply trust gates from metadata
+  if (typeof metadata.minTrust === "number" && trustScore < metadata.minTrust) {
+    return -Infinity;
+  }
+  if (typeof metadata.maxTrust === "number" && trustScore > metadata.maxTrust) {
+    return -Infinity;
+  }
+
+  // Check required traits
+  const traits = profile?.traits || {};
+  if (metadata.requiredTraits) {
+    for (const [trait, threshold] of Object.entries(metadata.requiredTraits)) {
+      if (Number(traits[trait] ?? 0) < threshold) {
+        return -Infinity;
+      }
+    }
+  }
+
+  let score = metadata.priority ?? 0;
+
+  // Preferred traits bonus
+  if (metadata.preferredTraits) {
+    for (const [trait, target] of Object.entries(metadata.preferredTraits)) {
+      const value = Number(traits[trait] ?? 0);
+      score += Math.max(0, value - target / 2);
+    }
+  }
+
+  // Track match bonus
+  if (weakestTrack && metadata.track === weakestTrack) {
+    score += 1.5;
+  }
+
+  // B4: Penalize tracks where player has failed recently (cooldown)
+  if (metadata.track && signal.recentFailedTracks.has(metadata.track)) {
+    score -= 2.0;
+  }
+
+  // Recency bonus for recently updated missions
+  if (mission.updatedAt) {
+    const ageMs = Date.now() - mission.updatedAt.getTime();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    if (ageMs < thirtyDaysMs) {
+      score += (1 - ageMs / thirtyDaysMs) * 0.5;
+    }
+  }
+
+  // Trust-scaling variety bonus
+  score += trustScore * 0.5;
+
+  // Tiny noise
   score += Math.random() * 0.1;
 
   return score;
@@ -280,12 +363,6 @@ export async function getNextMission(userId: string): Promise<MissionDefinitionR
     const dbMissions = await prisma.missionDefinition.findMany({
       where: {
         active: true,
-        // Exclude catalog missions (they have catalog: tags)
-        NOT: {
-          tags: {
-            hasSome: catalog.map(c => getCatalogTag(c.id)),
-          },
-        },
       },
     });
 
@@ -298,11 +375,14 @@ export async function getNextMission(userId: string): Promise<MissionDefinitionR
     );
 
     const eligibleAdminDefinitions = dbMissions.filter(
-      (m: AdminMissionDefinition) =>
-        !completedMissionIds.has(m.id) && isMissionVisibleToUser(m.tags, userId),
-    );
-    const adminDefinitionById = new Map<string, AdminMissionDefinition>(
-      eligibleAdminDefinitions.map((m: AdminMissionDefinition) => [m.id, m]),
+      (m: AdminMissionDefinition) => {
+        if (completedMissionIds.has(m.id)) {
+          // Allow if metadata marks it repeatable
+          const meta = parseMissionMetadata((m as any).metadata);
+          if (!meta.repeatable) return false;
+        }
+        return isMissionVisibleToUser(m.tags, userId);
+      },
     );
 
     adminMissions = await Promise.all(eligibleAdminDefinitions.map((m: any) => mapDefinition(m)));
@@ -310,19 +390,33 @@ export async function getNextMission(userId: string): Promise<MissionDefinitionR
     console.log(`[MissionService] Admin missions available: ${adminMissions.length}`);
 
     if (adminMissions.length > 0) {
-      const targetEvidence = signal.trustScore >= 0.75 ? 3 : signal.trustScore >= 0.45 ? 2 : 1;
       const scoredAdminMissions = adminMissions
         .map((mission) => {
-          const definition = adminDefinitionById.get(mission.id);
-          const minEvidence = Math.max(1, mission.minEvidence || 1);
-          const evidenceDistance = Math.abs(minEvidence - targetEvidence);
-          const lowTrustPenalty = signal.trustScore < 0.35 && minEvidence > 1 ? 2.5 : 0;
-          const recencyBonus = definition?.updatedAt
-            ? Math.max(0, (definition.updatedAt.getTime() - Date.now() + 30 * 24 * 60 * 60 * 1000) / (30 * 24 * 60 * 60 * 1000))
-            : 0;
-          const score = 10 - evidenceDistance * 1.5 - lowTrustPenalty + recencyBonus;
+          const definition = eligibleAdminDefinitions.find((d: any) => d.id === mission.id) as any;
+          const metadata = parseMissionMetadata(definition?.metadata);
+          const hasMetadata = metadata.minTrust !== undefined || metadata.track !== undefined;
+
+          let score: number;
+          if (hasMetadata) {
+            // Use rich metadata-based scoring
+            score = scoreDbMissionWithMetadata(metadata, {
+              minEvidence: mission.minEvidence,
+              updatedAt: definition?.updatedAt,
+            }, signal);
+          } else {
+            // Fallback: evidence-distance scoring for missions without metadata
+            const targetEvidence = signal.trustScore >= 0.75 ? 3 : signal.trustScore >= 0.45 ? 2 : 1;
+            const minEvidence = Math.max(1, mission.minEvidence || 1);
+            const evidenceDistance = Math.abs(minEvidence - targetEvidence);
+            const lowTrustPenalty = signal.trustScore < 0.35 && minEvidence > 1 ? 2.5 : 0;
+            const recencyBonus = definition?.updatedAt
+              ? Math.max(0, (definition.updatedAt.getTime() - Date.now() + 30 * 24 * 60 * 60 * 1000) / (30 * 24 * 60 * 60 * 1000))
+              : 0;
+            score = 10 - evidenceDistance * 1.5 - lowTrustPenalty + recencyBonus;
+          }
           return { mission, score };
         })
+        .filter(({ score }) => Number.isFinite(score))
         .sort((a, b) => {
           if (b.score !== a.score) return b.score - a.score;
           return a.mission.title.localeCompare(b.mission.title);
@@ -338,10 +432,7 @@ export async function getNextMission(userId: string): Promise<MissionDefinitionR
     console.log(`[MissionService] Could not fetch admin missions: ${e}`);
   }
 
-  // Prioritize admin-created missions if any exist
-  if (adminMissions.length > 0) return adminMissions[0];
-
-  // Fall back to catalog-based selection
+  // Fall back to catalog-based selection (only if no DB missions were chosen)
   const candidates = catalog
     .filter((entry) => {
       if (!entry.repeatable && signal.completedSlugs.has(entry.id)) {

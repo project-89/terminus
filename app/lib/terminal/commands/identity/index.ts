@@ -1,22 +1,31 @@
 import { CommandConfig } from "../../types";
 import { TERMINAL_COLORS } from "../../Terminal";
 import { TerminalContext } from "../../TerminalContext";
+import { toolEvents } from "../../tools/registry";
 
 async function handleActivate(ctx: any): Promise<void> {
   const { args, terminal } = ctx;
-  const code = args[1];
+  let code = (args[1] || "").trim();
   
   if (!code) {
-    await terminal.print("\nUsage: !activate <CODE>", {
+    await terminal.print("\nNo code provided. You can paste it now.", {
       color: TERMINAL_COLORS.system,
       speed: "fast",
     });
-    await terminal.print("Enter the activation code given to you by another agent.", {
+    code = (await terminal.prompt("> ENTER ACTIVATION CODE: "))?.trim();
+    if (!code) {
+      await terminal.print("Activation cancelled. Usage: !activate <CODE>", {
+        color: TERMINAL_COLORS.warning,
+        speed: "fast",
+      });
+      return;
+    }
+    await terminal.print("Verifying...", {
       color: TERMINAL_COLORS.secondary,
       speed: "fast",
     });
-    return;
   }
+  code = code.replace(/\s+/g, "");
   
   const context = TerminalContext.getInstance();
   const identity = await context.ensureIdentity();
@@ -60,9 +69,22 @@ async function handleActivate(ctx: any): Promise<void> {
         color: TERMINAL_COLORS.primary,
         speed: "normal",
       });
+    } else {
+      await terminal.print("\n✓ Activation successful. You are now in the network.", {
+        color: TERMINAL_COLORS.success,
+        speed: "fast",
+      });
     }
-    
+
     context.setState({ isReferred: true });
+
+    // Trigger visual feedback - refresh points tracker
+    toolEvents.emit("tool:points_sync", {});
+
+    // Dispatch custom event for any UI components listening for activation
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("p89:activated"));
+    }
     
   } catch (error) {
     await terminal.print("\n✕ Network error. Try again.", {

@@ -154,14 +154,27 @@ export async function detectSynchronicities(params: {
   const timestamp = new Date();
   const detected: SynchronicityRecord[] = [];
 
+  // Use actual chat messages for pattern detection (not MemoryEvents).
+  // MemoryEvents are intentional, curated memories — chat history lives in GameMessage.
   let previousInputs: Array<{ content: string; timestamp: Date }> = [];
   try {
-    const recent = await prisma.memoryEvent.findMany({
+    const recentSessions = await prisma.gameSession.findMany({
       where: { userId: params.userId },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 5,
+      select: { id: true },
     });
-    previousInputs = recent.map((r: any) => ({ content: r.content, timestamp: r.createdAt }));
+    if (recentSessions.length > 0) {
+      const messages = await prisma.gameMessage.findMany({
+        where: {
+          gameSessionId: { in: recentSessions.map((s: { id: string }) => s.id) },
+          role: "user",
+        },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      });
+      previousInputs = messages.map((m: any) => ({ content: m.content, timestamp: m.createdAt }));
+    }
   } catch {}
 
   const input: PatternInput = {

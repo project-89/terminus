@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal, TERMINAL_COLORS } from "@/app/lib/terminal/Terminal";
 import { FluidScreen } from "@/app/lib/terminal/screens/FluidScreen";
 import { analytics } from "@/app/lib/analytics";
@@ -31,6 +31,85 @@ export function TerminalCanvas() {
   const isMobile = () => {
     return typeof window !== "undefined" && window.innerWidth < 480;
   };
+
+  const syncHiddenInputFromTerminal = useCallback((scrollToLatest = false) => {
+    const terminal = terminalRef.current;
+    const hiddenInput = hiddenInputRef.current;
+    if (!terminal?.inputHandler || !hiddenInput) return;
+
+    hiddenInput.value = terminal.inputHandler.getInputBuffer();
+    const cursor = terminal.inputHandler.getCursorPosition();
+    hiddenInput.setSelectionRange(cursor, cursor);
+
+    if (scrollToLatest) {
+      terminal.scrollToLatest();
+    }
+  }, []);
+
+  const applyClipboardShortcut = useCallback(async (
+    shortcut: "copy" | "paste" | "cut" | "select_all"
+  ) => {
+    const terminal = terminalRef.current;
+    const hiddenInput = hiddenInputRef.current;
+    if (!terminal?.inputHandler) return;
+
+    const inputHandler = terminal.inputHandler;
+    const buffer = inputHandler.getInputBuffer();
+    const defaultCursor = inputHandler.getCursorPosition();
+    const selectionStart = hiddenInput?.selectionStart ?? defaultCursor;
+    const selectionEnd = hiddenInput?.selectionEnd ?? selectionStart;
+    const hasSelection = selectionEnd > selectionStart;
+
+    if (shortcut === "select_all") {
+      hiddenInput?.setSelectionRange(0, buffer.length);
+      return;
+    }
+
+    if (shortcut === "copy" || shortcut === "cut") {
+      const textToCopy = hasSelection
+        ? buffer.slice(selectionStart, selectionEnd)
+        : buffer;
+      if (!textToCopy) return;
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+      } catch (error) {
+        console.warn("Clipboard write failed", error);
+      }
+
+      if (shortcut === "cut") {
+        if (hasSelection) {
+          const next =
+            buffer.slice(0, selectionStart) + buffer.slice(selectionEnd);
+          inputHandler.setBuffer(next);
+          inputHandler.setCursorPosition(selectionStart);
+        } else {
+          inputHandler.setBuffer("");
+          inputHandler.setCursorPosition(0);
+        }
+        syncHiddenInputFromTerminal(true);
+      }
+      return;
+    }
+
+    if (shortcut === "paste") {
+      let pastedText = "";
+      try {
+        pastedText = await navigator.clipboard.readText();
+      } catch (error) {
+        console.warn("Clipboard read failed", error);
+        return;
+      }
+      if (!pastedText) return;
+      const normalizedPaste = pastedText.replace(/\r\n/g, "\n").replace(/\n/g, " ");
+      const next =
+        buffer.slice(0, selectionStart) +
+        normalizedPaste +
+        buffer.slice(selectionEnd);
+      inputHandler.setBuffer(next);
+      inputHandler.setCursorPosition(selectionStart + normalizedPaste.length);
+      syncHiddenInputFromTerminal(true);
+    }
+  }, [syncHiddenInputFromTerminal]);
 
   // Handle tool events for shaders
   useEffect(() => {
@@ -145,7 +224,7 @@ export function TerminalCanvas() {
         terminalRef.current = null;
       }
     };
-  }, []); // Only run once on mount
+  }, [applyClipboardShortcut]); // Rebind if clipboard handler changes
 
   // Handle resize - use ResizeObserver for reliable container size detection
   useEffect(() => {
@@ -191,7 +270,7 @@ export function TerminalCanvas() {
       resizeObserver.disconnect();
       timeouts.forEach(clearTimeout);
     };
-  }, []); // Only run once on mount
+  }, [applyClipboardShortcut]); // Rebind if clipboard handler changes
 
   // Add click to focus hidden input
   function handleCanvasClick() {
@@ -221,20 +300,40 @@ export function TerminalCanvas() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [shaderActive]);
 
   // Handle keyboard input
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Skip if the event is from our hidden input
-      if (e.target instanceof HTMLInputElement) {
+      // Skip if the event is from our managed input or another editable element.
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      ) {
         return;
       }
 
       if (!terminalRef.current) return;
+      if (!terminalRef.current.getCommandAccess()) return;
+
+      const key = e.key.toLowerCase();
+      const withModifier = e.metaKey || e.ctrlKey;
+
+      if (withModifier && ["v", "c", "x", "a"].includes(key)) {
+        e.preventDefault();
+        const shortcutMap = {
+          v: "paste",
+          c: "copy",
+          x: "cut",
+          a: "select_all",
+        } as const;
+        void applyClipboardShortcut(shortcutMap[key as keyof typeof shortcutMap]);
+        return;
+      }
 
       // Handle Enter key specially - need to process command, not just buffer
-      if (e.key === "Enter") {
+      if (e.key === "Enter" && !withModifier) {
         e.preventDefault();
         const command = terminalRef.current.inputHandler?.getInputBuffer() || "";
         terminalRef.current.inputHandler?.setBuffer("");
@@ -248,17 +347,18 @@ export function TerminalCanvas() {
         return;
       }
 
-      // Skip if modifier keys are pressed (except Cmd+V for paste)
-      // This prevents intercepting screenshot shortcuts (Cmd+Shift+4, etc.)
-      if ((e.metaKey || e.ctrlKey) && e.key !== "v") {
+      // Skip other modified shortcuts (screenshots, browser shortcuts, etc.)
+      if (withModifier || e.altKey) {
         return;
       }
 
       if (
         e.key === "Backspace" ||
+        e.key === "Delete" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight" ||
         e.key === "ArrowUp" ||
         e.key === "ArrowDown" ||
-        (e.key === "v" && (e.ctrlKey || e.metaKey)) ||
         e.key.length === 1
       ) {
         e.preventDefault();
@@ -278,7 +378,7 @@ export function TerminalCanvas() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []); // Only run once on mount
+  }, [applyClipboardShortcut]);
 
   // Handle scrolling
   useEffect(() => {
@@ -407,7 +507,7 @@ export function TerminalCanvas() {
       container.removeEventListener("touchend", handleTouchEnd as any);
       container.removeEventListener("touchcancel", handleTouchEnd as any);
     };
-  }, []);
+  }, [shaderActive]);
 
   // Add click to focus hidden input
   // function handleCanvasClick() {
@@ -420,17 +520,32 @@ export function TerminalCanvas() {
   // }
 
   // Add input keydown handler
-  function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  async function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     // Dismiss active shader on input
     if (shaderActive) {
       setShaderActive(false);
     }
 
-    e.preventDefault();
     if (!terminalRef.current) return;
+    const key = e.key.toLowerCase();
+    const withModifier = e.metaKey || e.ctrlKey;
+
+    if (withModifier && ["v", "c", "x", "a"].includes(key)) {
+      e.preventDefault();
+      const shortcutMap = {
+        v: "paste",
+        c: "copy",
+        x: "cut",
+        a: "select_all",
+      } as const;
+      await applyClipboardShortcut(shortcutMap[key as keyof typeof shortcutMap]);
+      return;
+    }
+
+    e.preventDefault();
 
     // Handle special keys
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !withModifier) {
       const input = e.currentTarget;
       const command = input.value;
       input.value = "";
@@ -467,21 +582,39 @@ export function TerminalCanvas() {
         if (hiddenInputRef.current && terminalRef.current?.inputHandler) {
           hiddenInputRef.current.value =
             terminalRef.current.inputHandler.getInputBuffer();
+          const pos = terminalRef.current.inputHandler.getCursorPosition();
+          hiddenInputRef.current.setSelectionRange(pos, pos);
+        }
+      });
+      return;
+    }
+
+    // Handle delete
+    if (e.key === "Delete") {
+      terminalRef.current.handleInput(e.key);
+      requestAnimationFrame(() => {
+        if (hiddenInputRef.current && terminalRef.current?.inputHandler) {
+          hiddenInputRef.current.value =
+            terminalRef.current.inputHandler.getInputBuffer();
+          const pos = terminalRef.current.inputHandler.getCursorPosition();
+          hiddenInputRef.current.setSelectionRange(pos, pos);
         }
       });
       return;
     }
 
     // Handle all other keyboard input through terminal
-    if (e.key.length === 1) {
+    if (e.key.length === 1 && !withModifier && !e.altKey) {
       terminalRef.current.handleInput(e.key);
     }
 
-    // Sync hidden input with terminal's buffer
+    // Sync hidden input with terminal's buffer and cursor position
     requestAnimationFrame(() => {
       if (hiddenInputRef.current && terminalRef.current?.inputHandler) {
         hiddenInputRef.current.value =
           terminalRef.current.inputHandler.getInputBuffer();
+        const pos = terminalRef.current.inputHandler.getCursorPosition();
+        hiddenInputRef.current.setSelectionRange(pos, pos);
         terminalRef.current.scrollToLatest();
       }
     });
@@ -571,6 +704,7 @@ export function TerminalCanvas() {
         <PointsTracker />
         <input
           ref={hiddenInputRef}
+          data-terminal-input="true"
           type="text"
           inputMode="text"
           autoComplete="off"
@@ -579,6 +713,32 @@ export function TerminalCanvas() {
           spellCheck="false"
           enterKeyHint="send"
           onKeyDown={handleInputKeyDown}
+          onPaste={(e) => {
+            e.preventDefault();
+            const pasted = e.clipboardData.getData("text/plain");
+            if (!pasted || !terminalRef.current?.inputHandler) return;
+            const inputHandler = terminalRef.current.inputHandler;
+            const buffer = inputHandler.getInputBuffer();
+            const start = e.currentTarget.selectionStart ?? inputHandler.getCursorPosition();
+            const end = e.currentTarget.selectionEnd ?? start;
+            const normalizedPaste = pasted.replace(/\r\n/g, "\n").replace(/\n/g, " ");
+            const next = buffer.slice(0, start) + normalizedPaste + buffer.slice(end);
+            inputHandler.setBuffer(next);
+            inputHandler.setCursorPosition(start + normalizedPaste.length);
+            syncHiddenInputFromTerminal(true);
+          }}
+          onInput={(e) => {
+            // Fallback for mobile paste/autocorrect that bypasses onPaste
+            if (!terminalRef.current?.inputHandler) return;
+            const el = e.currentTarget as HTMLInputElement;
+            const currentBuffer = terminalRef.current.inputHandler.getInputBuffer();
+            if (el.value !== currentBuffer) {
+              const normalized = el.value.replace(/\r\n/g, "\n").replace(/\n/g, " ");
+              terminalRef.current.inputHandler.setBuffer(normalized);
+              terminalRef.current.inputHandler.setCursorPosition(el.selectionStart ?? normalized.length);
+              terminalRef.current.render();
+            }
+          }}
           onFocus={() => {
             if (!terminalRef.current) return;
             const lineHeight = terminalRef.current.options?.fontSize

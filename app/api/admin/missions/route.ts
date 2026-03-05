@@ -72,7 +72,7 @@ export async function POST(request: Request) {
 
     switch (action) {
       case "create": {
-        const { title, prompt, type, minEvidence, tags, active } = body;
+        const { title, prompt, type, minEvidence, tags, active, metadata } = body;
         const created = await prisma.missionDefinition.create({
           data: {
             title,
@@ -81,6 +81,7 @@ export async function POST(request: Request) {
             minEvidence: minEvidence || 1,
             tags: tags || [],
             active: active !== false,
+            metadata: metadata || undefined,
           },
         });
         const mission = await getMissionTemplateById(created.id, {
@@ -93,22 +94,32 @@ export async function POST(request: Request) {
       }
 
       case "update": {
-        const { id, definitionId, action: _action, source: _source, stats: _stats, recentRuns: _recentRuns, ...updates } = body;
-        const targetId = definitionId || id;
+        const { id, definitionId, action: _action, source: _source, stats: _stats, recentRuns: _recentRuns, metadata: metadataUpdate, ...updates } = body;
+        let targetId = definitionId || id;
         if (!targetId) {
           return NextResponse.json({ error: "Mission id required" }, { status: 400 });
         }
 
+        // If targeting a catalog-only mission, import it to database first
         if (String(targetId).startsWith("catalog:")) {
-          return NextResponse.json(
-            { error: "Catalog templates are read-only. Import the template to database first." },
-            { status: 400 },
-          );
+          const catalogId = String(targetId).slice("catalog:".length);
+          targetId = await ensureMissionDefinitionForReference(`catalog:${catalogId}`);
+        }
+
+        const updateData: Record<string, any> = { ...updates };
+        if (metadataUpdate !== undefined) {
+          // Merge metadata: load existing, overlay updates
+          const existing = await prisma.missionDefinition.findUnique({
+            where: { id: targetId },
+            select: { metadata: true },
+          });
+          const current = (existing?.metadata as Record<string, any>) || {};
+          updateData.metadata = { ...current, ...metadataUpdate };
         }
 
         await prisma.missionDefinition.update({
           where: { id: targetId },
-          data: updates,
+          data: updateData,
         });
 
         const mission = await getMissionTemplateById(targetId, {
@@ -122,16 +133,15 @@ export async function POST(request: Request) {
 
       case "toggle": {
         const { id, definitionId } = body;
-        const targetId = definitionId || id;
+        let targetId = definitionId || id;
         if (!targetId) {
           return NextResponse.json({ error: "Mission id required" }, { status: 400 });
         }
 
+        // If targeting a catalog-only mission, import it first
         if (String(targetId).startsWith("catalog:")) {
-          return NextResponse.json(
-            { error: "Catalog templates are read-only. Import the template to database first." },
-            { status: 400 },
-          );
+          const catalogId = String(targetId).slice("catalog:".length);
+          targetId = await ensureMissionDefinitionForReference(`catalog:${catalogId}`);
         }
 
         const current = await prisma.missionDefinition.findUnique({ where: { id: targetId } });

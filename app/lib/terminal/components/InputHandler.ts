@@ -2,6 +2,8 @@ import { Terminal } from "../Terminal";
 
 export class InputHandler {
   private hiddenTextarea!: HTMLTextAreaElement;
+  private static readonly EXTERNAL_INPUT_SELECTOR =
+    'input[data-terminal-input="true"]';
   private buffer: string = "";
   private history: string[] = [];
   private historyIndex: number = -1;
@@ -19,13 +21,20 @@ export class InputHandler {
     this.hiddenTextarea.style.top = "-9999px";
     document.body.appendChild(this.hiddenTextarea);
 
+    // Keep this as a fallback input path, but prefer external input managed by TerminalCanvas.
     this.hiddenTextarea.addEventListener("keydown", this.handleKeyDown);
-    this.hiddenTextarea.focus();
-
-    this.terminal.canvas.addEventListener("click", () => this.focus());
   }
 
   public focus() {
+    if (typeof document !== "undefined") {
+      const externalInput = document.querySelector<HTMLInputElement>(
+        InputHandler.EXTERNAL_INPUT_SELECTOR
+      );
+      if (externalInput) {
+        externalInput.focus();
+        return;
+      }
+    }
     this.hiddenTextarea.focus();
   }
 
@@ -271,6 +280,7 @@ export class InputHandler {
   }
 
   public destroy() {
+    this.hiddenTextarea.removeEventListener("keydown", this.handleKeyDown);
     if (this.hiddenTextarea && this.hiddenTextarea.parentNode) {
       this.hiddenTextarea.parentNode.removeChild(this.hiddenTextarea);
     }

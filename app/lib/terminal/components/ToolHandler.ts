@@ -773,8 +773,9 @@ export class ToolHandler {
           });
 
           if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            throw new Error(error.error || "Image generation failed");
+            const errorBody = await response.json().catch(() => ({}));
+            console.error("[generate_image] Server error:", response.status, errorBody);
+            throw new Error(errorBody.details || errorBody.error || `Image generation failed (${response.status})`);
           }
 
           const blob = await response.blob();
@@ -810,8 +811,14 @@ export class ToolHandler {
             });
           }
           // Non-modal modes are silent - the player should be uncertain if they saw anything
-        } catch (error) {
-          console.error("Image generation error:", error);
+        } catch (error: any) {
+          console.error("[generate_image] FAILED:", {
+            error: error?.message || error,
+            prompt: params.prompt?.slice(0, 100),
+            mode: params.mode,
+            quality: params.quality,
+            preset: params.preset,
+          });
           // Silent failure for non-modal, subtle glitch for modal
           if (params.mode === "modal" || !params.mode) {
             await this.terminal.print("Visual feed corrupted...", {

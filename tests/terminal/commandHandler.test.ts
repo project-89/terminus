@@ -29,8 +29,12 @@ describe("CommandHandler.processCommand", () => {
     const handleCommand = vi.fn();
     const terminalStub = {
       print,
+      buffer: [],
       options: {
         foregroundColor: "#00f7ff",
+        colors: {
+          highlight: "#ffffff",
+        },
       },
       context: {
         currentScreen: {
@@ -42,11 +46,12 @@ describe("CommandHandler.processCommand", () => {
     const handler = new CommandHandler(terminalStub);
     await handler.processCommand("  examine vision  ");
 
-    expect(print).toHaveBeenCalledTimes(1);
+    expect(print).toHaveBeenCalledTimes(2);
     expect(print).toHaveBeenCalledWith("> examine vision", {
-      color: "#00f7ff",
+      color: "#ffffff",
       speed: "instant",
     });
+    expect(print).toHaveBeenCalledWith("", { speed: "instant" });
     expect(handleCommand).toHaveBeenCalledTimes(1);
     expect(handleCommand).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -54,5 +59,35 @@ describe("CommandHandler.processCommand", () => {
         args: ["examine", "vision"],
       })
     );
+  });
+
+  it("inserts a spacer line before the prompt when output already exists", async () => {
+    const print = vi.fn();
+    const handleCommand = vi.fn();
+    const terminalStub = {
+      print,
+      buffer: [{ text: "Existing output" }],
+      options: {
+        foregroundColor: "#00f7ff",
+        colors: {
+          highlight: "#ffffff",
+        },
+      },
+      context: {
+        currentScreen: {
+          handleCommand,
+        },
+      },
+    } as any;
+
+    const handler = new CommandHandler(terminalStub);
+    await handler.processCommand("look");
+
+    expect(print).toHaveBeenNthCalledWith(1, "", { speed: "instant" });
+    expect(print).toHaveBeenNthCalledWith(2, "> look", {
+      color: "#ffffff",
+      speed: "instant",
+    });
+    expect(print).toHaveBeenNthCalledWith(3, "", { speed: "instant" });
   });
 });

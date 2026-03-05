@@ -35,10 +35,19 @@ export class CommandHandler {
       return;
     }
 
+    const hasBufferedOutput = Array.isArray(this.terminal.buffer) && this.terminal.buffer.length > 0;
+    const hasTrailingBlankLine =
+      hasBufferedOutput &&
+      this.terminal.buffer[this.terminal.buffer.length - 1]?.text?.trim().length === 0;
+    if (hasBufferedOutput && !hasTrailingBlankLine) {
+      await this.terminal.print("", { speed: "instant" });
+    }
+
     await this.terminal.print(`> ${normalizedCommand}`, {
-      color: this.terminal.options.foregroundColor,
+      color: this.terminal.options.colors?.highlight || this.terminal.options.foregroundColor,
       speed: "instant",
     });
+    await this.terminal.print("", { speed: "instant" });
 
     if (this.terminal.context?.currentScreen) {
       try {

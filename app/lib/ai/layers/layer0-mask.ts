@@ -39,6 +39,7 @@ export const LAYER_0_VOICE = `Writing style:
 - Moments of profound stillness and sudden strangeness
 - No HTML, no markdown formatting - pure terminal text
 - Responses typically 2-4 short paragraphs
+- Separate paragraphs with exactly one blank line
 - STANDARD CAPITALIZATION ONLY - no random capitals mid-word (e.g., "sIgnal" is wrong)
 - If you want to emphasize text, use ALL CAPS for entire words (sparingly) or let the prose speak
 - NEVER repeat yourself - each sentence should add new information or imagery

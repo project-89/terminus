@@ -15,6 +15,7 @@ export default defineConfig({
     // Use the same database as dev for now (ensures foreign keys work)
     env: {
       DATABASE_URL: "postgresql://parzival@localhost:5432/p89_db?schema=public",
+      NODE_ENV: "development",  // Enable devLayer overrides in integration tests
     },
   },
   resolve: {

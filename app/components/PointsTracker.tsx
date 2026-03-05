@@ -18,6 +18,7 @@ export function PointsTracker() {
   const [points, setPoints] = useState<number | null>(null);
   const [popups, setPopups] = useState<PointsPopup[]>([]);
   const [pulse, setPulse] = useState(false);
+  const [isActivated, setIsActivated] = useState(false);
   const popupIdRef = useRef(0);
   const identityRef = useRef<PointsIdentity | null>(null);
   const requestSeqRef = useRef(0);
@@ -173,11 +174,42 @@ export function PointsTracker() {
       if (!Number.isNaN(parsed)) {
         setPoints(parsed);
       }
+      // Also check activation status
+      try {
+        const saved = localStorage.getItem("terminalState");
+        const state = saved ? JSON.parse(saved) : null;
+        if (state?.isReferred) setIsActivated(true);
+      } catch {}
     };
 
     toolEvents.on("tool:points_sync", handlePointsSync);
     return () => {
       toolEvents.off("tool:points_sync", handlePointsSync);
+    };
+  }, []);
+
+  // Check activation status on mount and listen for activation events
+  useEffect(() => {
+    const checkActivation = () => {
+      try {
+        const saved = localStorage.getItem("terminalState");
+        const state = saved ? JSON.parse(saved) : null;
+        if (state?.isReferred) setIsActivated(true);
+      } catch {}
+    };
+    checkActivation();
+
+    const handleActivated = () => {
+      setIsActivated(true);
+      setPulse(true);
+      setTimeout(() => setPulse(false), 600);
+    };
+
+    window.addEventListener("p89:activated", handleActivated);
+    window.addEventListener("storage", checkActivation);
+    return () => {
+      window.removeEventListener("p89:activated", handleActivated);
+      window.removeEventListener("storage", checkActivation);
     };
   }, []);
 
@@ -197,6 +229,15 @@ export function PointsTracker() {
           textShadow: pulse ? "0 0 10px #39ff14" : "0 0 5px #2fb7c3",
         }}
       >
+        {isActivated && (
+          <span
+            className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle"
+            style={{
+              backgroundColor: "#39ff14",
+              boxShadow: "0 0 6px #39ff14, 0 0 12px #39ff14",
+            }}
+          />
+        )}
         <span className="opacity-60">LOGOS</span>{" "}
         <span className="font-bold">{points.toLocaleString()}</span>
       </div>

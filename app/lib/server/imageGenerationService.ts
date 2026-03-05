@@ -117,16 +117,31 @@ export async function generateImageAsset(input: ImageGenerationInput): Promise<I
     generationConfig.imageConfig.imageSize = finalResolution;
   }
 
-  const response = await ai.models.generateContent({
-    model,
-    contents,
-    config: generationConfig,
-  });
+  let response: any;
+  try {
+    response = await ai.models.generateContent({
+      model,
+      contents,
+      config: generationConfig,
+    });
+  } catch (apiError: any) {
+    console.error("[ImageGen] API call failed:", apiError?.message || apiError);
+    console.error("[ImageGen] Model:", model, "Prompt length:", fullPrompt.length);
+    throw new Error(`Image API error: ${apiError?.message || "unknown"}`);
+  }
 
-  const parts = response.candidates?.[0]?.content?.parts || [];
+  const candidate = response.candidates?.[0];
+  const parts = candidate?.content?.parts || [];
   let imageData: string | null = null;
   let mimeType = "image/png";
   let firstText: string | undefined;
+
+  if (parts.length === 0) {
+    const finishReason = candidate?.finishReason;
+    const safetyRatings = candidate?.safetyRatings;
+    console.error("[ImageGen] No parts returned. finishReason:", finishReason, "safetyRatings:", JSON.stringify(safetyRatings));
+    throw new Error(`No image parts returned (finishReason: ${finishReason || "unknown"})`);
+  }
 
   for (const part of parts) {
     if (typeof part.text === "string" && !firstText && !(part as any).thought) {
@@ -148,7 +163,8 @@ export async function generateImageAsset(input: ImageGenerationInput): Promise<I
   }
 
   if (!imageData) {
-    throw new Error("No image generated");
+    console.error("[ImageGen] Parts had no image data. Part types:", parts.map((p: any) => ({ hasText: !!p.text, hasInlineData: !!p.inlineData, keys: Object.keys(p) })));
+    throw new Error("No image generated - response contained only text");
   }
 
   return {

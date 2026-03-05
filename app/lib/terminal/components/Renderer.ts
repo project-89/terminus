@@ -194,6 +194,7 @@ export class Renderer {
 
   public renderInput(timestamp: number) {
     const lineHeight = this.options.fontSize * 1.5;
+    const inputColor = this.options.colors?.highlight || this.options.foregroundColor;
 
     // Adjust cursorY to account for scrollOffset
     const cursorY =
@@ -208,7 +209,7 @@ export class Renderer {
       // Render each line of wrapped input
       wrappedLines.forEach((line, index) => {
         const lineY = cursorY + index * lineHeight;
-        this.ctx.fillStyle = this.options.foregroundColor;
+        this.ctx.fillStyle = inputColor;
         this.ctx.fillText(line, cursorStartX, lineY);
 
         // Only show cursor on the last line

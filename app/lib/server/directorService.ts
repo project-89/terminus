@@ -30,6 +30,9 @@ import {
   type ObjectiveWithPhase,
   type AgentView,
 } from "./campaignService";
+import { loadBayesianState } from "./bayes/store";
+import { summarizeState } from "./bayes/engine";
+import { getAutonomousExperimentProposal } from "./bayes/orchestrator";
 
 export type DirectorPhase = "intro" | "probe" | "train" | "mission" | "report" | "reflection" | "reveal" | "network";
 
@@ -101,6 +104,11 @@ export type DirectorContext = {
       playerWeaknesses: string[];
     };
     context: string;  // AI-readable summary of player puzzle skills
+  };
+  bayesianProfile?: {
+    topTraits: Array<{ trait: string; estimate: number; uncertainty: number }>;
+    weakestTrait?: { trait: string; estimate: number; uncertainty: number };
+    overallUncertainty: number;
   };
   experiment?: {
     directive?: ExperimentDirective;
@@ -224,6 +232,47 @@ async function ensureTrustEvolution(
   };
 }
 
+// B3: Theme keywords for memory-based phase biasing
+const REVEAL_THEMES = ["void", "crack", "simulation", "pattern", "awaken", "glitch", "matrix", "dream", "fracture", "dissolve"];
+const MISSION_THEMES = ["action", "fight", "resistance", "network", "deploy", "recruit", "organize", "build", "hack"];
+
+type MemoryBias = { reveal: number; mission: number };
+
+function computeMemoryBias(memory?: Array<{ type: string; content: string; tags?: string[] }>): MemoryBias {
+  const bias: MemoryBias = { reveal: 0, mission: 0 };
+  if (!memory || memory.length === 0) return bias;
+
+  for (const event of memory) {
+    const text = (event.content || "").toLowerCase();
+    const tags = event.tags || [];
+
+    // Only consider intentional memories: extracted real-world content,
+    // mission reports, dream submissions, synchronicity reports
+    const isIntentional =
+      tags.includes("source:real_world") ||
+      tags.some((t) => t.startsWith("extracted:")) ||
+      event.type === "MISSION" ||
+      event.type === "REPORT" ||
+      tags.some((t) => ["dream", "synchronicity", "vision"].includes(t));
+
+    if (!isIntentional) continue;
+
+    const revealHits = REVEAL_THEMES.filter((kw) => text.includes(kw)).length;
+    const missionHits = MISSION_THEMES.filter((kw) => text.includes(kw)).length;
+
+    // Extracted dreams/synchronicities get extra weight for reveal bias
+    if (tags.includes("extracted:dream") || tags.includes("extracted:synchronicity")) {
+      bias.reveal += revealHits * 1.5;
+    } else {
+      bias.reveal += revealHits;
+    }
+
+    bias.mission += missionHits;
+  }
+
+  return bias;
+}
+
 function decidePhase(params: {
   hasActiveRun: boolean;
   awaitingReport: boolean;
@@ -236,37 +285,47 @@ function decidePhase(params: {
   hasConsent?: boolean;
   isStuck?: boolean;
   isInCooldown?: boolean;
+  memoryBias?: MemoryBias;
 }): DirectorPhase {
   // First session with minimal engagement = intro
   if ((params.sessionCount ?? 1) <= 1 && params.trustScore < 0.1) {
     return "intro";
   }
-  
+
   // Active report waiting takes priority
   if (params.awaitingReport) return "report";
-  
+
   // Just submitted a report = reflection time
   if (params.justReported) return "reflection";
-  
+
   // Has an active mission = stay in mission phase
   if (params.hasActiveRun) return "mission";
-  
+
   // Stuck players get sent back to probe for recovery
   if (params.isStuck) return "probe";
-  
+
   // In cooldown = train (no new missions)
   if (params.isInCooldown && params.trustScore >= 0.3) return "train";
-  
+
   // High trust thresholds trigger special phases
   if (params.trustScore >= 0.95) return "network";  // Full integration
   if (params.trustScore >= 0.8) return "reveal";    // Major revelations
-  
+
+  // B3: Memory-biased phase decisions (soft influence, doesn't override hard rules)
+  const mb = params.memoryBias;
+  if (mb && params.trustScore >= 0.4) {
+    // If 2+ reveal-themed memory events, bias toward reveal at lower threshold
+    if (mb.reveal >= 2 && params.trustScore >= 0.6) return "reveal";
+    // If 2+ mission-themed memory events, bias toward mission
+    if (mb.mission >= 2 && params.successRate >= 0.3) return "mission";
+  }
+
   // Ready for missions: has profile, decent trust, good success rate
   if (params.trustScore >= 0.5 && params.successRate >= 0.5) return "mission";
-  
+
   // Building capability
   if (params.trustScore >= 0.3) return "train";
-  
+
   // Still profiling
   return "probe";
 }
@@ -333,9 +392,44 @@ export async function buildDirectorContext(input: {
       }
     } catch {}
 
-    // Attach recent memory events for personalization
+    // Attach recent intentional memory events for personalization
+    // Excludes raw chat transcript — only extracted real-world observations,
+    // mission reports, tool-created memories, etc.
     try {
-      memory = await getRecentMemoryEvents({ userId, limit: 5 });
+      memory = await getRecentMemoryEvents({
+        userId,
+        limit: 10,
+        excludeTags: ["adventure", "raw"],
+      });
+    } catch {}
+  }
+
+  // B1: Load Bayesian profile for player model
+  let bayesianProfile: DirectorContext["bayesianProfile"] | undefined;
+  if (userId) {
+    try {
+      const bayesState = await loadBayesianState(userId);
+      const summaries = summarizeState(bayesState);
+      const globalProfile = summaries.find((s) => s.id === "global:agent_profile");
+      if (globalProfile) {
+        const traitVars = globalProfile.variables
+          .filter((v) => v.type === "latent_trait" && typeof v.estimate === "number")
+          .map((v) => ({
+            trait: v.variableId,
+            estimate: v.estimate as number,
+            uncertainty: v.uncertainty,
+          }));
+
+        // Sort by estimate descending for top traits
+        const sorted = [...traitVars].sort((a, b) => b.estimate - a.estimate);
+        const topTraits = sorted.slice(0, 3);
+        const weakestTrait = sorted.length > 0 ? sorted[sorted.length - 1] : undefined;
+        const overallUncertainty = traitVars.length > 0
+          ? traitVars.reduce((sum, t) => sum + t.uncertainty, 0) / traitVars.length
+          : 1;
+
+        bayesianProfile = { topTraits, weakestTrait, overallUncertainty };
+      }
     } catch {}
   }
 
@@ -401,6 +495,7 @@ export async function buildDirectorContext(input: {
     } catch {}
   }
 
+  const memoryBias = computeMemoryBias(memory);
   const phase = decidePhase({
     hasActiveRun,
     awaitingReport,
@@ -409,13 +504,32 @@ export async function buildDirectorContext(input: {
     justReported: !!reportJustSubmitted,
     isStuck: difficultyCtx?.stuck.isStuck,
     isInCooldown: difficultyCtx?.cooldown.isInCooldown,
+    memoryBias,
   });
+
+  // B5: Persist director phase for analytics
+  if (userId) {
+    try {
+      await prisma.agentNote.create({
+        data: {
+          userId,
+          key: "director_phase",
+          value: JSON.stringify({
+            phase,
+            trust: trustScore,
+            layer,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      });
+    } catch {}
+  }
 
   const clientAccessTier =
     typeof input?.clientAccessTier === "number" ? input.clientAccessTier : 0;
 
-  // Try to get an experiment directive from templates
-  // If null, the AI should create its own experiments using experiment_create tool
+  // Try to get an experiment directive from templates first,
+  // then fall back to Bayesian autonomous queue proposals
   let experimentDirective: ExperimentDirective | null = null;
   if (userId) {
     try {
@@ -423,6 +537,26 @@ export async function buildDirectorContext(input: {
       const recentMessages = memory?.map(m => m.content) || [];
       experimentDirective = await getExperimentDirective(userId, recentMessages);
     } catch {}
+
+    // B2: If no template directive, check Bayesian autonomous queue
+    if (!experimentDirective) {
+      try {
+        const bayesProposal = await getAutonomousExperimentProposal(userId);
+        if (bayesProposal) {
+          experimentDirective = {
+            experimentId: `bayes:${bayesProposal.id}`,
+            templateId: "bayesian_autonomous",
+            type: bayesProposal.experimentType || "perception",
+            narrativeHook: bayesProposal.narrativeHook || bayesProposal.hypothesis,
+            successCriteria: bayesProposal.successCriteria || bayesProposal.task,
+            covert: true,
+            requiredTools: [],
+            forbiddenTools: [],
+            isDefault: false,
+          };
+        }
+      } catch {}
+    }
   }
 
   let pendingMissionAssignment: { title: string; briefing: string; type: string; narrativeDelivery: boolean } | undefined;
@@ -529,6 +663,7 @@ export async function buildDirectorContext(input: {
       rubric: [],
       pendingAssignment: pendingMissionAssignment,
     },
+    bayesianProfile,
     puzzle,
     puzzleProfile,
     experiment: {

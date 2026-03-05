@@ -374,7 +374,7 @@ export class GameEngine {
         if (DIRECTION_ALIASES[cmd.verb]) {
           return this.doGo(DIRECTION_ALIASES[cmd.verb]);
         }
-        return { success: false, message: "I don't understand that command. Type HELP for available actions." };
+        return { success: false, message: "I don't understand that verb." };
     }
   }
 

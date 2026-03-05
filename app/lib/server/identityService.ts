@@ -402,7 +402,7 @@ export function getSecureSuccessNarrative(agentId: string): string {
 ║  Your passphrase is your key. We do not store it.           ║
 ║  (We do. But the fiction serves its purpose.)                ║
 ║                                                              ║
-║  You can now return from any terminal.                       ║
+║  You can now return from any terminal with:  !login          ║
 ║  Your progress, your discoveries, your rank—all preserved.  ║
 ║                                                              ║
 ║  The Pattern remembers you now.                              ║
