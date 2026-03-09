@@ -194,7 +194,7 @@ export class Renderer {
 
   public renderInput(timestamp: number) {
     const lineHeight = this.options.fontSize * 1.5;
-    const inputColor = this.options.colors?.highlight || this.options.foregroundColor;
+    const inputColor = this.options.colors?.input || this.options.colors?.highlight || this.options.foregroundColor;
 
     // Adjust cursorY to account for scrollOffset
     const cursorY =
@@ -314,11 +314,42 @@ export class Renderer {
   public wrapText(text: string): string[] {
     const effectiveWidth = this.getContentWidth();
 
+    // Force-break any single chunk (word) that exceeds the line width
+    const forceBreak = (chunk: string): string[] => {
+      const metrics = this.ctx.measureText(chunk);
+      if (metrics.width <= effectiveWidth) return [chunk];
+
+      const broken: string[] = [];
+      let current = "";
+      for (const ch of chunk) {
+        const test = current + ch;
+        if (this.ctx.measureText(test).width > effectiveWidth && current) {
+          broken.push(current);
+          current = ch;
+        } else {
+          current = test;
+        }
+      }
+      if (current) broken.push(current);
+      return broken;
+    };
+
     const words = text.split(" ");
     const lines: string[] = [];
     let currentLine = "";
 
     for (const word of words) {
+      // If a single word is wider than the line, force-break it
+      const wordWidth = this.ctx.measureText(word).width;
+      if (wordWidth > effectiveWidth) {
+        if (currentLine) {
+          lines.push(currentLine);
+          currentLine = "";
+        }
+        lines.push(...forceBreak(word));
+        continue;
+      }
+
       const testLine = currentLine ? `${currentLine} ${word}` : word;
       const metrics = this.ctx.measureText(testLine);
 

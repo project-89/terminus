@@ -44,7 +44,7 @@ export class CommandHandler {
     }
 
     await this.terminal.print(`> ${normalizedCommand}`, {
-      color: this.terminal.options.colors?.highlight || this.terminal.options.foregroundColor,
+      color: this.terminal.options.colors?.input || this.terminal.options.colors?.highlight || this.terminal.options.foregroundColor,
       speed: "instant",
     });
     await this.terminal.print("", { speed: "instant" });

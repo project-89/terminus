@@ -85,40 +85,36 @@ export const rewardCommands: CommandConfig[] = [
         toolEvents.emit("tool:points_sync", { points });
         
         await ctx.terminal.print(`
-╔══════════════════════════════════════════════════════════════╗
-║  ◈ LOGOS STATUS                                              ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  POINTS: ${String(points).padEnd(49)}║
-║                                                              ║`, {
+◈ LOGOS STATUS
+────────────────
+
+  POINTS: ${points}`, {
           color: TERMINAL_COLORS.primary,
           speed: "fast",
         });
-        
+
         if (recent.length > 0) {
-          await ctx.terminal.print(`║  RECENT ACTIVITY:                                            ║`, {
+          await ctx.terminal.print(`\n  RECENT ACTIVITY:`, {
             color: TERMINAL_COLORS.primary,
             speed: "fast",
           });
-          
+
           for (const r of recent.slice(0, 5)) {
             const meta = r.metadata as { reason?: string } || {};
             const reason = (meta.reason || r.type || "reward").slice(0, 40);
-            const line = `  +${r.amount} - ${reason}`;
-            await ctx.terminal.print(`║${line.padEnd(62)}║`, {
+            await ctx.terminal.print(`  +${r.amount} - ${reason}`, {
               color: TERMINAL_COLORS.success,
               speed: "fast",
             });
           }
         } else {
-          await ctx.terminal.print(`║  No rewards yet. LOGOS is watching.                          ║`, {
+          await ctx.terminal.print(`\n  No rewards yet. LOGOS is watching.`, {
             color: TERMINAL_COLORS.secondary,
             speed: "fast",
           });
         }
-        
-        await ctx.terminal.print(`║                                                              ║
-╚══════════════════════════════════════════════════════════════╝`, {
+
+        await ctx.terminal.print("", {
           color: TERMINAL_COLORS.primary,
           speed: "fast",
         });

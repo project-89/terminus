@@ -119,15 +119,13 @@ async function handleSecure(ctx: any): Promise<void> {
     
     if (!statusData.status?.isReferred) {
       await terminal.print(`
-╔══════════════════════════════════════════════════════════════╗
-║  ✕ IDENTITY LOCK UNAVAILABLE                                 ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  You must first be activated by another agent.               ║
-║                                                              ║
-║  Obtain an activation code and use:  !activate <CODE>        ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝`, {
+✕ IDENTITY LOCK UNAVAILABLE
+─────────────────────────
+
+You must first be activated by another agent.
+
+Obtain an activation code and use:
+  !activate <CODE>`, {
         color: TERMINAL_COLORS.error,
         speed: "normal",
       });
@@ -143,19 +141,15 @@ async function handleSecure(ctx: any): Promise<void> {
     }
     
     await terminal.print(`
-╔══════════════════════════════════════════════════════════════╗
-║  ◈ IDENTITY SECURITY PROTOCOL                                ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  Choose a passphrase to secure your identity.                ║
-║  This will be your key to return from any terminal.          ║
-║                                                              ║
-║  Requirements:                                               ║
-║  • At least 6 characters                                     ║
-║  • Something you will remember                               ║
-║  • Something others cannot guess                             ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝`, {
+◈ IDENTITY SECURITY PROTOCOL
+─────────────────────────────
+
+Choose a passphrase to secure your identity. This will be your key to return from any terminal.
+
+Requirements:
+  • At least 6 characters
+  • Something you will remember
+  • Something others cannot guess`, {
       color: TERMINAL_COLORS.primary,
       speed: "normal",
     });
@@ -237,13 +231,10 @@ async function handleLogin(ctx: any): Promise<void> {
   const { terminal } = ctx;
   
   await terminal.print(`
-╔══════════════════════════════════════════════════════════════╗
-║  ◈ AGENT VERIFICATION                                        ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  Enter your agent designation and passphrase.                ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝`, {
+◈ AGENT VERIFICATION
+─────────────────────
+
+Enter your agent designation and passphrase.`, {
     color: TERMINAL_COLORS.primary,
     speed: "normal",
   });
@@ -297,15 +288,12 @@ async function handleLogin(ctx: any): Promise<void> {
     }
     
     await terminal.print(`
-╔══════════════════════════════════════════════════════════════╗
-║  ✓ IDENTITY VERIFIED                                         ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  ${data.message?.padEnd(58) || "Welcome back, Agent.".padEnd(58)}║
-║                                                              ║
-║  Your progress has been restored.                            ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝`, {
+✓ IDENTITY VERIFIED
+─────────────────────
+
+${data.message || "Welcome back, Agent."}
+
+Your progress has been restored.`, {
       color: TERMINAL_COLORS.primary,
       speed: "normal",
     });
@@ -364,18 +352,17 @@ async function handleWhoami(ctx: any): Promise<void> {
       const s = data.status;
       
       await terminal.print(`
-╔══════════════════════════════════════════════════════════════╗
-║  ◈ AGENT DOSSIER                                             ║
-╠══════════════════════════════════════════════════════════════╣
-║  Designation: ${(i.agentId || "UNASSIGNED").padEnd(44)}║
-║  Handle:      ${(i.handle || "none").padEnd(44)}║
-║  Status:      ${(i.identityLocked ? "SECURED" : "UNSECURED").padEnd(44)}║
-║  Network:     ${(i.isReferred ? "ACTIVATED" : "PENDING ACTIVATION").padEnd(44)}║
-${i.referralCode ? `║  Your Code:   ${i.referralCode.padEnd(44)}║\n` : ""}║                                                              ║
-║  LOGOS:       ${String(points).padEnd(44)}║
-║  Turns:       ${String(s?.turnsPlayed || 0).padEnd(44)}║
-║  Time:        ${(String(s?.minutesPlayed || 0) + " minutes").padEnd(44)}║
-╚══════════════════════════════════════════════════════════════╝`, {
+◈ AGENT DOSSIER
+─────────────────────
+
+  Designation: ${i.agentId || "UNASSIGNED"}
+  Handle:      ${i.handle || "none"}
+  Status:      ${i.identityLocked ? "SECURED" : "UNSECURED"}
+  Network:     ${i.isReferred ? "ACTIVATED" : "PENDING ACTIVATION"}${i.referralCode ? `\n  Your Code:   ${i.referralCode}` : ""}
+
+  LOGOS:       ${points}
+  Turns:       ${s?.turnsPlayed || 0}
+  Time:        ${s?.minutesPlayed || 0} minutes`, {
         color: TERMINAL_COLORS.primary,
         speed: "fast",
       });

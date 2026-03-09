@@ -2,6 +2,7 @@ export const TERMINAL_COLORS = {
   primary: "#2fb7c3",
   secondary: "#1e9fb3",
   highlight: "#ffffff",
+  input: "#c0dfff",
   error: "#ff0000",
   success: "#00ff00",
   warning: "#ffff00",
