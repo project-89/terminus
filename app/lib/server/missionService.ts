@@ -126,7 +126,7 @@ async function buildPlayerMissionSignal(userId: string): Promise<PlayerMissionSi
   let trustScore = 0.2; // Default for new agents
   try {
     const trustState = await getTrustState(userId);
-    trustScore = trustState.trustScore;
+    trustScore = trustState.effectiveTrustScore;
   } catch {
     // Fall back to default if trust system unavailable
   }

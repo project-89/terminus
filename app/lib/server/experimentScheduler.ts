@@ -77,7 +77,7 @@ async function buildPlayerContext(userId: string): Promise<PlayerContext> {
     sessionCount,
     lastSessionAt,
     currentHour: new Date().getHours(),
-    trustScore: trustState.decayedScore,
+    trustScore: trustState.effectiveTrustScore,
     layer: trustState.layer,
     layerJustUnlocked,
     recentMissionOutcomes,

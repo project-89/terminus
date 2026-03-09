@@ -45,6 +45,16 @@ interface TrustUpdateResult {
   pendingCeremony: TrustLayer | null;
 }
 
+function capScoreToLayer(score: number, layer: TrustLayer): number {
+  if (layer >= LAYER_THRESHOLDS.length - 1) {
+    return Math.max(0, Math.min(1, score));
+  }
+
+  const nextThreshold = LAYER_THRESHOLDS[layer + 1];
+  const cappedUpperBound = Math.max(LAYER_THRESHOLDS[layer], nextThreshold - 0.0001);
+  return Math.max(0, Math.min(cappedUpperBound, score));
+}
+
 function scoreToLayer(score: number, daysSinceStart?: number): TrustLayer {
   for (let i = LAYER_THRESHOLDS.length - 1; i >= 0; i--) {
     if (score >= LAYER_THRESHOLDS[i]) {
@@ -75,6 +85,7 @@ export async function getTrustState(userId: string): Promise<{
   trustScore: number;
   layer: TrustLayer;
   decayedScore: number;
+  effectiveTrustScore: number;
   pendingCeremony: TrustLayer | null;
   lastActiveAt: Date | null;
   lastTrustUpdate: Date | null;
@@ -96,6 +107,7 @@ export async function getTrustState(userId: string): Promise<{
       trustScore: 0,
       layer: 0,
       decayedScore: 0,
+      effectiveTrustScore: 0,
       pendingCeremony: null,
       lastActiveAt: null,
       lastTrustUpdate: null,
@@ -108,11 +120,13 @@ export async function getTrustState(userId: string): Promise<{
   const createdAt = profile.user?.createdAt ?? new Date();
   const daysSinceStart = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
   const effectiveLayer = scoreToLayer(decayedScore, daysSinceStart);
+  const effectiveTrustScore = capScoreToLayer(decayedScore, effectiveLayer);
 
   return {
     trustScore: profile.trustScore,
     layer: effectiveLayer,
     decayedScore,
+    effectiveTrustScore,
     pendingCeremony: profile.pendingCeremony as TrustLayer | null,
     lastActiveAt: profile.lastActiveAt,
     lastTrustUpdate: profile.lastTrustUpdate,

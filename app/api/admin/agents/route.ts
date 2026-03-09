@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/app/lib/prisma";
 import { validateAdminAuth } from "@/app/lib/server/adminAuth";
-import { LAYER_THRESHOLDS, LAYER_NAMES, TrustLayer } from "@/app/lib/server/trustService";
+import { getTrustState, LAYER_THRESHOLDS, LAYER_NAMES } from "@/app/lib/server/trustService";
 
 export const dynamic = "force-dynamic";
 
@@ -107,10 +107,11 @@ export async function GET(request: Request) {
           .filter((m: any) => typeof m.score === "number")
           .reduce((acc: number, m: any, _: number, arr: any[]) => acc + m.score / arr.length, 0);
 
-        // Use canonical trust data from profile (maintained by trustService)
-        // Fall back to computed values if profile doesn't have trust data
-        const canonicalTrustScore = agent.profile?.trustScore ?? 0;
-        const canonicalLayer = (agent.profile?.layer ?? 0) as TrustLayer;
+        const trustState = await getTrustState(agent.id).catch(() => null);
+        const effectiveTrustScore = trustState?.effectiveTrustScore ?? agent.profile?.trustScore ?? 0;
+        const rawTrustScore = trustState?.trustScore ?? agent.profile?.trustScore ?? 0;
+        const decayedTrustScore = trustState?.decayedScore ?? rawTrustScore;
+        const effectiveLayer = trustState?.layer ?? agent.profile?.layer ?? 0;
 
         return {
           id: agent.id,
@@ -185,9 +186,11 @@ export async function GET(request: Request) {
             : null,
 
           location: agent.profile?.location as { lat: number; lng: number } | null,
-          trustScore: canonicalTrustScore,
-          layer: canonicalLayer,
-          layerName: LAYER_NAMES[canonicalLayer],
+          trustScore: effectiveTrustScore,
+          rawTrustScore,
+          decayedTrustScore,
+          layer: effectiveLayer,
+          layerName: LAYER_NAMES[effectiveLayer],
           layerThresholds: LAYER_THRESHOLDS,
           
           gameSessions: gameSessions.slice(0, 10).map((s: any) => ({
@@ -214,6 +217,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to fetch agents" }, { status: 500 });
   }
 }
-
-// Trust score and layer are now sourced directly from profile (maintained by trustService)
-// See: app/lib/server/trustService.ts for LAYER_THRESHOLDS and evolveTrust

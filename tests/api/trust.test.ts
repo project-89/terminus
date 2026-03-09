@@ -33,6 +33,7 @@ describe("Trust/Layer System", () => {
       const state = await getTrustState(user.id);
 
       expect(state.trustScore).toBe(0);
+      expect(state.effectiveTrustScore).toBe(0);
       expect(state.layer).toBe(0);
       expect(state.pendingCeremony).toBeNull();
     });
@@ -52,7 +53,27 @@ describe("Trust/Layer System", () => {
 
       const state = await getTrustState(user.id);
       expect(state.trustScore).toBe(0.15);
+      expect(state.effectiveTrustScore).toBe(0.15);
       expect(state.layer).toBe(1);
+    });
+
+    it("should cap effective trust score to the current time-gated layer", async () => {
+      const user = await createTestUser("test-trust-effective-cap");
+
+      await testPrisma.playerProfile.create({
+        data: {
+          userId: user.id,
+          trustScore: 0.8,
+          layer: 1,
+          lastActiveAt: new Date(),
+        },
+      });
+
+      const state = await getTrustState(user.id);
+      expect(state.trustScore).toBe(0.8);
+      expect(state.layer).toBe(1);
+      expect(state.effectiveTrustScore).toBeLessThan(0.25);
+      expect(state.effectiveTrustScore).toBeGreaterThanOrEqual(0.1);
     });
   });
 

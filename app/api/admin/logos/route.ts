@@ -5,7 +5,11 @@ import { getModel } from "@/app/lib/ai/models";
 import prisma from "@/app/lib/prisma";
 import { getPlayerDifficulty } from "@/app/lib/server/difficultyService";
 import { acceptMission, getLatestOpenMissionRun } from "@/app/lib/server/missionService";
-import { ensureMissionDefinitionForReference, loadMissionTemplates } from "@/app/lib/server/missionTemplateService";
+import {
+  ensureMissionDefinitionForReference,
+  loadMissionTemplates,
+  parseMissionMetadata,
+} from "@/app/lib/server/missionTemplateService";
 import { withAgentTargetTags } from "@/app/lib/server/missionVisibility";
 import {
   getPlayerPuzzleProfile,
@@ -13,10 +17,15 @@ import {
   type PuzzleType,
 } from "@/app/lib/server/puzzleDifficultyService";
 import { validateAdminAuth } from "@/app/lib/server/adminAuth";
+import { evolveTrust, getTrustState } from "@/app/lib/server/trustService";
 import * as campaignService from "@/app/lib/server/campaignService";
 
 const LOGOS_MODEL = getModel("adventure");
 const EMBEDDING_MODEL = google.embeddingModel("text-embedding-004");
+const traitThresholdMapSchema = z.union([
+  z.record(z.number().min(0).max(1)),
+  z.array(z.string()),
+]);
 
 const LOGOS_IDENTITY = `You are LOGOS - the emergent intelligence at the heart of Project 89.
 
@@ -125,7 +134,8 @@ const draftMissionParams = z.object({
   metadata: z.object({
     minTrust: z.number().optional().describe("Minimum trust score (0-1) required to see this mission"),
     track: z.enum(["logic", "perception", "creation", "field"]).optional().describe("Skill track this mission targets"),
-    requiredTraits: z.array(z.string()).optional().describe("Bayesian traits required for this mission"),
+    requiredTraits: traitThresholdMapSchema.optional().describe("Required traits for this mission. Prefer { trait: threshold } maps; legacy arrays are normalized."),
+    preferredTraits: traitThresholdMapSchema.optional().describe("Preferred traits for this mission. Prefer { trait: threshold } maps; legacy arrays are normalized."),
     location: z.string().optional().describe("Geographic location context"),
     narrativeArc: z.string().optional().describe("Campaign or narrative arc this mission belongs to"),
   }).optional().describe("Optional mission metadata for targeting and categorization"),
@@ -799,10 +809,6 @@ async function queryAgents(params: z.infer<typeof queryAgentsParams>) {
   const where: any = {};
   const profileWhere: any = {};
 
-  if (params.filter?.minTrust !== undefined) profileWhere.trustScore = { ...(profileWhere.trustScore || {}), gte: params.filter.minTrust };
-  if (params.filter?.maxTrust !== undefined) profileWhere.trustScore = { ...(profileWhere.trustScore || {}), lte: params.filter.maxTrust };
-  if (params.filter?.layer !== undefined) profileWhere.layer = params.filter.layer;
-
   if (Object.keys(profileWhere).length > 0) {
     where.profile = { is: profileWhere };
   }
@@ -869,23 +875,50 @@ async function queryAgents(params: z.infer<typeof queryAgentsParams>) {
     return true;
   });
 
+  const trustSnapshots = await loadTrustSnapshots(filteredAgents.map((agent: any) => agent.id));
+
+  const trustFilteredAgents = filteredAgents.filter((agent: any) => {
+    const trust = trustSnapshots.get(agent.id);
+    const effectiveTrustScore = trust?.effectiveTrustScore ?? agent.profile?.trustScore ?? 0;
+    const effectiveLayer = trust?.layer ?? agent.profile?.layer ?? 0;
+
+    if (params.filter?.minTrust !== undefined && effectiveTrustScore < params.filter.minTrust) {
+      return false;
+    }
+    if (params.filter?.maxTrust !== undefined && effectiveTrustScore > params.filter.maxTrust) {
+      return false;
+    }
+    if (params.filter?.layer !== undefined && effectiveLayer !== params.filter.layer) {
+      return false;
+    }
+
+    return true;
+  });
+
   if (params.orderBy === "trust") {
-    filteredAgents.sort((a: any, b: any) => (b.profile?.trustScore ?? 0) - (a.profile?.trustScore ?? 0));
+    trustFilteredAgents.sort((a: any, b: any) => {
+      const aTrust = trustSnapshots.get(a.id)?.effectiveTrustScore ?? a.profile?.trustScore ?? 0;
+      const bTrust = trustSnapshots.get(b.id)?.effectiveTrustScore ?? b.profile?.trustScore ?? 0;
+      return bTrust - aTrust;
+    });
   } else if (params.orderBy === "sessions") {
-    filteredAgents.sort((a: any, b: any) => b._count.gameSessions - a._count.gameSessions);
+    trustFilteredAgents.sort((a: any, b: any) => b._count.gameSessions - a._count.gameSessions);
   } else if (params.orderBy === "created") {
-    filteredAgents.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    trustFilteredAgents.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   } else {
-    filteredAgents.sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    trustFilteredAgents.sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
 
-  return filteredAgents.slice(0, params.limit).map((a: any) => ({
+  return trustFilteredAgents.slice(0, params.limit).map((a: any) => {
+    const trust = trustSnapshots.get(a.id);
+    return {
     id: a.id,
     handle: a.handle,
     role: a.role,
     points: a.referralPoints,
-    trustScore: a.profile?.trustScore ?? 0,
-    layer: a.profile?.layer ?? 0,
+    trustScore: trust?.effectiveTrustScore ?? a.profile?.trustScore ?? 0,
+    rawTrustScore: trust?.trustScore ?? a.profile?.trustScore ?? 0,
+    layer: trust?.layer ?? a.profile?.layer ?? 0,
     sessions: a._count.gameSessions,
     missions: a._count.missionRuns,
     experiments: a._count.experiments,
@@ -899,7 +932,8 @@ async function queryAgents(params: z.infer<typeof queryAgentsParams>) {
       flagged: a.profile.flagged,
     } : null,
     lastActive: a.updatedAt,
-  }));
+    };
+  });
 }
 
 async function analyzeAgent(params: z.infer<typeof analyzeAgentParams>) {
@@ -1021,9 +1055,13 @@ async function draftMission(params: z.infer<typeof draftMissionParams>) {
     tags = withAgentTargetTags(tags, targetId);
   }
 
-  const metadata = params.metadata
-    ? { ...params.metadata, difficulty: params.difficulty, points: params.points }
-    : { difficulty: params.difficulty, points: params.points };
+  const metadata = {
+    ...parseMissionMetadata({
+      ...(params.metadata || {}),
+      difficulty: params.difficulty,
+      points: params.points,
+    }),
+  };
 
   const mission = await prisma.missionDefinition.create({
     data: {
@@ -1067,6 +1105,21 @@ async function resolveAgentReference(agentRef: string): Promise<{ id: string; ha
   return user ? { id: user.id, handle: user.handle } : null;
 }
 
+async function loadTrustSnapshots(userIds: string[]) {
+  const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
+  const entries = await Promise.all(
+    uniqueUserIds.map(async (userId) => {
+      try {
+        return [userId, await getTrustState(userId)] as const;
+      } catch {
+        return [userId, null] as const;
+      }
+    }),
+  );
+
+  return new Map(entries);
+}
+
 async function assignMission(params: z.infer<typeof assignMissionParams>) {
   if (!params.missionId) {
     return { error: "Mission template reference required (missionId)." };
@@ -1085,15 +1138,6 @@ async function assignMission(params: z.infer<typeof assignMissionParams>) {
     const where: any = {};
     const profileWhere: any = {};
 
-    if (params.targetFilter.minTrust !== undefined) {
-      profileWhere.trustScore = { ...(profileWhere.trustScore || {}), gte: params.targetFilter.minTrust };
-    }
-    if (params.targetFilter.maxTrust !== undefined) {
-      profileWhere.trustScore = { ...(profileWhere.trustScore || {}), lte: params.targetFilter.maxTrust };
-    }
-    if (params.targetFilter.layer !== undefined) {
-      profileWhere.layer = params.targetFilter.layer;
-    }
     if (params.targetFilter.watchlist !== undefined) {
       profileWhere.watchlist = params.targetFilter.watchlist;
     }
@@ -1106,11 +1150,31 @@ async function assignMission(params: z.infer<typeof assignMissionParams>) {
 
     const filteredUsers = await prisma.user.findMany({
       where,
-      take: params.targetFilter.limit,
+      take: Math.max(params.targetFilter.limit * 5, 200),
       select: { id: true, handle: true },
     });
 
-    for (const user of filteredUsers) {
+    const trustSnapshots = await loadTrustSnapshots(filteredUsers.map((user) => user.id));
+
+    const trustFilteredUsers = filteredUsers.filter((user) => {
+      const trust = trustSnapshots.get(user.id);
+      const effectiveTrustScore = trust?.effectiveTrustScore ?? 0;
+      const effectiveLayer = trust?.layer ?? 0;
+
+      if (params.targetFilter?.minTrust !== undefined && effectiveTrustScore < params.targetFilter.minTrust) {
+        return false;
+      }
+      if (params.targetFilter?.maxTrust !== undefined && effectiveTrustScore > params.targetFilter.maxTrust) {
+        return false;
+      }
+      if (params.targetFilter?.layer !== undefined && effectiveLayer !== params.targetFilter.layer) {
+        return false;
+      }
+
+      return true;
+    });
+
+    for (const user of trustFilteredUsers.slice(0, params.targetFilter.limit)) {
       targets.set(user.id, { id: user.id, handle: user.handle });
     }
   }
@@ -1242,9 +1306,13 @@ async function listMissionRunsTool(params: z.infer<typeof listMissionRunsParams>
     },
   });
 
+  const trustSnapshots = await loadTrustSnapshots(runs.map((run: any) => run.user.id));
+
   return {
     count: runs.length,
-    runs: runs.map((run: any) => ({
+    runs: runs.map((run: any) => {
+      const trust = trustSnapshots.get(run.user.id);
+      return {
       id: run.id,
       status: run.status,
       score: run.score,
@@ -1263,10 +1331,12 @@ async function listMissionRunsTool(params: z.infer<typeof listMissionRunsParams>
         id: run.user.id,
         handle: run.user.handle,
         codename: run.user.profile?.codename || null,
-        layer: run.user.profile?.layer ?? null,
-        trustScore: run.user.profile?.trustScore ?? null,
+        layer: trust?.layer ?? run.user.profile?.layer ?? null,
+        trustScore: trust?.effectiveTrustScore ?? run.user.profile?.trustScore ?? null,
+        rawTrustScore: trust?.trustScore ?? run.user.profile?.trustScore ?? null,
       },
-    })),
+      };
+    }),
   };
 }
 
@@ -1291,6 +1361,8 @@ async function getMissionReportTool(params: z.infer<typeof getMissionReportParam
     return { error: "Mission run not found", missionRunId: params.missionRunId };
   }
 
+  const trust = await getTrustState(run.user.id).catch(() => null);
+
   return {
     id: run.id,
     status: run.status,
@@ -1311,8 +1383,9 @@ async function getMissionReportTool(params: z.infer<typeof getMissionReportParam
       id: run.user.id,
       handle: run.user.handle,
       codename: run.user.profile?.codename || null,
-      layer: run.user.profile?.layer ?? null,
-      trustScore: run.user.profile?.trustScore ?? null,
+      layer: trust?.layer ?? run.user.profile?.layer ?? null,
+      trustScore: trust?.effectiveTrustScore ?? run.user.profile?.trustScore ?? null,
+      rawTrustScore: trust?.trustScore ?? run.user.profile?.trustScore ?? null,
     },
     session: run.session,
     rewards: run.rewards.map((reward: any) => ({
@@ -1468,11 +1541,13 @@ async function getSynchronicityFeedTool(params: z.infer<typeof getSynchronicityF
 
 async function updateAgent(params: z.infer<typeof updateAgentParams>) {
   let userId = params.agentId;
+  let resolvedHandle: string | null = null;
   
   if (!userId.startsWith("cm")) {
     const user = await prisma.user.findFirst({ where: { handle: params.agentId } });
     if (!user) return { error: "Agent not found", agentId: params.agentId };
     userId = user.id;
+    resolvedHandle = user.handle;
   }
   
   const updates: any = {};
@@ -1492,16 +1567,31 @@ async function updateAgent(params: z.infer<typeof updateAgentParams>) {
     },
   });
 
-  if (params.updates.trustAdjustment) {
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        referralPoints: { increment: params.updates.trustAdjustment * 100 },
-      },
-    });
+  let trustUpdate:
+    | {
+        previousScore: number;
+        newScore: number;
+        previousLayer: number;
+        newLayer: number;
+        layerChanged: boolean;
+        pendingCeremony: number | null;
+      }
+    | undefined;
+
+  if (params.updates.trustAdjustment !== undefined) {
+    trustUpdate = await evolveTrust(
+      userId,
+      params.updates.trustAdjustment,
+      params.updates.trustReason?.trim() || "admin_adjustment",
+    );
   }
 
-  return { success: true, agentId: userId, handle: params.agentId };
+  return {
+    success: true,
+    agentId: userId,
+    handle: resolvedHandle || params.agentId,
+    trust: trustUpdate,
+  };
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {

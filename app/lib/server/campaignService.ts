@@ -1,4 +1,5 @@
 import prisma from "@/app/lib/prisma";
+import { getTrustState } from "@/app/lib/server/trustService";
 import {
   Campaign,
   CampaignPhase,
@@ -753,13 +754,13 @@ async function checkCampaignCompletion(campaignId: string): Promise<boolean> {
 export async function getAvailableObjectivesForAgent(
   userId: string
 ): Promise<ObjectiveWithPhase[]> {
-  // Get user's profile for trust score
   const profile = await prisma.playerProfile.findUnique({
     where: { userId },
-    select: { trustScore: true, tags: true },
+    select: { tags: true },
   });
 
-  const trustScore = profile?.trustScore ?? 0;
+  const trustState = await getTrustState(userId).catch(() => null);
+  const trustScore = trustState?.effectiveTrustScore ?? 0;
   const userTags = profile?.tags ?? [];
 
   // Find objectives where:

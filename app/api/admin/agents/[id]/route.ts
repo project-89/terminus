@@ -6,7 +6,7 @@ import {
   getPuzzleRecommendations,
 } from "@/app/lib/server/puzzleDifficultyService";
 import { validateAdminAuth } from "@/app/lib/server/adminAuth";
-import { LAYER_THRESHOLDS, LAYER_NAMES, TrustLayer } from "@/app/lib/server/trustService";
+import { getTrustState, LAYER_THRESHOLDS, LAYER_NAMES } from "@/app/lib/server/trustService";
 
 export const dynamic = "force-dynamic";
 
@@ -152,9 +152,11 @@ export async function GET(
       .filter((m: any) => typeof m.score === "number")
       .reduce((acc: number, m: any, _: number, arr: any[]) => acc + (m.score || 0) / arr.length, 0);
 
-    // Use canonical trust data from profile (maintained by trustService)
-    const canonicalTrustScore = agent.profile?.trustScore ?? 0;
-    const canonicalLayer = (agent.profile?.layer ?? 0) as TrustLayer;
+    const trustState = await getTrustState(id).catch(() => null);
+    const effectiveTrustScore = trustState?.effectiveTrustScore ?? agent.profile?.trustScore ?? 0;
+    const rawTrustScore = trustState?.trustScore ?? agent.profile?.trustScore ?? 0;
+    const decayedTrustScore = trustState?.decayedScore ?? rawTrustScore;
+    const effectiveLayer = trustState?.layer ?? agent.profile?.layer ?? 0;
 
     const totalMessages = gameSessions.reduce((acc: number, s: any) => acc + s.messages.length, 0);
     const totalRewards = agent.rewards.reduce((acc: number, r: any) => acc + r.amount, 0);
@@ -212,9 +214,11 @@ export async function GET(
       createdAt: agent.createdAt,
       consentedAt: agent.consentedAt,
 
-      trustScore: canonicalTrustScore,
-      layer: canonicalLayer,
-      layerName: LAYER_NAMES[canonicalLayer],
+      trustScore: effectiveTrustScore,
+      rawTrustScore,
+      decayedTrustScore,
+      layer: effectiveLayer,
+      layerName: LAYER_NAMES[effectiveLayer],
       layerThresholds: LAYER_THRESHOLDS,
 
       profile: agent.profile,

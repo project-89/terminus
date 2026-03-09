@@ -7,6 +7,7 @@ import { validateAdminAuth } from "@/app/lib/server/adminAuth";
 import { getPlayerDifficulty } from "@/app/lib/server/difficultyService";
 import { getPlayerPuzzleProfile, getPuzzleRecommendations } from "@/app/lib/server/puzzleDifficultyService";
 import { getBayesianSnapshot } from "@/app/lib/server/bayes/orchestrator";
+import { getTrustState } from "@/app/lib/server/trustService";
 
 export const dynamic = "force-dynamic";
 
@@ -551,6 +552,8 @@ export async function POST(
       console.warn("Could not fetch bayesian data for dossier:", e);
     }
 
+    const trustState = await getTrustState(id).catch(() => null);
+
     const dataPayload = {
       handle: agent.handle,
       memberSince: agent.createdAt,
@@ -665,8 +668,10 @@ export async function POST(
         : null,
       trustSignals: agent.profile
         ? {
-            trustScore: agent.profile.trustScore,
-            layer: agent.profile.layer,
+            trustScore: trustState?.effectiveTrustScore ?? agent.profile.trustScore,
+            rawTrustScore: trustState?.trustScore ?? agent.profile.trustScore,
+            decayedTrustScore: trustState?.decayedScore ?? agent.profile.trustScore,
+            layer: trustState?.layer ?? agent.profile.layer,
             lastTrustUpdate: agent.profile.lastTrustUpdate,
             trustHistory: agent.profile.trustHistory,
             trackDifficulty: {

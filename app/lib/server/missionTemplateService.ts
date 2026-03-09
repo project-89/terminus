@@ -12,7 +12,37 @@ export type MissionMetadata = {
   preferredTraits?: Record<string, number>;
   repeatable?: boolean;
   priority?: number;
+  difficulty?: string;
+  points?: number;
+  location?: string;
+  narrativeArc?: string;
 };
+
+function normalizeBoundedNumber(value: unknown): number | undefined {
+  if (typeof value !== "number" || Number.isNaN(value)) return undefined;
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizeTraitThresholdMap(value: unknown): Record<string, number> | undefined {
+  if (Array.isArray(value)) {
+    const traits = value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+    if (traits.length === 0) return undefined;
+    return Object.fromEntries(traits.map((trait) => [trait, 0.5]));
+  }
+
+  if (!value || typeof value !== "object") return undefined;
+
+  const normalizedEntries = Object.entries(value as Record<string, unknown>)
+    .map(([trait, threshold]) => [trait, normalizeBoundedNumber(threshold)] as const)
+    .filter((entry): entry is readonly [string, number] => entry[1] !== undefined);
+
+  if (normalizedEntries.length === 0) return undefined;
+  return Object.fromEntries(normalizedEntries);
+}
 
 function buildMetadataFromCatalog(entry: MissionCatalogEntry): MissionMetadata {
   return {
@@ -29,7 +59,27 @@ function buildMetadataFromCatalog(entry: MissionCatalogEntry): MissionMetadata {
 
 export function parseMissionMetadata(raw: unknown): MissionMetadata {
   if (!raw || typeof raw !== "object") return {};
-  return raw as MissionMetadata;
+
+  const candidate = raw as Record<string, unknown>;
+
+  return {
+    catalogId: typeof candidate.catalogId === "string" ? candidate.catalogId : undefined,
+    minTrust: normalizeBoundedNumber(candidate.minTrust),
+    maxTrust: normalizeBoundedNumber(candidate.maxTrust),
+    track: typeof candidate.track === "string" ? candidate.track : undefined,
+    requiredTraits: normalizeTraitThresholdMap(candidate.requiredTraits),
+    preferredTraits: normalizeTraitThresholdMap(candidate.preferredTraits),
+    repeatable: typeof candidate.repeatable === "boolean" ? candidate.repeatable : undefined,
+    priority: typeof candidate.priority === "number" && Number.isFinite(candidate.priority)
+      ? candidate.priority
+      : undefined,
+    difficulty: typeof candidate.difficulty === "string" ? candidate.difficulty : undefined,
+    points: typeof candidate.points === "number" && Number.isFinite(candidate.points)
+      ? candidate.points
+      : undefined,
+    location: typeof candidate.location === "string" ? candidate.location : undefined,
+    narrativeArc: typeof candidate.narrativeArc === "string" ? candidate.narrativeArc : undefined,
+  };
 }
 
 export type MissionTemplateSource = "catalog" | "database" | "catalog+database";
