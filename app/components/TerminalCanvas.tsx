@@ -20,6 +20,10 @@ export function TerminalCanvas() {
   const touchStartXRef = useRef<number | null>(null);
   const touchStartTimeRef = useRef<number>(0);
   const isScrollingRef = useRef<boolean>(false);
+  const touchVelocityRef = useRef<number>(0);
+  const lastTouchYRef = useRef<number>(0);
+  const lastTouchTimeRef = useRef<number>(0);
+  const momentumFrameRef = useRef<number>(0);
   const baseBottomPaddingRef = useRef<number>(0);
 
   // Shader state
@@ -419,18 +423,29 @@ export function TerminalCanvas() {
     };
   }, []); // Only run once on mount
 
-  // Touch gestures: distinguish tap (focus input) vs drag (scroll)
+  // Touch gestures: 1:1 finger tracking with momentum on release
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    const stopMomentum = () => {
+      if (momentumFrameRef.current) {
+        cancelAnimationFrame(momentumFrameRef.current);
+        momentumFrameRef.current = 0;
+      }
+    };
+
     const handleTouchStart = (e: TouchEvent) => {
+      stopMomentum();
       const t = e.touches[0];
       touchStartYRef.current = t.clientY;
       touchStartXRef.current = t.clientX;
       touchStartTimeRef.current = performance.now();
+      lastTouchYRef.current = t.clientY;
+      lastTouchTimeRef.current = performance.now();
+      touchVelocityRef.current = 0;
       isScrollingRef.current = false;
-      
+
       // Dismiss shader on interaction
       if (shaderActive) {
         setShaderActive(false);
@@ -440,10 +455,10 @@ export function TerminalCanvas() {
     const handleTouchMove = (e: TouchEvent) => {
       if (!terminalRef.current) return;
       if (touchStartYRef.current === null) return;
-      
+
       const t = e.touches[0];
-      const dy = touchStartYRef.current - t.clientY; // Positive = dragging finger up = scrolling down
-      
+      const dy = touchStartYRef.current - t.clientY;
+
       // If we haven't locked into scrolling yet, check threshold
       if (!isScrollingRef.current) {
         const dx = (touchStartXRef.current ?? t.clientX) - t.clientX;
@@ -454,24 +469,31 @@ export function TerminalCanvas() {
       }
 
       if (isScrollingRef.current) {
-        e.preventDefault(); // Prevent native page scroll
-        
-        // Normalize for terminal scroll (which expects line-multipliers)
-        // 50px drag should equate to maybe 1 line? 
-        // 1 line ~ 24px. 
-        const lines = dy / 24; 
-        
-        terminalRef.current.scroll(lines);
-        touchStartYRef.current = t.clientY; // incremental scrolling
+        e.preventDefault();
+
+        // 1:1 pixel tracking — move exactly as far as the finger moved
+        const pixelDelta = lastTouchYRef.current - t.clientY;
+        terminalRef.current.scrollByPixels(pixelDelta);
+
+        // Track velocity (pixels per ms) using exponential smoothing
+        const now = performance.now();
+        const dt = now - lastTouchTimeRef.current;
+        if (dt > 0) {
+          const instantVelocity = pixelDelta / dt;
+          touchVelocityRef.current = touchVelocityRef.current * 0.4 + instantVelocity * 0.6;
+        }
+
+        lastTouchYRef.current = t.clientY;
+        lastTouchTimeRef.current = now;
       }
     };
 
-    const handleTouchEnd = (e: TouchEvent) => {
+    const handleTouchEnd = () => {
       const now = performance.now();
       const duration = now - touchStartTimeRef.current;
       const wasScroll = isScrollingRef.current;
-      
-      // Reset
+
+      // Reset touch state
       touchStartYRef.current = null;
       touchStartXRef.current = null;
       isScrollingRef.current = false;
@@ -479,15 +501,34 @@ export function TerminalCanvas() {
       if (!wasScroll && duration < 220) {
         // Treat as tap
         if (terminalRef.current) {
-          // If command access is available, focus input for typing
           if (terminalRef.current.getCommandAccess()) {
             hiddenInputRef.current?.focus();
           } else {
-            // Otherwise, send a space key to progress intro/animations
             terminalRef.current.handleInput(" ");
           }
         }
+        return;
       }
+
+      // Momentum: only if finger was moving fast enough (> 0.3 px/ms)
+      let velocity = touchVelocityRef.current;
+      if (Math.abs(velocity) < 0.3) return;
+
+      // Cap initial velocity
+      velocity = Math.max(-4, Math.min(4, velocity));
+
+      const friction = 0.95;
+      const step = () => {
+        if (!terminalRef.current || Math.abs(velocity) < 0.5) {
+          momentumFrameRef.current = 0;
+          return;
+        }
+        // Apply velocity as pixels per frame (~16ms)
+        terminalRef.current.scrollByPixels(velocity * 16);
+        velocity *= friction;
+        momentumFrameRef.current = requestAnimationFrame(step);
+      };
+      momentumFrameRef.current = requestAnimationFrame(step);
     };
 
     container.addEventListener("touchstart", handleTouchStart, {
@@ -502,6 +543,7 @@ export function TerminalCanvas() {
     });
 
     return () => {
+      stopMomentum();
       container.removeEventListener("touchstart", handleTouchStart as any);
       container.removeEventListener("touchmove", handleTouchMove as any);
       container.removeEventListener("touchend", handleTouchEnd as any);

@@ -993,6 +993,11 @@ export class Terminal extends EventEmitter {
   public scroll(direction: number) {
     const lineHeight = this.options.fontSize * 1.5;
     const scrollAmount = direction * lineHeight;
+    this.scrollByPixels(scrollAmount);
+  }
+
+  public scrollByPixels(pixels: number) {
+    const lineHeight = this.options.fontSize * 1.5;
 
     // Calculate total content height including input
     const totalBufferHeight = this.currentPrintY;
@@ -1008,7 +1013,7 @@ export class Terminal extends EventEmitter {
     );
 
     // Update scroll position
-    const rawNext = this.scrollOffset + scrollAmount;
+    const rawNext = this.scrollOffset + pixels;
     this.scrollOffset = Math.max(0, Math.min(maxScroll, rawNext));
 
     // Snap to pixel grid to prevent blurriness
