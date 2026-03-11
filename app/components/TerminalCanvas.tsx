@@ -433,6 +433,7 @@ export function TerminalCanvas() {
         cancelAnimationFrame(momentumFrameRef.current);
         momentumFrameRef.current = 0;
       }
+      // Note: don't clear userIsScrolling here — handleTouchStart sets it fresh
     };
 
     const handleTouchStart = (e: TouchEvent) => {
@@ -445,6 +446,11 @@ export function TerminalCanvas() {
       lastTouchTimeRef.current = performance.now();
       touchVelocityRef.current = 0;
       isScrollingRef.current = false;
+
+      // Tell terminal to suppress auto-scroll while user is touching
+      if (terminalRef.current) {
+        terminalRef.current.userIsScrolling = true;
+      }
 
       // Dismiss shader on interaction
       if (shaderActive) {
@@ -499,8 +505,9 @@ export function TerminalCanvas() {
       isScrollingRef.current = false;
 
       if (!wasScroll && duration < 220) {
-        // Treat as tap
+        // Treat as tap — release scroll lock
         if (terminalRef.current) {
+          terminalRef.current.userIsScrolling = false;
           if (terminalRef.current.getCommandAccess()) {
             hiddenInputRef.current?.focus();
           } else {
@@ -512,7 +519,13 @@ export function TerminalCanvas() {
 
       // Momentum: only if finger was moving fast enough (> 0.3 px/ms)
       let velocity = touchVelocityRef.current;
-      if (Math.abs(velocity) < 0.3) return;
+      if (Math.abs(velocity) < 0.3) {
+        // No momentum — release scroll lock now
+        if (terminalRef.current) {
+          terminalRef.current.userIsScrolling = false;
+        }
+        return;
+      }
 
       // Cap initial velocity
       velocity = Math.max(-4, Math.min(4, velocity));
@@ -521,6 +534,10 @@ export function TerminalCanvas() {
       const step = () => {
         if (!terminalRef.current || Math.abs(velocity) < 0.5) {
           momentumFrameRef.current = 0;
+          // Release scroll lock when momentum ends
+          if (terminalRef.current) {
+            terminalRef.current.userIsScrolling = false;
+          }
           return;
         }
         // Apply velocity as pixels per frame (~16ms)

@@ -43,6 +43,7 @@ export class Terminal extends EventEmitter {
   public context: Record<string, any> = {};
   public cursorVisible: boolean = true;
   public isGenerating: boolean = false;
+  public userIsScrolling: boolean = false;
   public matrixRainEnabled: boolean = false;
   public scrollOffset: number = 0;
   public thinkingChars = [".", "..", "...", "....", "...", ".."];
@@ -235,7 +236,8 @@ export class Terminal extends EventEmitter {
 
     // During AI response generation, keep the response start visible at top.
     // Otherwise, auto-scroll to bottom as usual.
-    if (this.isAtBottom) {
+    // Never auto-scroll while the user is actively touch-scrolling.
+    if (this.isAtBottom && !this.userIsScrolling) {
       if (this.isGenerating) {
         this.scrollToResponseStart();
       } else {
@@ -269,8 +271,8 @@ export class Terminal extends EventEmitter {
 
       this.currentPrintY += lineHeight;
 
-      // Only auto-scroll if we're currently at the bottom
-      if (this.checkIfAtBottom()) {
+      // Only auto-scroll if we're currently at the bottom and user isn't touch-scrolling
+      if (this.checkIfAtBottom() && !this.userIsScrolling) {
         const totalContentHeight = this.currentPrintY + lineHeight;
         const visibleHeight = this.getHeight();
         const maxScroll = Math.max(0, totalContentHeight - visibleHeight);
@@ -315,7 +317,7 @@ export class Terminal extends EventEmitter {
     this.buffer.push(entry);
     this.currentPrintY += placeholderTotalHeight;
 
-    if (reveal || this.isAtBottom) {
+    if ((reveal || this.isAtBottom) && !this.userIsScrolling) {
       this.scrollToLatest({ extraPadding: reveal ? revealPadding : 0 });
     }
 
@@ -347,7 +349,7 @@ export class Terminal extends EventEmitter {
       const newTotalHeight = this.renderer.getInlineImageTotalHeight(entry.displayHeight);
       this.currentPrintY += newTotalHeight - oldTotalHeight;
 
-      if (reveal || this.isAtBottom) {
+      if ((reveal || this.isAtBottom) && !this.userIsScrolling) {
         this.scrollToLatest({ extraPadding: reveal ? revealPadding : 0 });
       } else {
         this.render();
@@ -494,8 +496,10 @@ export class Terminal extends EventEmitter {
     }, 240);
 
     // Scroll so the response start is visible at the top of the viewport
-    this.isAtBottom = true;
-    this.scrollToResponseStart();
+    if (!this.userIsScrolling) {
+      this.isAtBottom = true;
+      this.scrollToResponseStart();
+    }
   }
 
   public endGeneration() {
@@ -510,8 +514,10 @@ export class Terminal extends EventEmitter {
     this.cursorVisible = true;
 
     // After generation completes, scroll to latest so the input line is visible
-    this.isAtBottom = true;
-    this.scrollToLatest();
+    if (!this.userIsScrolling) {
+      this.isAtBottom = true;
+      this.scrollToLatest();
+    }
   }
 
   public scrollToLatest(options: { extraPadding?: number } = {}) {
