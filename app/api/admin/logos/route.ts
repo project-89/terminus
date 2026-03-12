@@ -1154,9 +1154,9 @@ async function assignMission(params: z.infer<typeof assignMissionParams>) {
       select: { id: true, handle: true },
     });
 
-    const trustSnapshots = await loadTrustSnapshots(filteredUsers.map((user) => user.id));
+    const trustSnapshots = await loadTrustSnapshots(filteredUsers.map((user: { id: string }) => user.id));
 
-    const trustFilteredUsers = filteredUsers.filter((user) => {
+    const trustFilteredUsers = filteredUsers.filter((user: { id: string; handle: string | null }) => {
       const trust = trustSnapshots.get(user.id);
       const effectiveTrustScore = trust?.effectiveTrustScore ?? 0;
       const effectiveLayer = trust?.layer ?? 0;
